@@ -10,11 +10,12 @@
 
 | 软件 | 版本要求 | 说明 |
 |------|----------|------|
-| Python | >= 3.10 | 节点 Schema 开发和 Agent 开发 |
+| Python | >= 3.10 | Schema 开发和 Agent 开发 |
 | Docker | 任意 | 构建计算节点镜像 |
 | kubectl | 任意 | 操作 Kubernetes 集群 |
 | Kubernetes 集群 | >= 1.24 | 运行 Argo Workflow |
 | Argo Workflow | >= 3.0 | 工作流调度引擎 |
+| Node.js | >= 18 | 前端开发（可选，仅前端开发时需要） |
 
 **已有 Kubernetes 集群？** 只需确保 `~/.kube/config` 配置正确，直接跳到[快速开始](#快速开始)。
 
@@ -35,6 +36,7 @@ sudo bash scripts/setup_infra.sh
 - **若已有集群**（检测到 `/etc/kubernetes/admin.conf` 等）：直接配置 kubeconfig，跳过安装
 - **若无集群**：安装 k3s 单节点本地集群（开发用途），优先使用国内镜像源
 - 部署 Argo Workflow Server 到集群
+- 部署 Workspace PV/PVC（`mf-workspace`，挂载 `userdata/workspace/`，节点读写用户文件）
 - 输出完整 log 至 `logs/setup/`
 
 > 已有 KubeSphere / 云厂商集群等？配好 kubeconfig 后此脚本会自动识别并跳过 k3s 安装。
@@ -42,15 +44,23 @@ sudo bash scripts/setup_infra.sh
 ### 第二步：Python 开发环境
 
 ```bash
-bash scripts/setup_phase1.sh
-```
-
-安装 Phase 1 所需 Python 依赖（pydantic v2、pytest、pyyaml、python-dotenv）。
-**无需 sudo**，推荐在虚拟环境中运行：
-
-```bash
 python3 -m venv .venv && source .venv/bin/activate
 bash scripts/setup_phase1.sh --yes
+```
+
+安装所需 Python 依赖（pydantic v2、pytest、pyyaml、python-dotenv、langchain、langgraph 等）。
+
+### 第三步：配置环境变量
+
+```bash
+cp .env.example .env
+# 编辑 .env，填写 ARGO_SERVER_URL、IMAGE_REGISTRY 等
+```
+
+### 第四步：初始化节点索引
+
+```bash
+bash scripts/mf2.sh nodes reindex
 ```
 
 ### 验证环境
@@ -75,8 +85,13 @@ bash scripts/mf2.sh <command> [args]
 |------|------|
 | `status` | 检测开发环境状态 |
 | `ui [port]` | 输出 Argo UI 的 SSH 转发命令 |
-| `submit <yaml>` | 提交工作流到 `miqroforge-v2` |
-| `list` | 列出所有工作流 |
+| `nodes list` | 列出节点库中所有节点 |
+| `nodes search <keyword>` | 搜索节点 |
+| `nodes info <node-id>` | 查看节点详情 |
+| `nodes reindex` | 重建 `node_index.yaml`（节点有变更时运行） |
+| `validate <mf.yaml>` | 校验 MF 工作流 |
+| `compile <mf.yaml>` | 编译 MF → Argo YAML |
+| `run <mf.yaml>` | 校验 + 编译 + 提交到 Argo + 流式日志 |
 | `logs <name>` | 查看工作流日志 |
 
 ### 远程访问 Argo UI
@@ -107,11 +122,8 @@ ssh -L 8088:<node-ip>:<node-port> -N <SSH别名>
 | 环境 | 配置方式 |
 |------|----------|
 | 可访问 Docker Hub | `.env` 中 `IMAGE_REGISTRY=`（留空） |
-| 国内服务器 / 私有集群 | 填写私有 Harbor 前缀，如 `harbor.example.local/library` |
-
-修改 `.env` 中的 `IMAGE_REGISTRY`，同时更新 `workflows/examples/hello-world.yaml` 中的 `image-registry` 默认参数值。
-
-> **注意**：示例工作流 `hello-world.yaml` 使用 `busybox` 镜像。请确保该镜像在你的仓库中可用，或替换为集群内已有的等效镜像。
+| 国内服务器 | `.env` 中填 `DOCKER_HUB_MIRROR=docker.m.daocloud.io` 等镜像站 |
+| 私有集群 | `.env` 中填 `IMAGE_REGISTRY=harbor.example.local/library` |
 
 ---
 
@@ -125,21 +137,22 @@ pytest tests/unit/ -v
 pytest tests/integration/ -v
 ```
 
-集成测试会自动提交 `hello-world.yaml` 并验证工作流成功完成，完成后自动清理。
-
 ---
 
 ## 目录结构速查
 
 ```
-nodes/          ★ 核心资产：规范化计算节点（Pydantic Schema + Dockerfile）
-workflows/      Argo Workflow YAML 模板和示例
-agents/         Phase 2: LangGraph Agent（Planner + YAML Coder）
-api/            Phase 2: FastAPI 网关
-vectorstore/    Phase 2: 节点 RAG 检索（ChromaDB）
-infrastructure/ Kubernetes / Argo 部署配置
-scripts/        环境检测与安装脚本（含 mf2.sh CLI）
+nodes/          ★ 核心资产：规范化计算节点（Pydantic Schema + nodespec.yaml）
+workflows/      MF 工作流 YAML + 编译管线（validate / compile / run）
+agents/         Phase 2: LangGraph Agent 层（Planner / YAML Coder / Node Generator）
+api/            FastAPI 网关（nodes / workflows / runs / agents API）
+node_index/     节点索引引擎（扫描 nodespec.yaml → node_index.yaml）
+llm_gateway/    Phase 2 M3: LLM Gateway Service（AI 增强节点的 LLM 代理）
+frontend/       React Flow 可视化编辑器（Vite + TypeScript）
+infrastructure/ Kubernetes / Argo 部署配置（含 Workspace PVC）
+scripts/        开发者 CLI（mf2.sh）与环境初始化脚本
 tests/          单元测试 / 集成测试
+userdata/       运行时数据（gitignored）：workspace / runs / 向量库 / AI 生成节点
 docs/           架构文档
 ```
 
@@ -157,13 +170,14 @@ cp .env.example .env
 
 | 变量 | 何时需要 | 如何获取 |
 |------|----------|----------|
-| `IMAGE_REGISTRY` | **第一步完成后立即填写** | 问运维你的集群用什么镜像仓库。无私有仓库则留空（需能访问 Docker Hub） |
-| `ARGO_SERVER_URL` | **第一步完成后立即填写** | 运行 `bash scripts/mf2.sh ui` 会显示地址；或 `kubectl get svc argo-server -n argo` |
+| `IMAGE_REGISTRY` | **第一步完成后立即填写** | 无私有仓库则留空（需能访问 Docker Hub） |
+| `ARGO_SERVER_URL` | **第一步完成后立即填写** | 运行 `bash scripts/mf2.sh ui` 会显示地址 |
 | `ARGO_NAMESPACE` | 默认 `miqroforge-v2`，通常不需要改 | — |
 | `ARGO_TOKEN` | 提交工作流时若提示鉴权失败 | 运行 `argo auth token` |
-| `REGISTRY_URL` / `REGISTRY_PROJECT` | 构建并推送节点 Docker 镜像时 | 问运维你的 Harbor / Registry 地址 |
-| `OPENAI_API_KEY` | Phase 2 开发 Agent 时 | 从 OpenAI 控制台获取 |
-| `CHROMA_PERSIST_DIR` | Phase 2 开发 RAG 检索时 | 默认 `./data/chroma`，通常不需要改 |
+| `DOCKER_HUB_MIRROR` | 国内服务器拉取 Docker Hub 镜像慢时 | 填入镜像站域名，如 `docker.m.daocloud.io` |
+| `MF_LLM_PROVIDER` | Phase 2 开发 Agent 时 | `openai` 或 `deepseek` |
+| `MF_LLM_MODEL` | Phase 2 开发 Agent 时 | 如 `gpt-4o`、`deepseek-coder` |
+| `OPENAI_API_KEY` | Phase 2，使用 OpenAI 模型时 | 从 OpenAI 控制台获取 |
 
 **典型的新开发者流程：**
 
@@ -171,14 +185,14 @@ cp .env.example .env
 # 1. 基础设施就绪后
 cp .env.example .env
 
-# 2. 填写镜像仓库（必填，否则工作流拉不到镜像）
-#    编辑 .env，设置 IMAGE_REGISTRY=harbor.xxx.local/library
-
-# 3. 填写 Argo 地址（运行 mf2 ui 可自动获取）
+# 2. 填写 Argo 地址（运行 mf2 status 可自动获取）
 #    编辑 .env，设置 ARGO_SERVER_URL=https://...
 
-# 4. 跑一次集成测试验证配置正确
-pytest tests/integration/ -v
+# 3. 重建节点索引
+bash scripts/mf2.sh nodes reindex
+
+# 4. 跑一次单元测试验证配置正确
+pytest tests/unit/ -v
 ```
 
 ---
@@ -187,7 +201,6 @@ pytest tests/integration/ -v
 
 | Phase | 内容 | 状态 |
 |-------|------|------|
-| Phase 1 | 基础设施 + 规范节点建库 | 🔨 当前开发 |
-| Phase 2 | LLM 驱动工作流编排 | 🔨 当前开发 |
-| Phase 3 | Agent 节点生成与自动 Debug | 🔲 未开始 |
-| Phase 4 | 人类审核与智能分析前端 | 🔲 未开始 |
+| Phase 1 | 基础设施与规范节点建库 | ✅ 完成 |
+| Phase 2 | 智能工作流编排（LangGraph Agent + 临时节点 + AI 增强节点） | 🔨 当前开发 |
+| Phase 3 | 全面智能化：项目记忆、自动 Debug 与跨项目知识 | 🔲 未开始 |

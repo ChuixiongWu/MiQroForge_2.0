@@ -445,13 +445,13 @@ def _generate_run_report(
 
     报告目录结构::
 
-        runs/<wf-name>/
+        userdata/runs/<wf-name>/
             report.md          # Markdown 摘要报告
             logs/
                 <node-id>.log  # 每个节点的原始日志
     """
     # 创建目录
-    runs_dir = project_root / "runs" / wf_name
+    runs_dir = project_root / "userdata" / "runs" / wf_name
     logs_dir = runs_dir / "logs"
     runs_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)

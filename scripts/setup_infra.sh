@@ -102,9 +102,33 @@ else
 fi
 
 # ── 4. Argo Workflow Server ───────────────────────────────────────────────────
-section "4 / 4  Argo Workflow Server"
+section "4 / 5  Argo Workflow Server"
 export KUBECONFIG="${KUBE_CONFIG}"
 bash "${SCRIPT_DIR}/install/install_argo.sh" --server-only
+
+# ── 5. Workspace PVC ──────────────────────────────────────────────────────────
+section "5 / 5  Workspace PVC（mf-workspace）"
+# hostPath 路径与机器相关，动态替换占位符后再 apply
+if kubectl get pvc mf-workspace -n miqroforge-v2 &>/dev/null 2>&1; then
+    success "Workspace PVC mf-workspace 已存在，跳过。"
+else
+    info "部署 Workspace PV/PVC（hostPath → ${PROJECT_ROOT}/userdata/workspace）..."
+    mkdir -p "${PROJECT_ROOT}/userdata/workspace"
+    sed "s|__MF_PROJECT_ROOT__|${PROJECT_ROOT}|g" \
+        "${PROJECT_ROOT}/infrastructure/k8s/workspace.yaml" \
+        | kubectl apply -f -
+    # 等待 PVC 绑定
+    for i in $(seq 1 15); do
+        STATUS=$(kubectl get pvc mf-workspace -n miqroforge-v2 \
+            -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
+        if [[ "$STATUS" == "Bound" ]]; then
+            success "mf-workspace PVC 已 Bound。"
+            break
+        fi
+        [[ $i -eq 15 ]] && warn "PVC 未在 30s 内绑定，请手动检查：kubectl get pvc -n miqroforge-v2"
+        sleep 2
+    done
+fi
 
 # ── 最终环境检测，结果写入 log ────────────────────────────────────────────────
 echo

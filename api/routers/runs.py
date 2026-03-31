@@ -3,7 +3,7 @@
 GET  /api/v1/runs               — 列出 Argo 运行
 GET  /api/v1/runs/{name}        — 运行详情
 GET  /api/v1/runs/{name}/logs   — 运行日志
-POST /api/v1/runs/{name}/save-outputs — 将输出参数写入 runs/{name}/outputs.json
+POST /api/v1/runs/{name}/save-outputs — 将输出参数写入 userdata/runs/{name}/outputs.json
 """
 
 from __future__ import annotations
@@ -66,8 +66,8 @@ def delete_run(
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
-    # Sync: remove local runs/{name}/ directory (outputs.json etc.) if present
-    run_dir = settings.project_root / "runs" / name
+    # Sync: remove local userdata/runs/{name}/ directory (outputs.json etc.) if present
+    run_dir = settings.userdata_root / "runs" / name
     if run_dir.exists():
         shutil.rmtree(run_dir)
 
@@ -89,8 +89,8 @@ def save_run_outputs(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     """
-    从 Argo 拉取工作流状态，将输出参数写入 runs/{name}/outputs.json。
-    由前端在运行到达终态时调用，补全 runs/ 目录的记录。
+    从 Argo 拉取工作流状态，将输出参数写入 userdata/runs/{name}/outputs.json。
+    由前端在运行到达终态时调用，补全 userdata/runs/ 目录的记录。
     """
     try:
         wf = argo.get_workflow(name)
@@ -113,7 +113,7 @@ def save_run_outputs(
             if param.get("name") and param.get("value") is not None:
                 node_outputs[f"{canvas_id}.{param['name']}"] = str(param["value"])
 
-    run_dir = settings.project_root / "runs" / name
+    run_dir = settings.userdata_root / "runs" / name
     run_dir.mkdir(parents=True, exist_ok=True)
     outputs_path = run_dir / "outputs.json"
     outputs_path.write_text(
