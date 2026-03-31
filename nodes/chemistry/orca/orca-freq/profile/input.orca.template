@@ -1,0 +1,9 @@
+! $method $basis_set ${disp_kw}FREQ
+%pal nprocs $n_cores end
+%maxcore 2000
+%freq
+  Temp $temperature
+  Pressure $pressure
+end
+
+* xyzfile $charge $multiplicity input.xyz

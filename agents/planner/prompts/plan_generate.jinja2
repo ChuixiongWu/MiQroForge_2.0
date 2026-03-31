@@ -1,0 +1,39 @@
+## User Request:
+**Intent**: {{ intent }}
+{% if molecule %}**Target Molecule**: {{ molecule }}{% endif %}
+{% if preferences %}**Preferences**: {{ preferences }}{% endif %}
+
+## Workspace Files:
+{% if workspace_files %}
+The user's workspace contains the following files (reference them in step constraints if relevant):
+{% for f in workspace_files %}
+- `{{ f.name }}` ({{ f.size_bytes }} bytes)
+{% endfor %}
+{% else %}
+No files in workspace. If the workflow requires an input geometry file, note this in planner_notes.
+{% endif %}
+
+## Semantic Types with Available Implementations:
+{% if node_summaries %}
+The following semantic types have at least one implementation in the node library
+(do NOT infer or suggest specific software, filenames, or output ports — stay at the semantic level):
+{% set seen_types = [] %}
+{% for node in node_summaries %}
+{% if node.semantic_type and node.semantic_type not in seen_types %}
+{% set _ = seen_types.append(node.semantic_type) %}
+- **{{ node.semantic_type }}** — implementation(s) available
+{% endif %}
+{% endfor %}
+{% else %}
+No matching implementations found. Design the workflow using semantic types from the system prompt.
+{% endif %}
+
+## Task:
+Design a **semantic** workflow for this request. Output the SemanticWorkflow JSON.
+
+IMPORTANT constraints on your output:
+- Use only semantic types listed in the system prompt
+- `constraints` should contain only chemistry/physics parameters (method, basis, charge, multiplicity, temperature, etc.)
+- Do NOT mention specific software names, filenames, or port names in `planner_notes` or `constraints`
+- Do NOT suggest which output of one step connects to which input of another — that is YAML Coder's job
+- Be concise and scientifically correct

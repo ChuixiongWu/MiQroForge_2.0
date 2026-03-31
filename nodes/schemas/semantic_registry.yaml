@@ -1,0 +1,18 @@
+version: "1.0"
+types:
+  geometry-input:
+    display_name: Geometry Input
+    description: "Reads or provides molecular geometry as input for downstream calculations."
+    domain: computational-chemistry
+  geometry-optimization:
+    display_name: Geometry Optimization
+    description: "Structural relaxation to find the minimum-energy geometry."
+    domain: computational-chemistry
+  frequency-analysis:
+    display_name: Frequency Analysis
+    description: "Harmonic vibrational frequency calculation at a stationary point."
+    domain: computational-chemistry
+  single-point-energy:
+    display_name: Single-Point Energy
+    description: "Electronic energy calculation at a fixed geometry."
+    domain: computational-chemistry

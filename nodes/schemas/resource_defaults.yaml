@@ -1,0 +1,59 @@
+# ===========================================================================
+# Resource Defaults — auto-generated OnBoardInput definitions for resource_bindings
+#
+# When a nodespec declares resource_bindings as a list of resource field names,
+# the system automatically generates a corresponding OnBoardInput for each.
+#
+# Key   = resource field name in ComputeResources (e.g. cpu_cores, memory_gb)
+# param_name = OnBoardInput.name for the auto-generated input.
+#             Multiple resource fields may share the same param_name;
+#             the second one will reuse the already-injected input.
+#
+# The static value from ComputeResources (e.g. cpu_cores: 4) is used as
+# the auto-generated input's default value.
+# ===========================================================================
+
+cpu_cores:
+  param_name: n_cores        # OnBoardInput name; also read by run.sh (PALn)
+  display_name: CPU Cores
+  kind: integer
+  min_value: 1
+  max_value: 128
+  description: >
+    Number of CPU cores allocated to this computation.
+    Determines both pod resource request and parallel processes (PALn).
+
+memory_gb:
+  param_name: memory_gb
+  display_name: Memory (GB)
+  kind: float
+  min_value: 0.5
+  max_value: 512.0
+  unit: GB
+  description: >
+    Memory in GiB allocated to the computation pod.
+
+gpu_count:
+  param_name: gpu_count
+  display_name: GPU Count
+  kind: integer
+  min_value: 0
+  max_value: 8
+  description: Number of GPUs allocated.
+
+parallel_tasks:
+  param_name: n_cores        # same param as cpu_cores — no duplicate injection
+  display_name: CPU Cores
+  kind: integer
+  min_value: 1
+  max_value: 128
+  description: Number of MPI parallel tasks (kept in sync with cpu_cores via n_cores).
+
+scratch_disk_gb:
+  param_name: scratch_disk_gb
+  display_name: Scratch Disk (GB)
+  kind: float
+  min_value: 0
+  max_value: 1000.0
+  unit: GB
+  description: Temporary disk space in GiB for intermediate files.

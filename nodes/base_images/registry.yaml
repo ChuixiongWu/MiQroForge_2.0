@@ -1,0 +1,38 @@
+# =============================================================================
+# MiQroForge 2.0 — Base Image Registry
+#
+# Level 1 实体：所有可用的计算软件基础镜像。
+# 被 NodeSpec 的 base_image_ref 字段引用。
+# =============================================================================
+
+images:
+  - name: test-busybox
+    display_name: "Test BusyBox"
+    description: "Minimal busybox image for testing compute node pipelines. Not for production."
+    image: harbor.era.local/library/busybox
+    tag: latest
+    source_type: harbor
+    software_name: busybox
+    software_version: "1.36"
+    additional_software: {}
+    workdir: /mf/workdir
+    entrypoint_convention: /mf/profile/run.sh
+    license_type: GPL-2.0
+
+  - name: orca-6.1
+    display_name: "ORCA 6.1"
+    description: >
+      ORCA 6.1 quantum chemistry program suite with OpenMPI support.
+      BYOB (Bring Your Own Binary) — user must build locally via nodes/base_images/orca/build.sh.
+      ORCA is free for academic use but requires registration at orcaforum.kofo.mpg.de.
+    image: harbor.era.local/library/orca
+    tag: "6.1"
+    source_type: user-built
+    software_name: orca
+    software_version: "6.1"
+    additional_software:
+      openmpi: "4.1.6"
+      python: "3.10"
+    workdir: /mf/workdir
+    entrypoint_convention: /mf/profile/run.sh
+    license_type: academic-free

@@ -1,0 +1,45 @@
+## Semantic Workflow to Implement:
+```json
+{{ semantic_workflow_json }}
+```
+
+> **Note on `planner_notes`**: The planner_notes field above contains high-level scientific rationale only.
+> It has NO knowledge of specific port names, file formats, or software internals.
+> **Never use planner_notes to determine port connections.**
+> Port connections MUST be derived solely from the port definitions listed in the system prompt.
+
+## Node Resolutions (step → node mapping):
+{% for res in resolutions %}
+- Step **{{ res.step_id }}** → Node: **{{ res.resolved_node or '(none)' }}**
+  {% if res.onboard_params %}Chemistry params hint: {{ res.onboard_params }}{% endif %}
+{% endfor %}
+
+## User Parameters:
+{% if user_params %}
+{% for key, val in user_params.items() %}
+- {{ key }}: {{ val }}
+{% endfor %}
+{% else %}
+(none provided — use sensible defaults for the molecule)
+{% endif %}
+
+{% if iteration > 0 and prev_yaml %}
+## Previous YAML (failed validation):
+```yaml
+{{ prev_yaml }}
+```
+
+## Validation Errors to Fix:
+{% for err in validation_errors %}
+- {{ err }}
+{% endfor %}
+
+{% if evaluation_issues %}
+## Evaluation Issues to Fix:
+{% for issue in evaluation_issues %}
+- {{ issue }}
+{% endfor %}
+{% endif %}
+{% endif %}
+
+Generate the complete MF YAML for this workflow now:

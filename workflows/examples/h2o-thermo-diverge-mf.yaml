@@ -1,0 +1,48 @@
+# =============================================================================
+# h2o-thermo-diverge-mf.yaml — H2O Thermochemistry (Diverging Gate Test)
+#
+# 与 h2o-thermo-mf.yaml 结构相同，但将 geo-opt 替换为 test-diverging-geo-opt。
+# 预期行为：
+#   - geo-opt 节点正常运行并完成（exit 0）
+#   - 但它将 converged=false 写入 quality gate 输出
+#   - 编译后的 Argo DAG 中，freq 任务带有 when 条件：
+#       {{tasks.geo-opt.outputs.parameters._qg_converged}} == true
+#   - 因为条件不满足，freq 和 thermo-extract 均被 Argo 跳过（Skipped 状态）
+#
+# 用途：在 Argo UI 中验证 quality gate must_pass 阻断机制。
+# =============================================================================
+
+mf_version: "1.0"
+name: h2o-thermo-diverge
+description: "Quality gate termination test: diverging geo-opt blocks downstream freq + thermo steps"
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geo-opt
+    nodespec_path: nodes/test/diverging-geo-opt/nodespec.yaml
+    onboard_params:
+      functional: B3LYP
+      basis_set: "6-31G*"
+      charge: 0
+      multiplicity: 1
+
+  - id: freq
+    nodespec_path: nodes/test/gaussian-freq/nodespec.yaml
+    onboard_params:
+      temperature: 298.15
+
+  - id: thermo-extract
+    nodespec_path: nodes/test/thermo-extractor/nodespec.yaml
+    onboard_params:
+      energy_unit: Ha
+
+connections:
+  - from: geo-opt.optimized_checkpoint
+    to: freq.checkpoint_in
+  - from: freq.thermo_data
+    to: thermo-extract.thermo_data_in
+
+# quality_policy は未指定 — すべてのゲートが nodespec のデフォルト (must_pass) を使用
+# geo-opt.converged = false → freq は Skipped、thermo-extract も Skipped

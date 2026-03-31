@@ -1,0 +1,8 @@
+! $method $basis_set ${disp_kw}OPT $convergence
+%pal nprocs $n_cores end
+%maxcore 2000
+%geom
+  MaxIter $max_iter
+end
+
+* xyzfile $charge $multiplicity input.xyz

@@ -1,0 +1,42 @@
+# MiQroForge 2.0 — Workspace 持久化存储
+#
+# hostPath PV + PVC，直接挂载宿主机上的 userdata/workspace/ 目录。
+# 节点容器内的 /mf/workspace 与宿主机路径是同一个目录，
+# 通过 API 上传的文件节点运行时立即可读，无需任何同步。
+#
+# 前提：单节点集群（宿主机即 k8s-master），hostPath 即宿主机本地路径。
+#
+# 部署（一次性）：
+#   kubectl apply -f infrastructure/k8s/workspace.yaml
+#   kubectl get pvc mf-workspace -n miqroforge-v2   # 应显示 Bound
+---
+# 静态 PV — 指向宿主机上的 userdata/workspace/ 目录
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mf-workspace-pv
+  labels:
+    miqroforge.io/role: workspace
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""          # 静态绑定，不走 provisioner
+  hostPath:
+    path: /home/quantum/MiQroForge_2.0/userdata/workspace
+    type: DirectoryOrCreate
+---
+# PVC — 绑定到上述 PV
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mf-workspace
+  namespace: miqroforge-v2
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: mf-workspace-pv
+  resources:
+    requests:
+      storage: 50Gi

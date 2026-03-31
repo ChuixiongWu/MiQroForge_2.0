@@ -1,0 +1,17 @@
+# MiQroForge 2.0 — Phase 1 Python Dependencies
+# 安装方式：pip install -r requirements/phase1.txt
+#
+# 仅包含 Phase 1（基础设施与节点建库）所需的最小依赖集。
+# Phase 2 依赖见 requirements/phase2.txt。
+
+# ── Schema 校验（核心） ────────────────────────────────────────────────────────
+pydantic>=2.0,<3.0          # 节点 I/O 强类型 Schema（Single Source of Truth）
+
+# ── 配置与 YAML 处理 ──────────────────────────────────────────────────────────
+python-dotenv>=1.0          # 从 .env 文件读取环境变量
+pyyaml>=6.0                 # 解析和生成 Argo Workflow YAML
+jinja2>=3.1                 # Profile 模板预渲染（非容器依赖，在提交管线中使用）
+
+# ── 测试 ──────────────────────────────────────────────────────────────────────
+pytest>=7.0                 # 单元测试框架
+pytest-cov>=4.0             # 测试覆盖率报告

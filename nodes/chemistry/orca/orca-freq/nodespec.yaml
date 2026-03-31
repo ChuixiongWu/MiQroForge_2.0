@@ -1,0 +1,208 @@
+# ===========================================================================
+# orca-freq — ORCA Frequency Analysis & Thermochemistry
+#
+# 在优化几何上进行谐振频率分析，计算热力学量（ZPE、Gibbs 能、焓、熵）。
+# 接受标准 XYZ 格式的优化几何（来自 orca-geo-opt.optimized_xyz）。
+# ===========================================================================
+
+metadata:
+  name: orca-freq
+  version: 1.0.0
+  display_name: ORCA Frequency Analysis
+  description: >
+    Performs harmonic vibrational frequency analysis at an optimized geometry
+    using ORCA. Computes zero-point energy (ZPE), thermal corrections, Gibbs
+    free energy, enthalpy, and entropy via statistical thermodynamics.
+    Accepts the optimized XYZ geometry from orca-geo-opt (standard XYZ format).
+    Also verifies the structure is a true minimum (no imaginary frequencies).
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: frequency-analysis
+  base_image_ref: orca-6.1
+  tags:
+    software: orca
+    version: "6.1"
+    method:
+      - DFT
+      - harmonic-frequencies
+      - thermochemistry
+      - FREQ
+    domain:
+      - molecular
+      - thermochemistry
+    capabilities:
+      - frequency-analysis
+      - thermochemistry
+      - zero-point-energy
+    keywords:
+      - orca
+      - freq
+      - frequency
+      - thermochemistry
+      - gibbs
+      - zpe
+      - vibrational
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: >
+      Molecular geometry in standard XYZ format (Angstrom).
+      Accepts geometry from geometry-file-input, orca-geo-opt, or any geometry source.
+
+stream_outputs:
+  - name: thermo_package
+    display_name: Thermochemistry Data Package
+    io_type:
+      category: software_data_package
+      ecosystem: orca
+      data_type: thermo-data
+    description: >
+      JSON file containing all thermochemical quantities (ZPE, Gibbs, enthalpy,
+      entropy, frequencies). For programmatic bulk consumption by analysis nodes.
+
+  - name: zpe
+    display_name: Zero-Point Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Zero-point vibrational energy in Hartree.
+
+  - name: gibbs_free_energy
+    display_name: Gibbs Free Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Gibbs free energy at specified temperature and pressure.
+
+  - name: enthalpy
+    display_name: Enthalpy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total enthalpy (electronic + thermal) at specified temperature.
+
+  - name: thermo_report
+    display_name: Thermochemistry Report
+    io_type:
+      category: report_object
+      format: json
+      content_schema: >
+        {"gibbs_ha": float, "enthalpy_ha": float, "zpe_ha": float,
+         "entropy_ha_per_k": float, "n_imaginary": int, "is_true_minimum": bool,
+         "frequencies_cm1": [float], "temperature_k": float}
+      description: Complete thermochemistry summary in JSON.
+    description: Machine-readable summary of all thermochemical results.
+
+onboard_inputs:
+  - name: method
+    display_name: DFT Functional / Method
+    kind: string
+    default: B3LYP
+    description: Must match the method used in the preceding geometry optimization.
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: def2-SVP
+    description: Must match the basis set used in the preceding geometry optimization.
+
+  - name: dispersion
+    display_name: Dispersion Correction
+    kind: enum
+    default: D3BJ
+    allowed_values:
+      - "none"
+      - D3
+      - D3BJ
+      - D4
+
+  - name: temperature
+    display_name: Temperature (K)
+    kind: float
+    default: 298.15
+    min_value: 1.0
+    max_value: 3000.0
+    unit: K
+    description: Temperature for thermochemical calculations (statistical mechanics).
+
+  - name: pressure
+    display_name: Pressure (atm)
+    kind: float
+    default: 1.0
+    min_value: 0.0
+    unit: atm
+
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+    description: Must match the charge used in the preceding geometry optimization.
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+    description: Must match the multiplicity used in the preceding geometry optimization.
+
+onboard_outputs:
+  - name: n_imaginary
+    display_name: Number of Imaginary Frequencies
+    kind: integer
+    description: Count of imaginary (negative) frequencies. Should be 0 for a true minimum.
+
+  - name: gibbs_energy
+    display_name: Gibbs Free Energy (Ha)
+    kind: float
+    unit: Ha
+    description: Gibbs free energy at specified temperature.
+
+  - name: enthalpy_ha
+    display_name: Enthalpy (Ha)
+    kind: float
+    unit: Ha
+    description: Enthalpy at specified temperature.
+
+  - name: is_true_minimum
+    display_name: Is True Minimum
+    kind: boolean
+    description: >
+      True if no imaginary frequencies found (structure is a true minimum on PES).
+      False if imaginary frequencies present (saddle point or not converged).
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "Structure must be a true minimum (no imaginary frequencies) for valid thermochemistry."
+
+resources:
+  cpu_cores: 4
+  memory_gb: 8.0
+  estimated_walltime_hours: 3.0
+  scratch_disk_gb: 20.0
+  parallel_tasks: 4
+  resource_bindings:
+    - cpu_cores
+    - parallel_tasks
+
+execution:
+  environment:
+    OMP_NUM_THREADS: "1"
+    OMPI_ALLOW_RUN_AS_ROOT: "1"
+    OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+
+semantic_identity: >-
+  Harmonic frequency analysis and thermochemistry using ORCA.
+  Verifies true minimum (no imaginary frequencies) and computes ZPE, Gibbs energy,
+  enthalpy, and entropy at a specified temperature.
+
+distinguishing_ports:
+  - xyz_geometry
+  - thermo_package
+
+rag_summary: ""

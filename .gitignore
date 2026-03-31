@@ -1,0 +1,53 @@
+# ── Python ──────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+.venv/
+venv/
+*.egg
+
+# ── Environment ────────────────────────────────────
+.env
+
+# ── IDE ────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Data / Runtime ─────────────────────────────────
+data/
+*.db
+
+# ── Claude Code ────────────────────────────────────
+.claude/
+CLAUDE.md
+
+# ── Frontend build & dependencies ──────────────────
+frontend/dist/
+frontend/node_modules/
+
+# ── Workflow runs & logs ────────────────────────────
+# 运行时产生的工作流输出和日志，不入库
+runs/
+logs/
+
+# ── 软件安装包（BYOB：用户自行提供，不入库）────────────────────────────────
+# ORCA 及其他计算软件的 tarball，体积大且受许可协议限制，不得入库
+nodes/base_images/**/*.tar.xz
+nodes/base_images/**/*.tar.gz
+nodes/base_images/**/*.tar.bz2
+nodes/base_images/**/*.zip
+
+# ── 生成产物（运行时生成，不入库）──────────────────────────────────────────
+# 节点索引（bash scripts/mf2.sh nodes reindex 重建）
+nodes/node_index.yaml
+
+# ── userdata/ — 用户数据隔离目录（AI 生成节点、工作流、向量库等）──────────
+userdata/

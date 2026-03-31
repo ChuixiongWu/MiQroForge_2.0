@@ -1,0 +1,45 @@
+# =============================================================================
+# h2o-thermo-mf.yaml — H2O Thermochemistry Workflow (MF Format)
+#
+# MiQroForge 2.0 工作流定义：
+#   geo-opt → freq → thermo-extract
+#
+# 使用 nodes/test/ 下的测试节点（busybox mock），验证全管线。
+#
+# Quality Gate 说明：
+#   - geo-opt.converged (must_pass)：几何优化必须收敛，否则 freq 不运行
+#   - freq.is_true_minimum (must_pass)：必须是真正的极小值，否则 thermo-extract 不运行
+#   收敛判据已从 stream I/O 迁移到 onboard quality gate，不再需要显式连线。
+# =============================================================================
+
+mf_version: "1.0"
+name: h2o-thermo
+description: "H2O: geometry optimization → frequency analysis → thermochemistry extraction"
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geo-opt
+    nodespec_path: nodes/test/gaussian-geo-opt/nodespec.yaml
+    onboard_params:
+      functional: B3LYP
+      basis_set: "6-31G*"
+      charge: 0
+      multiplicity: 1
+
+  - id: freq
+    nodespec_path: nodes/test/gaussian-freq/nodespec.yaml
+    onboard_params:
+      temperature: 298.15
+
+  - id: thermo-extract
+    nodespec_path: nodes/test/thermo-extractor/nodespec.yaml
+    onboard_params:
+      energy_unit: Ha
+
+connections:
+  - from: geo-opt.optimized_checkpoint
+    to: freq.checkpoint_in
+  - from: freq.thermo_data
+    to: thermo-extract.thermo_data_in

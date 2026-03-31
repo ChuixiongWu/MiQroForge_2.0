@@ -1,0 +1,74 @@
+# ===========================================================================
+# geometry-file-input — 分子几何坐标输入节点
+#
+# 从 workspace 读取 XYZ 文件（或内联坐标），输出为 stream，
+# 作为 ORCA 等计算节点的入口点。
+# ===========================================================================
+
+metadata:
+  name: geometry-file-input
+  version: 1.0.0
+  display_name: Geometry File Input
+  description: >
+    Reads a molecular geometry file from the workspace (.xyz format) and outputs
+    it as a stream. Entry point for workflows consuming geometry from files.
+    Supports both workspace file path and inline XYZ coordinates as fallback.
+  node_type: lightweight
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: geometry-input
+  tags:
+    domain:
+      - molecular
+      - utility
+    capabilities:
+      - file-input
+      - geometry-reading
+    keywords:
+      - xyz
+      - geometry
+      - input
+      - file
+
+stream_outputs:
+  - name: xyz_geometry
+    display_name: Molecular Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    description: Molecular geometry in standard XYZ format (Angstrom).
+
+onboard_inputs:
+  - name: geometry_file
+    display_name: Geometry File
+    kind: string
+    default: ""
+    description: >
+      Filename in workspace (e.g. "h2o.xyz"). Must exist and be standard XYZ format.
+      Leave blank if using inline_geometry.
+
+  - name: inline_geometry
+    display_name: Inline Geometry (fallback)
+    kind: textarea
+    default: ""
+    description: >
+      Fallback: paste XYZ coordinates directly if no workspace file is available.
+      Accepts standard XYZ format or atom-coordinate lines only.
+
+resources:
+  cpu_cores: 1
+  memory_gb: 0.5
+  estimated_walltime_hours: 0.01
+
+execution:
+  script_path: profile/main.py
+
+semantic_identity: >-
+  Reads molecular geometry from a workspace file or inline text and
+  outputs it as a stream for downstream computation nodes.
+
+distinguishing_ports:
+  - xyz_geometry
+
+rag_summary: ""

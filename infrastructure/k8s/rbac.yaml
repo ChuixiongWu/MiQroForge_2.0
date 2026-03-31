@@ -1,0 +1,48 @@
+# MiQroForge 2.0 — RBAC
+# 允许 Argo Workflow 在 miqroforge-v2 命名空间中管理 Pod 和 Workflow 资源。
+#
+# ServiceAccount: miqroforge-v2-workflow-sa
+#   供 Argo Workflow 中的工作流 Pod 使用，绑定到 workflow-role。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: miqroforge-v2-workflow-sa
+  namespace: miqroforge-v2
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: workflow-role
+  namespace: miqroforge-v2
+rules:
+  # Argo Workflow 运行所需的最小权限
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get, list, watch, create, delete, patch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: ["argoproj.io"]
+    resources: [workflows, workflowtemplates, cronworkflows]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Argo v3.x 新增：executor 需要回写任务结果
+  - apiGroups: ["argoproj.io"]
+    resources: [workflowtaskresults]
+    verbs: [create, patch]
+  - apiGroups: ["argoproj.io"]
+    resources: [workflowtasksets]
+    verbs: [get, list, watch, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: workflow-role-binding
+  namespace: miqroforge-v2
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: workflow-role
+subjects:
+  - kind: ServiceAccount
+    name: miqroforge-v2-workflow-sa
+    namespace: miqroforge-v2

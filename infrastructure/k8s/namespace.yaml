@@ -1,0 +1,13 @@
+# MiQroForge 2.0 — Kubernetes Namespaces
+# 创建平台所需的两个命名空间：
+#   argo           — Argo Workflow 引擎（通常已存在，本文件不重复创建）
+#   miqroforge-v2  — 2.0 平台工作负载（计算节点 Pod）
+#
+# 注意：miqroforge（无版本后缀）为 v1 遗留 namespace，不要混用。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: miqroforge-v2
+  labels:
+    app.kubernetes.io/managed-by: miqroforge-v2
+    app.kubernetes.io/version: "2.0"

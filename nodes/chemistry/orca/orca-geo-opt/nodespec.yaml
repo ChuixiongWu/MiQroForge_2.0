@@ -1,0 +1,176 @@
+# ===========================================================================
+# orca-geo-opt — ORCA DFT Geometry Optimization
+#
+# 使用 ORCA 进行 DFT 几何优化（找到分子的最低能量结构）。
+# 输出 GBW 文件可作为 orca-freq 的输入（热力学分析管线）。
+# ===========================================================================
+
+metadata:
+  name: orca-geo-opt
+  version: 1.0.0
+  display_name: ORCA Geometry Optimization
+  description: >
+    Performs DFT geometry optimization using ORCA to find the minimum energy
+    structure. Supports all ORCA-compatible DFT functionals and basis sets.
+    The optimized GBW wavefunction file can be passed directly to orca-freq
+    for thermochemical analysis. Requires an initial XYZ geometry.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: geometry-optimization
+  base_image_ref: orca-6.1
+  tags:
+    software: orca
+    version: "6.1"
+    method:
+      - DFT
+      - geometry-optimization
+      - OPT
+    domain:
+      - molecular
+      - thermochemistry
+    capabilities:
+      - geometry-optimization
+      - structure-relaxation
+    keywords:
+      - orca
+      - geo-opt
+      - optimization
+      - dft
+      - b3lyp
+      - def2-svp
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: >
+      Molecular geometry in standard XYZ format (Angstrom).
+      Typically from geometry-file-input or another geometry source.
+
+stream_outputs:
+  - name: gbw_file
+    display_name: Optimized GBW Wavefunction
+    io_type:
+      category: software_data_package
+      ecosystem: orca
+      data_type: gbw-file
+    description: >
+      ORCA binary wavefunction file at optimized geometry.
+      Pass this to orca-freq for thermochemical analysis.
+
+  - name: optimized_xyz
+    display_name: Optimized Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    description: Optimized molecular geometry in standard XYZ format (Angstrom).
+
+  - name: total_energy
+    display_name: Total Energy at Optimized Geometry
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total DFT energy at the converged geometry.
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: method
+    display_name: DFT Functional / Method
+    kind: string
+    default: B3LYP
+    description: "ORCA method keyword: B3LYP, PBE0, M062X, wB97X-D3, etc."
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: def2-SVP
+    description: "Basis set: def2-SVP, def2-TZVP, 6-31G*, cc-pVTZ, etc."
+
+  - name: dispersion
+    display_name: Dispersion Correction
+    kind: enum
+    default: D3BJ
+    allowed_values:
+      - "none"
+      - D3
+      - D3BJ
+      - D4
+
+  - name: convergence
+    display_name: Convergence Criteria
+    kind: enum
+    default: NormalOpt
+    allowed_values:
+      - LooseOpt
+      - NormalOpt
+      - TightOpt
+      - VeryTightOpt
+
+  - name: max_iter
+    display_name: Max Optimization Cycles
+    kind: integer
+    default: 200
+    min_value: 10
+    max_value: 2000
+
+onboard_outputs:
+  - name: final_energy
+    display_name: Final Energy (Ha)
+    kind: float
+    unit: Ha
+    description: DFT energy at optimized geometry.
+
+  - name: opt_cycles
+    display_name: Optimization Cycles
+    kind: integer
+    description: Number of geometry optimization steps taken.
+
+  - name: opt_converged
+    display_name: Optimization Converged
+    kind: boolean
+    description: Whether the geometry optimization converged to a minimum.
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "Geometry optimization must converge before frequency analysis."
+
+resources:
+  cpu_cores: 4
+  memory_gb: 8.0
+  estimated_walltime_hours: 2.0
+  scratch_disk_gb: 20.0
+  parallel_tasks: 4
+  resource_bindings:
+    - cpu_cores
+    - parallel_tasks
+
+execution:
+  environment:
+    OMP_NUM_THREADS: "1"
+    OMPI_ALLOW_RUN_AS_ROOT: "1"
+    OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+
+semantic_identity: >-
+  DFT geometry optimization using ORCA to find the minimum energy structure.
+  Produces GBW wavefunction file and optimized XYZ geometry for downstream analysis.
+
+distinguishing_ports:
+  - gbw_file
+  - optimized_xyz
+
+rag_summary: ""

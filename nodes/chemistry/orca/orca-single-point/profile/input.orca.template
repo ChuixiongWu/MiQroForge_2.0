@@ -1,0 +1,5 @@
+! $method $basis_set ${disp_kw}Mulliken
+%pal nprocs $n_cores end
+%maxcore 2000
+
+* xyzfile $charge $multiplicity input.xyz

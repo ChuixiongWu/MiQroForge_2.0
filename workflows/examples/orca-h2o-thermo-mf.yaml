@@ -1,0 +1,85 @@
+# =============================================================================
+# orca-h2o-thermo-mf.yaml — H2O Thermochemistry Workflow (ORCA, MF Format)
+#
+# MiQroForge 2.0 工作流定义：
+#   geom-input → geo-opt → freq
+#
+# 使用 ORCA 6.1 计算 H2O 分子的热力学性质：
+#   - geometry-file-input 提供初始几何（inline_geometry）
+#   - B3LYP/def2-SVP 几何优化
+#   - 谐振频率分析（298.15 K）
+#   - freq 节点直接输出 Gibbs 自由能、焓、ZPE（Ha）
+#
+# 前提：
+#   1. ORCA 6.1 镜像已构建：bash nodes/base_images/orca/build.sh
+#   2. 镜像已推送到 harbor.era.local/library/orca:6.1
+#
+# Quality Gate 说明：
+#   - geo-opt.opt_converged (must_pass)：几何优化必须收敛，否则 freq 不运行
+#   - freq.is_true_minimum (must_pass)：必须是真正的极小值
+#   收敛判据已从 stream I/O 迁移到 onboard quality gate，不再需要显式连线。
+#
+# 运行：
+#   bash scripts/mf2.sh validate workflows/examples/orca-h2o-thermo-mf.yaml
+#   bash scripts/mf2.sh compile  workflows/examples/orca-h2o-thermo-mf.yaml
+#   bash scripts/mf2.sh run      workflows/examples/orca-h2o-thermo-mf.yaml
+# =============================================================================
+
+mf_version: "1.0"
+name: orca-h2o-thermo
+description: >
+  H2O thermochemistry: geometry input → DFT geometry optimization → frequency analysis.
+  Uses ORCA 6.1 with B3LYP/def2-SVP. freq node directly outputs Gibbs free
+  energy, enthalpy, ZPE, and a machine-readable thermochemistry report.
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      # H2O 初始几何（实验值附近，B3LYP/def2-SVP 会优化）
+      inline_geometry: |
+        O   0.000000   0.000000   0.117176
+        H   0.000000   0.756950  -0.468705
+        H   0.000000  -0.756950  -0.468705
+
+  - id: geo-opt
+    nodespec_path: nodes/chemistry/orca/orca-geo-opt/nodespec.yaml
+    onboard_params:
+      charge: 0
+      multiplicity: 1
+      method: B3LYP
+      basis_set: def2-SVP
+      dispersion: D3BJ
+      convergence: TightOpt
+      max_iter: 200
+      n_cores: 4
+
+  - id: freq
+    nodespec_path: nodes/chemistry/orca/orca-freq/nodespec.yaml
+    onboard_params:
+      method: B3LYP
+      basis_set: def2-SVP
+      dispersion: D3BJ
+      temperature: 298.15
+      pressure: 1.0
+      n_cores: 4
+      charge: 0
+      multiplicity: 1
+
+connections:
+  # geom-input → geo-opt（初始几何传入优化节点）
+  - from: geom-input.xyz_geometry
+    to: geo-opt.xyz_geometry
+  # geo-opt → freq（优化后几何传入频率分析节点）
+  - from: geo-opt.optimized_xyz
+    to: freq.xyz_geometry
+
+# quality_policy 使用默认值（geo-opt.opt_converged: must_pass, freq.is_true_minimum: must_pass）
+# 如需覆盖，取消以下注释：
+# quality_policy:
+#   - node_id: geo-opt
+#     gate_name: opt_converged
+#     action: warn

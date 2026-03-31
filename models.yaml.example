@@ -1,0 +1,53 @@
+# MiQroForge 2.0 — 模型注册表模板
+#
+# 使用方法：
+#   cp models.yaml.example userdata/models.yaml
+#   编辑 userdata/models.yaml，填入真实的 API key
+#
+# userdata/ 目录已在 .gitignore 中，API key 不会提交到 git。
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 全局 proxy（所有模型默认继承；单个模型可覆盖）
+proxy:
+  base_url: https://api.openai-proxy.org/v1   # OpenAI 兼容接口地址
+  api_key: sk-YOUR_KEY_HERE
+
+# ─── 命名模型注册表 ───────────────────────────────────────────────────────────
+#
+# 每个条目：
+#   model_id:  API 实际接受的 model 名称（必填）
+#   base_url:  覆盖全局 proxy.base_url（可选）
+#   api_key:   覆盖全局 proxy.api_key（可选）
+#
+models:
+  gpt4o:
+    model_id: gpt-4o
+
+  gpt4o-mini:
+    model_id: gpt-4o-mini
+
+  sonnet:
+    model_id: claude-3-5-sonnet-20241022
+
+  deepseek:
+    model_id: deepseek-chat
+
+  # 本地 Ollama 示例（覆盖 base_url / api_key）
+  # local-qwen:
+  #   model_id: qwen2.5:32b
+  #   base_url: http://localhost:11434/v1
+  #   api_key: ollama
+
+# 默认模型（agents 未单独指定、或直接调用 LLMConfig.get_chat_model() 时使用）
+default_model: gpt4o
+
+# ─── Agent → 模型 映射 ────────────────────────────────────────────────────────
+#
+# purpose 名称对应代码中 LLMConfig.get_chat_model(purpose="...") 的调用。
+# 可以多个 agent 共用同一个命名模型。
+#
+agents:
+  planner: sonnet           # 语义工作流规划（推理能力优先）
+  evaluator: gpt4o-mini     # 评判器（速度/成本优先）
+  yaml_coder: sonnet        # MF YAML 生成（代码质量优先）
+  node_generator: deepseek  # 节点生成（代码能力优先）

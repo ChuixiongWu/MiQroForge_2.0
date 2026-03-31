@@ -1,0 +1,23 @@
+# MiQroForge 2.0 — Phase 2 Python Dependencies
+# 安装方式：pip install -r requirements/phase2.txt
+
+# ── 继承 Phase 1 依赖 ─────────────────────────────────────────────────────────
+-r phase1.txt
+
+# ── API 网关（Phase 1 下半场即需要）────────────────────────────────────────────
+fastapi>=0.110             # LangGraph ↔ Argo 桥接网关
+uvicorn[standard]>=0.29    # ASGI 服务器
+aiofiles>=23.0             # FastAPI StaticFiles 依赖（前端静态文件服务）
+httpx>=0.27               # Argo UI 反向代理
+python-dotenv>=1.0        # 自动加载 .env 文件
+python-multipart>=0.0.9   # FastAPI UploadFile / Form 解析（文件上传 API 依赖）
+
+# ── AI 编排框架 ───────────────────────────────────────────────────────────────
+# langgraph>=0.2             # 多 Agent 状态图管理（Phase 2 正式开发时启用）
+# langchain>=0.2             # 工具调用封装
+
+# ── 大模型接口 ────────────────────────────────────────────────────────────────
+# openai>=1.0                # OpenAI / GPT-4o API
+
+# ── 向量检索（RAG 节点库） ─────────────────────────────────────────────────────
+# chromadb>=0.5              # 本地开发向量库

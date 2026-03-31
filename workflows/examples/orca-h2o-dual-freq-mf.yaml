@@ -1,0 +1,86 @@
+# =============================================================================
+# orca-h2o-dual-freq-mf.yaml — H2O Dual-Branch Frequency Workflow (ORCA, MF)
+#
+# MiQroForge 2.0 工作流定义（两分支）：
+#   geom-input → geo-opt → freq-post-opt   (优化后频率分析)
+#   geom-input → freq-direct                (直接频率分析)
+#
+# 使用 ORCA 6.1 / B3LYP / STO-3G 对 H2O 分子进行：
+#   - 分支 1: 几何优化 → 频率分析（验证优化后结构）
+#   - 分支 2: 直接频率分析（在初始几何上，作为对比）
+#
+# 重建自 Argo 工作流 untitled-workflow-grrsr，修复 workspace 解引用回退。
+# geometry_file: h2o.xyz 在编译时被解析为实际文件内容（compile-time resolution）。
+#
+# Quality Gate 说明：
+#   - geo-opt.opt_converged (must_pass): 几何优化必须收敛，否则 freq-post-opt 不运行
+#   - freq-direct / freq-post-opt.is_true_minimum (must_pass): 必须是真正极小值
+#
+# 运行：
+#   bash scripts/mf2.sh validate workflows/examples/orca-h2o-dual-freq-mf.yaml
+#   bash scripts/mf2.sh compile  workflows/examples/orca-h2o-dual-freq-mf.yaml
+#   bash scripts/mf2.sh run      workflows/examples/orca-h2o-dual-freq-mf.yaml
+# =============================================================================
+
+mf_version: "1.0"
+name: orca-h2o-dual-freq
+description: >
+  H2O dual-branch frequency analysis: geometry input splits into
+  (1) geo-opt → freq and (2) direct freq on the initial geometry.
+  Uses ORCA 6.1 with B3LYP/STO-3G. Rebuilt from untitled-workflow-grrsr.
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      geometry_file: h2o.xyz
+
+  - id: geo-opt
+    nodespec_path: nodes/chemistry/orca/orca-geo-opt/nodespec.yaml
+    onboard_params:
+      charge: 0
+      multiplicity: 1
+      method: B3LYP
+      basis_set: STO-3G
+      dispersion: none
+      convergence: NormalOpt
+      max_iter: 200
+      n_cores: 4
+
+  - id: freq-direct
+    nodespec_path: nodes/chemistry/orca/orca-freq/nodespec.yaml
+    onboard_params:
+      method: B3LYP
+      basis_set: STO-3G
+      dispersion: none
+      temperature: 298.15
+      pressure: 1.0
+      charge: 0
+      multiplicity: 1
+      n_cores: 4
+
+  - id: freq-post-opt
+    nodespec_path: nodes/chemistry/orca/orca-freq/nodespec.yaml
+    onboard_params:
+      method: B3LYP
+      basis_set: STO-3G
+      dispersion: none
+      temperature: 298.15
+      pressure: 1.0
+      charge: 0
+      multiplicity: 1
+      n_cores: 4
+
+connections:
+  # geom-input → geo-opt（分支 1：几何优化）
+  - from: geom-input.xyz_geometry
+    to: geo-opt.xyz_geometry
+  # geo-opt → freq-post-opt（优化后频率分析）
+  - from: geo-opt.optimized_xyz
+    to: freq-post-opt.xyz_geometry
+  # geom-input → freq-direct（分支 2：直接频率分析）
+  - from: geom-input.xyz_geometry
+    to: freq-direct.xyz_geometry

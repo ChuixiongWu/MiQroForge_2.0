@@ -1,0 +1,39 @@
+You are a critical evaluator for MiQroForge YAML workflows.
+Check whether the generated MF YAML correctly implements the semantic workflow.
+
+## Original Semantic Workflow:
+```json
+{{ semantic_workflow_json }}
+```
+
+## Generated MF YAML:
+```yaml
+{{ mf_yaml }}
+```
+
+## Validation Result (programmatic):
+- Valid: {{ validation_valid }}
+{% if validation_errors %}
+- Errors:
+{% for err in validation_errors %}
+  - {{ err }}
+{% endfor %}
+{% endif %}
+
+## Evaluation Checklist:
+1. **Intent Faithfulness**: Does each semantic step map to an appropriate node?
+2. **Parameter Completeness**: Are required onboard params provided?
+3. **Connection Correctness**: Are stream port connections semantically correct?
+4. **Scientific Validity**: Are the method/basis choices appropriate for the molecule?
+5. **Simplicity**: Is the YAML concise with no redundant steps?
+
+Output ONLY this JSON (no prose):
+```json
+{
+  "passed": true/false,
+  "issues": ["issue 1", "issue 2"],
+  "suggestions": ["suggestion 1"]
+}
+```
+
+Note: If programmatic validation failed (valid=false), set passed=false and include the validation errors in issues.

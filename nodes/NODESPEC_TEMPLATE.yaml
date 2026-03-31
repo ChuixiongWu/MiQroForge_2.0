@@ -1,0 +1,154 @@
+# =============================================================================
+# MiQroForge 2.0 — NodeSpec 模板
+#
+# 复制到 nodes/<domain>/<node-name>/nodespec.yaml，按需修改。
+# compute 节点需同级创建 profile/ 目录放 run.sh 等执行脚本。
+#
+# 标记说明：
+#   *  必填 — 不写就无法通过校验
+#   其余均可不写，有合理默认值
+# =============================================================================
+
+
+# ── 节点身份 ─────────────────────────────────────────────────────────────────
+
+metadata:
+  name: my-node-name                   # * 唯一标识。小写+连字符。测试节点用 test- 前缀
+  node_type: compute                   # * compute | lightweight
+  base_image_ref: test-busybox         # * compute 必填。对应 base_images/registry.yaml 中的 name
+  version: "1.0.0"                     #   语义化版本。改端口 → 升大版本
+  display_name: "My Node"              #   人类可读名称（默认从 name 生成）
+  description: >                       #   节点功能描述
+    一句话描述此节点做什么、适用什么场景。
+  category: chemistry                  #   quantum / chemistry / preprocessing / postprocessing / utility（默认 utility）
+  author: "MiQroForge Team"            #   作者
+  tags:                                #   检索标签，影响 Phase 2 RAG 检索质量
+    software: gaussian
+    version: "16"
+    method: [DFT, B3LYP]
+    domain: [molecular]
+    capabilities: [geometry-optimization]
+    keywords: [gaussian, dft]
+
+
+# ── Stream I/O — 节点间连线 ──────────────────────────────────────────────────
+# 每个端口：name*, io_type*（含 category*）
+# io_type 有四种 category，每种子字段不同（见下方示例）
+
+stream_inputs:                         #   无上游依赖时写 []
+  # 软件数据包（同 ecosystem + data_type 才能连）：
+  # - name: checkpoint_in              # *
+  #   io_type:                         # *
+  #     category: software_data_package
+  #     ecosystem: gaussian            # * SDP 必填
+  #     data_type: checkpoint          # * SDP 必填
+  #     file_patterns: ["*.chk"]       #   关联文件名
+  #     estimated_size_mb: 50          #   预估大小
+  #   display_name: "Input Checkpoint" #   显示名（默认从 name 生成）
+  #   description: "..."               #   端口说明
+  #   required: true                   #   默认 true
+  #
+  # 逻辑量：
+  # - name: opt_converged              # *
+  #   io_type:                         # *
+  #     category: logic_value
+  #     kind: boolean                  # * boolean / enum / integer / signal
+  #
+  # 物理量（同量纲 + 同 shape 可连，不同单位自动转换）：
+  # - name: energy_in                  # *
+  #   io_type:                         # *
+  #     category: physical_quantity
+  #     unit: eV                       # * KNOWN_UNITS 中的符号
+  #     shape: scalar                  #   默认 scalar
+  #     constraints: {min: 0}          #   值域约束
+  #
+  # 报告对象：
+  # - name: report_in                  # *
+  #   io_type:                         # *
+  #     category: report_object
+  #     format: json                   # * json / csv / plaintext / hdf5
+  []
+
+stream_outputs:                        #   至少一个有意义的输出
+  []                                   #   字段同 stream_inputs，但无 required
+
+
+# ── On-Board 输入 — 用户在工作流中填写的参数 ─────────────────────────────────
+# 每个参数：name*, kind*
+
+onboard_inputs:
+  # kind: string / integer / float / boolean / enum
+  #
+  # - name: functional                 # *
+  #   kind: string                     # *
+  #   display_name: "DFT Functional"   #   显示名（默认从 name 生成）
+  #   default: B3LYP                   #   有 default → 用户可不填
+  #   required: true                   #   默认 true
+  #   group: method                    #   UI 分组标签
+  #
+  # - name: energy_unit                # *
+  #   kind: enum                       # *
+  #   default: Ha
+  #   allowed_values: [Ha, eV, kcal/mol]  # enum 时必填
+  #
+  # - name: temperature                # *
+  #   kind: float                      # *
+  #   default: 298.15
+  #   min_value: 0.0                   #   数值下界
+  #   max_value: 1000.0                #   数值上界
+  #   unit: K                          #   仅供显示，不做自动转换
+  []
+
+onboard_outputs:                       #   面板展示的运行结果，不参与连线
+  # - name: final_energy
+  #   kind: float
+  #   unit: Ha
+  []
+
+
+# ── 资源估算 ─────────────────────────────────────────────────────────────────
+# 编译器据此生成 Argo resources.requests/limits
+
+resources:
+  # type 字段由系统从 metadata.node_type 自动注入，无需填写
+  cpu_cores: 4                         # * ≥1
+  memory_gb: 8.0                       # * >0
+  estimated_walltime_hours: 2.0        # * >0
+  # gpu_count: 0                       #   GPU 数量（默认 0）
+  # gpu_type: nvidia-a100              #   GPU 型号
+  # scratch_disk_gb: 50                #   临时磁盘 GiB
+  # parallel_tasks: 4                  #   MPI 并行任务数
+
+# lightweight 示例：
+# resources:
+#   cpu_cores: 1
+#   memory_gb: 1.0
+#   estimated_walltime_hours: 0.083
+
+
+# ── 执行配置 ─────────────────────────────────────────────────────────────────
+
+execution:
+  # type 字段由系统从 metadata.node_type 自动注入，无需填写
+  entrypoint_script: run.sh            #   profile/ 下的入口脚本（默认 run.sh）
+  # profile_mount_path: /mf/profile    #   默认值，一般不改
+  # input_mount_path: /mf/input
+  # output_mount_path: /mf/output
+  # environment:                       #   额外环境变量
+  #   OMP_NUM_THREADS: "4"
+  # mpi_enabled: false                 #   是否启用 MPI
+  # profile_templates: [INCAR.template]  #   需要 string.Template 预渲染的文件
+
+# lightweight 示例：
+# execution:
+#   inline_script: |
+#     import json
+#     with open("/mf/output/result", "w") as f:
+#         f.write("done")
+
+
+# ── 语义身份 ─────────────────────────────────────────────────────────────────
+# 一句话说明此节点的独特功能。为空时自动从 name + description 生成。
+# 判断标准：如果你想改这句话里的参数值，说明应该改 onboard_inputs 而非建新节点。
+
+semantic_identity: ""
