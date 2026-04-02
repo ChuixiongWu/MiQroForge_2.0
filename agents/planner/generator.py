@@ -18,6 +18,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from agents.llm_config import LLMConfig
 from agents.schemas import SemanticWorkflow, SemanticStep, SemanticEdge
 from agents.common.prompt_loader import load_prompt
+from agents.common.session_logger import get_session
 from agents.planner.state import PlannerState
 
 
@@ -67,7 +68,12 @@ def _build_implementations(
     steps: list[SemanticStep],
     node_summaries: list[dict[str, Any]],
 ) -> dict[str, list[str]]:
-    """为每个步骤找到候选实现节点。"""
+    """为每个步骤找到候选实现节点。
+
+    Pass 1: RAG 结果（向量/关键词相似度匹配）
+    Pass 2: node_index 精确 semantic_type 补充（兜底，不依赖 RAG 质量）
+    """
+    # Pass 1: RAG 结果
     implementations: dict[str, list[str]] = {}
     for step in steps:
         candidates = [
@@ -76,6 +82,24 @@ def _build_implementations(
             if n.get("semantic_type") == step.semantic_type
         ]
         implementations[step.id] = candidates
+
+    # Pass 2: node_index 精确 semantic_type 补充（确保 utility 节点也能被找到）
+    try:
+        from node_index.scanner import load_index
+        from api.config import get_settings
+        index = load_index(get_settings().project_root)
+        index_by_type: dict[str, list[str]] = {}
+        for entry in index.entries:
+            if entry.semantic_type:
+                index_by_type.setdefault(entry.semantic_type, []).append(entry.name)
+        for step in steps:
+            existing = set(implementations[step.id])
+            for name in index_by_type.get(step.semantic_type, []):
+                if name not in existing:
+                    implementations[step.id].append(name)
+    except Exception:
+        pass  # 降级：仅用 RAG 结果
+
     return implementations
 
 
@@ -142,6 +166,15 @@ def generate_plan(state: PlannerState) -> dict[str, Any]:
 
     try:
         response = llm.invoke(messages)
+
+        # ── 记录 LLM 调用 ──
+        session = get_session()
+        if session:
+            session.log_llm_call(
+                "generate", messages, response.content,
+                iteration=iteration,
+            )
+
         raw_json = _extract_json(response.content)
         data = json.loads(raw_json)
 
@@ -163,6 +196,14 @@ def generate_plan(state: PlannerState) -> dict[str, Any]:
         }
 
     except Exception as e:
+        # ── 记录失败 ──
+        session = get_session()
+        if session:
+            session.log_event("generate_error", {
+                "iteration": iteration,
+                "error": str(e),
+            })
+
         return {
             "semantic_workflow": None,
             "workflow_json": "",

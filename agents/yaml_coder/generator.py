@@ -1,61 +1,111 @@
 """agents/yaml_coder/generator.py — YAML Coder Agent 生成节点。
 
 负责：
-1. 加载候选节点的完整 NodeSpec（Level 3）
-2. 构建步骤 → 节点解析映射
-3. 调用 LLM 生成 MF YAML
+1. 构建步骤 → 节点解析映射（仅节点名，不预加载 NodeSpec 详情）
+2. 向 LLM 绑定探索工具（get_node_details / search_nodes_by_semantic_type）
+3. 通过工具调用循环让 LLM 按需查询 I/O 规范后生成 MF YAML
 """
 
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import tool
 
 from agents.llm_config import LLMConfig
 from agents.schemas import NodeResolution
 from agents.common.prompt_loader import load_prompt
+from agents.common.session_logger import get_session
 from agents.yaml_coder.state import YAMLCoderState
 
+# 工具调用最大轮次（每轮可含多个并行工具调用）
+_MAX_TOOL_ROUNDS = 10
 
-def _load_node_details(semantic_workflow, selected_implementations: dict[str, str]) -> list[dict[str, Any]]:
-    """加载所有候选节点的完整 NodeSpec（Level 3）。"""
-    from vectorstore.retriever import get_retriever
 
-    retriever = get_retriever()
+def make_node_tools(node_index_map: dict) -> list:
+    """创建节点探索工具，供 YAML Coder LLM 按需调用。
 
-    # 收集所有候选节点名称
-    node_names = set()
-    for step in semantic_workflow.steps:
-        # 用户手动选择优先
-        if step.id in selected_implementations:
-            node_names.add(selected_implementations[step.id])
-        # RAG 候选
-        for node_name in semantic_workflow.available_implementations.get(step.id, []):
-            node_names.add(node_name)
+    Args:
+        node_index_map: {node_name: NodeIndexEntry} 映射，来自 node_index.yaml。
 
-    if not node_names:
-        return []
+    Returns:
+        包含 get_node_details 和 search_nodes_by_semantic_type 的工具列表。
+    """
+    index_entries = list(node_index_map.values())
 
-    return retriever.get_detailed(list(node_names))
+    @tool
+    def get_node_details(node_name: str) -> str:
+        """Get full I/O specification for a node: nodespec_path, stream inputs,
+        stream outputs, and onboard params. Call this BEFORE connecting or using
+        a node in the generated YAML."""
+        entry = node_index_map.get(node_name)
+        if not entry:
+            available = ", ".join(sorted(node_index_map.keys())[:20])
+            return (
+                f"Node '{node_name}' not found in index. "
+                f"Available nodes (first 20): {available}"
+            )
+        lines = [
+            f"Node: {entry.name}",
+            f"nodespec_path: {entry.nodespec_path}",
+            f"Description: {entry.description}",
+            f"Semantic type: {entry.semantic_type or '(none)'}",
+            f"Node type: {entry.node_type}",
+            "",
+            "Stream inputs:",
+        ]
+        for p in entry.stream_inputs:
+            detail = f" / {p.detail}" if p.detail else ""
+            lines.append(f"  - {p.name} [{p.category}{detail}]")
+        if not entry.stream_inputs:
+            lines.append("  (none)")
+        lines.append("Stream outputs:")
+        for p in entry.stream_outputs:
+            detail = f" / {p.detail}" if p.detail else ""
+            lines.append(f"  - {p.name} [{p.category}{detail}]")
+        if not entry.stream_outputs:
+            lines.append("  (none)")
+        lines.append("Onboard params:")
+        for p in entry.onboard_inputs:
+            desc = (p.description or "")[:80]
+            allowed = f" [options: {p.allowed_values}]" if p.allowed_values else ""
+            default = f" (default: {p.default})" if p.default is not None else ""
+            lines.append(f"  - {p.name} ({p.kind}){allowed}{default}: {desc}")
+        if not entry.onboard_inputs:
+            lines.append("  (none)")
+        return "\n".join(lines)
+
+    @tool
+    def search_nodes_by_semantic_type(semantic_type: str) -> str:
+        """Find all available nodes matching a semantic type string
+        (e.g. 'geometry-input', 'single-point-energy', 'geometry-optimization').
+        Use this to discover what node to use for a step that has no suggestion."""
+        matches = [e for e in index_entries if e.semantic_type == semantic_type]
+        if not matches:
+            all_types = sorted({e.semantic_type for e in index_entries if e.semantic_type})
+            return (
+                f"No nodes found for semantic type '{semantic_type}'. "
+                f"Known types: {', '.join(all_types)}"
+            )
+        lines = [f"Nodes with semantic_type='{semantic_type}':"]
+        for e in matches:
+            lines.append(f"  - {e.name} ({e.node_type}): {e.description[:100]}")
+        return "\n".join(lines)
+
+    return [get_node_details, search_nodes_by_semantic_type]
 
 
 def _build_resolutions(
     semantic_workflow,
     selected_implementations: dict[str, str],
-    available_nodes: list[dict[str, Any]],
 ) -> list[NodeResolution]:
-    """为每个语义步骤选择具体节点。"""
-    node_by_name = {n["metadata"]["name"]: n for n in available_nodes if "metadata" in n}
-    # Also try by top-level name
-    for n in available_nodes:
-        if isinstance(n, dict) and "name" in n and "metadata" not in n:
-            node_by_name[n["name"]] = n
-
+    """为每个语义步骤选择具体节点（仅节点名，不预加载 NodeSpec 详情）。"""
     resolutions = []
     for step in semantic_workflow.steps:
-        # 用户指定 → RAG 候选 → 空
+        # 用户指定 → available_implementations 候选 → 空
         selected_name = selected_implementations.get(step.id)
         if not selected_name:
             candidates = semantic_workflow.available_implementations.get(step.id, [])
@@ -68,34 +118,12 @@ def _build_resolutions(
             needs_new_node=(selected_name is None),
             new_node_request=step.description if selected_name is None else None,
         )
-        # 设置 nodespec_path
-        if selected_name and selected_name in node_by_name:
-            node_data = node_by_name[selected_name]
-            # NodeSpec dump 格式：metadata.name, nodespec_path 在 scanner 里是 entry.nodespec_path
-            # 但 get_detailed() 返回的是 NodeSpec.model_dump()，没有 nodespec_path
-            # 我们从 scanner 索引条目里找 nodespec_path
-            pass
-
         resolutions.append(resolution)
     return resolutions
 
 
-def _get_nodespec_path(node_name: str) -> str | None:
-    """从节点索引获取 nodespec_path。"""
-    try:
-        from node_index.scanner import load_index
-        from api.config import get_settings
-        index = load_index(get_settings().project_root)
-        for entry in index.entries:
-            if entry.name == node_name:
-                return entry.nodespec_path
-    except Exception:
-        pass
-    return None
-
-
 def generate_yaml(state: YAMLCoderState) -> dict[str, Any]:
-    """LangGraph 生成节点 — 生成或修正 MF YAML。"""
+    """LangGraph 生成节点 — 通过工具调用循环生成或修正 MF YAML。"""
     semantic_workflow = state.get("semantic_workflow")
     if not semantic_workflow:
         return {"error": "缺少 SemanticWorkflow 输入"}
@@ -105,24 +133,7 @@ def generate_yaml(state: YAMLCoderState) -> dict[str, Any]:
     iteration = state.get("iteration", 0)
     evaluation = state.get("evaluation")
 
-    # 加载完整 NodeSpec（Level 3）
-    available_nodes = state.get("available_nodes")
-    if not available_nodes:
-        available_nodes = _load_node_details(semantic_workflow, selected_implementations)
-
-    # 构建解析映射
-    resolutions = state.get("resolutions")
-    if not resolutions or iteration > 0:
-        resolutions = _build_resolutions(semantic_workflow, selected_implementations, available_nodes)
-
-    # 为 resolutions 补充 nodespec_path
-    for res in resolutions:
-        if res.resolved_node and not res.resolved_nodespec_path:
-            path = _get_nodespec_path(res.resolved_node)
-            if path:
-                res.resolved_nodespec_path = path
-
-    # 构建 Prompt 用的节点摘要（包含 nodespec_path）
+    # ── 加载 node_index（工具函数的数据来源）────────────────────────────────
     try:
         from node_index.scanner import load_index
         from api.config import get_settings
@@ -131,36 +142,29 @@ def generate_yaml(state: YAMLCoderState) -> dict[str, Any]:
     except Exception:
         node_index_map = {}
 
-    prompt_nodes = []
-    seen_names = set()
-    for step in semantic_workflow.steps:
-        node_name = selected_implementations.get(step.id) or (
-            semantic_workflow.available_implementations.get(step.id, [None])[0]
-        )
-        if node_name and node_name not in seen_names:
-            seen_names.add(node_name)
-            entry = node_index_map.get(node_name)
+    # ── 构建步骤→节点解析映射（仅节点名，nodespec_path 按需补充）─────────
+    resolutions = state.get("resolutions")
+    if not resolutions or iteration > 0:
+        resolutions = _build_resolutions(semantic_workflow, selected_implementations)
+
+    for res in resolutions:
+        if res.resolved_node and not res.resolved_nodespec_path:
+            entry = node_index_map.get(res.resolved_node)
             if entry:
-                prompt_nodes.append({
-                    "name": entry.name,
-                    "nodespec_path": entry.nodespec_path,
-                    "description": entry.description,
-                    "semantic_type": entry.semantic_type,
-                    "software": entry.software,
-                    "stream_inputs": [p.model_dump() for p in entry.stream_inputs],
-                    "stream_outputs": [p.model_dump() for p in entry.stream_outputs],
-                    "onboard_inputs": [p.model_dump() for p in entry.onboard_inputs],
-                })
+                res.resolved_nodespec_path = entry.nodespec_path
 
-    # 构建 Prompt
-    system_content = load_prompt(
-        "yaml_coder/prompts/yaml_system.jinja2",
-        available_nodes=prompt_nodes,
-    )
+    # ── 构建 LLM + 工具 ───────────────────────────────────────────────────
+    tools = make_node_tools(node_index_map)
+    llm = LLMConfig.get_chat_model(purpose="yaml_coder", temperature=0.0)
+    llm_with_tools = llm.bind_tools(tools)
 
+    # ── 构建初始消息（节点名列表，无 NodeSpec 详情）───────────────────────
+    system_content = load_prompt("yaml_coder/prompts/yaml_system.jinja2")
     user_content = load_prompt(
         "yaml_coder/prompts/yaml_generate.jinja2",
-        semantic_workflow_json=json.dumps(semantic_workflow.model_dump(mode="json"), indent=2, ensure_ascii=False),
+        semantic_workflow_json=json.dumps(
+            semantic_workflow.model_dump(mode="json"), indent=2, ensure_ascii=False
+        ),
         resolutions=[r.model_dump() for r in resolutions],
         user_params=user_params,
         iteration=iteration,
@@ -169,16 +173,45 @@ def generate_yaml(state: YAMLCoderState) -> dict[str, Any]:
         evaluation_issues=evaluation.issues if evaluation and not evaluation.passed else [],
     )
 
-    llm = LLMConfig.get_chat_model(purpose="yaml_coder", temperature=0.0)
+    messages: list = [
+        SystemMessage(content=system_content),
+        HumanMessage(content=user_content),
+    ]
 
+    # ── 工具调用循环（最多 _MAX_TOOL_ROUNDS 轮）──────────────────────────
+    response = None
     try:
-        response = llm.invoke([
-            SystemMessage(content=system_content),
-            HumanMessage(content=user_content),
-        ])
-        mf_yaml = response.content.strip()
+        for _round in range(_MAX_TOOL_ROUNDS):
+            response = llm_with_tools.invoke(messages)
+            messages.append(response)
 
-        # 去除可能的 markdown 代码块
+            if not response.tool_calls:
+                break  # LLM 不再调用工具，response.content 是最终 YAML
+
+            # 执行每个工具调用并追加 ToolMessage
+            for tc in response.tool_calls:
+                tool_fn = next((t for t in tools if t.name == tc["name"]), None)
+                if tool_fn:
+                    try:
+                        result = tool_fn.invoke(tc["args"])
+                    except Exception as e:
+                        result = f"Tool error: {e}"
+                else:
+                    result = f"Unknown tool: {tc['name']}"
+                messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+
+        # ── 记录消息历史（messages[:-1] 不含最终 AIMessage，避免与 llm_response 重复）
+        session = get_session()
+        if session:
+            session.log_llm_call(
+                "generate", messages[:-1],
+                response.content if response else "",
+                iteration=iteration,
+            )
+
+        mf_yaml = (response.content or "").strip() if response else ""
+
+        # 去除 markdown 代码块（LLM 有时仍会包裹）
         if mf_yaml.startswith("```yaml"):
             mf_yaml = mf_yaml[7:]
         elif mf_yaml.startswith("```"):
@@ -187,17 +220,28 @@ def generate_yaml(state: YAMLCoderState) -> dict[str, Any]:
             mf_yaml = mf_yaml[:-3]
         mf_yaml = mf_yaml.strip()
 
+        # 去除 LLM 在 YAML 前输出的分析文字（找到 mf_version: 作为起始行）
+        mf_version_match = re.search(r'^(mf_version\s*:)', mf_yaml, re.MULTILINE)
+        if mf_version_match and mf_version_match.start() > 0:
+            mf_yaml = mf_yaml[mf_version_match.start():].strip()
+
         return {
             "mf_yaml": mf_yaml,
-            "available_nodes": available_nodes,
+            "available_nodes": [],  # 工具链模式：不预加载；保留字段兼容评判器
             "resolutions": resolutions,
             "error": None,
         }
 
     except Exception as e:
+        session = get_session()
+        if session:
+            session.log_event("generate_error", {
+                "iteration": iteration,
+                "error": str(e),
+            })
         return {
             "mf_yaml": "",
-            "available_nodes": available_nodes,
+            "available_nodes": [],
             "resolutions": resolutions,
             "error": f"YAML Coder 生成失败: {e}",
         }

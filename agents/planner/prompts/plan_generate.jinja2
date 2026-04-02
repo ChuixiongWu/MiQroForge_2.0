@@ -5,35 +5,32 @@
 
 ## Workspace Files:
 {% if workspace_files %}
-The user's workspace contains the following files (reference them in step constraints if relevant):
+The following files are available in the workspace — reference them in `constraints.geometry_file` if relevant:
 {% for f in workspace_files %}
 - `{{ f.name }}` ({{ f.size_bytes }} bytes)
 {% endfor %}
 {% else %}
-No files in workspace. If the workflow requires an input geometry file, note this in planner_notes.
+No files in workspace. If geometry is needed, use `constraints: {inline_geometry: true}` and note it in planner_notes.
 {% endif %}
 
-## Semantic Types with Available Implementations:
+## Available Semantic Types (prefer these when they fit):
 {% if node_summaries %}
-The following semantic types have at least one implementation in the node library
-(do NOT infer or suggest specific software, filenames, or output ports — stay at the semantic level):
 {% set seen_types = [] %}
 {% for node in node_summaries %}
 {% if node.semantic_type and node.semantic_type not in seen_types %}
 {% set _ = seen_types.append(node.semantic_type) %}
-- **{{ node.semantic_type }}** — implementation(s) available
+- **{{ node.semantic_type }}**
 {% endif %}
 {% endfor %}
 {% else %}
-No matching implementations found. Design the workflow using semantic types from the system prompt.
+No existing implementations found — propose appropriate semantic type strings.
 {% endif %}
 
 ## Task:
-Design a **semantic** workflow for this request. Output the SemanticWorkflow JSON.
+Design a **semantic** workflow that faithfully represents the user's intent.
 
-IMPORTANT constraints on your output:
-- Use only semantic types listed in the system prompt
-- `constraints` should contain only chemistry/physics parameters (method, basis, charge, multiplicity, temperature, etc.)
-- Do NOT mention specific software names, filenames, or port names in `planner_notes` or `constraints`
-- Do NOT suggest which output of one step connects to which input of another — that is YAML Coder's job
-- Be concise and scientifically correct
+Key rules:
+- Respect the user's explicit choices (e.g., if they request a coarse-then-precise strategy, represent it as-is)
+- `constraints` must ONLY contain workspace references (`geometry_file` or `inline_geometry: true`) — no method, basis, charge, or multiplicity
+- Do NOT reference specific software, port names, or file paths (except workspace filenames)
+- Be concise — only add steps that are necessary to achieve the stated goal

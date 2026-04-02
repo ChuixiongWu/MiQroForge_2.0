@@ -11,6 +11,7 @@ from langchain_core.messages import HumanMessage
 from agents.llm_config import LLMConfig
 from agents.schemas import EvaluationResult
 from agents.common.prompt_loader import load_prompt
+from agents.common.session_logger import get_session
 from agents.node_generator.state import NodeGenState
 
 
@@ -96,6 +97,13 @@ def evaluate_node(state: NodeGenState) -> dict[str, Any]:
             suggestions=["修正上述程序化检查失败项"],
             iteration=iteration,
         )
+        session = get_session()
+        if session:
+            session.log_event("evaluate_programmatic", {
+                "iteration": iteration,
+                "passed": False,
+                "issues": prog_issues,
+            })
         return {"evaluation": result}
 
     # LLM 意图检查
@@ -112,8 +120,18 @@ def evaluate_node(state: NodeGenState) -> dict[str, Any]:
 
     llm = LLMConfig.get_chat_model(purpose="evaluator", temperature=0.0)
 
+    eval_messages = [HumanMessage(content=prompt)]
+
     try:
-        response = llm.invoke([HumanMessage(content=prompt)])
+        response = llm.invoke(eval_messages)
+
+        session = get_session()
+        if session:
+            session.log_llm_call(
+                "evaluate", eval_messages, response.content,
+                iteration=iteration,
+            )
+
         raw_json = _extract_json(response.content)
         data = json.loads(raw_json)
 
@@ -124,6 +142,13 @@ def evaluate_node(state: NodeGenState) -> dict[str, Any]:
             iteration=iteration,
         )
     except Exception as e:
+        session = get_session()
+        if session:
+            session.log_event("evaluate_error", {
+                "iteration": iteration,
+                "error": str(e),
+                "auto_pass": True,
+            })
         result = EvaluationResult(
             passed=True,  # 评判失败则放行
             issues=[],

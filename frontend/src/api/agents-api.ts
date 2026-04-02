@@ -24,6 +24,18 @@ async function post<T>(url: string, body: unknown, signal?: AbortSignal): Promis
   return resp.json()
 }
 
+export interface SaveSessionRequest {
+  session_id: string
+  messages: object[]
+}
+
+export interface SaveSessionResponse {
+  saved: boolean
+  session_id: string
+  path: string
+  message_count: number
+}
+
 export const agentsApi = {
   /** Planner Agent — 意图 → 语义工作流 */
   plan: (req: PlanRequest, signal?: AbortSignal): Promise<PlanResponse> =>
@@ -36,4 +48,8 @@ export const agentsApi = {
   /** Node Generator Agent — 生成新节点 */
   generateNode: (req: NodeGenRequest, signal?: AbortSignal): Promise<NodeGenResponse> =>
     post<NodeGenResponse>(`${API_BASE}/node`, req, signal),
+
+  /** 保存对话会话到 userdata/agent_sessions/ */
+  saveSession: (req: SaveSessionRequest): Promise<SaveSessionResponse> =>
+    post<SaveSessionResponse>(`${API_BASE}/save-session`, req),
 }

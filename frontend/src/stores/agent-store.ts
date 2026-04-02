@@ -5,6 +5,7 @@
  * - 聊天消息列表（持久化到 localStorage）
  * - Agent 运行状态
  * - 当前语义工作流（持久化）
+ * - 会话 ID（每次 clear 生成新 ID，Agent 调用时传入 API）
  */
 
 import { create } from 'zustand'
@@ -14,11 +15,22 @@ import type {
   SemanticWorkflow, YAMLResponse,
 } from '../types/semantic'
 
+/** 生成短 ID：{日期}-{随机6位} */
+function generateSessionId(): string {
+  const now = new Date()
+  const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+  const rand = Math.random().toString(36).slice(2, 8)
+  return `${date}-${rand}`
+}
+
 interface AgentState {
   // Chat UI
   messages: ChatMessage[]
   isOpen: boolean
   agentStatus: AgentStatus
+
+  // 当前会话 ID（跨 Agent 调用共享，clear 时重置）
+  sessionId: string
 
   // Current semantic workflow
   currentSemanticWorkflow: SemanticWorkflow | null
@@ -27,6 +39,10 @@ interface AgentState {
   // Actions — chat
   addMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => string
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void
+  /**
+   * 清空消息并重置会话。
+   * 如果 onBeforeClear 回调已由调用方处理保存，直接清空即可。
+   */
   clearMessages: () => void
 
   // Actions — panel
@@ -49,6 +65,7 @@ export const useAgentStore = create<AgentState>()(
       messages: [],
       isOpen: false,
       agentStatus: 'idle',
+      sessionId: generateSessionId(),
       currentSemanticWorkflow: null,
       currentYamlResult: null,
 
@@ -65,7 +82,13 @@ export const useAgentStore = create<AgentState>()(
           messages: s.messages.map((m) => m.id === id ? { ...m, ...updates } : m),
         })),
 
-      clearMessages: () => set({ messages: [], currentSemanticWorkflow: null, currentYamlResult: null }),
+      clearMessages: () =>
+        set({
+          messages: [],
+          currentSemanticWorkflow: null,
+          currentYamlResult: null,
+          sessionId: generateSessionId(),   // 新会话开始
+        }),
 
       toggleChat: () => set((s) => ({ isOpen: !s.isOpen })),
       openChat: () => set({ isOpen: true }),
@@ -78,18 +101,24 @@ export const useAgentStore = create<AgentState>()(
     {
       name: 'mf-agent-v1',
       storage: createJSONStorage(() => localStorage),
-      // 恢复时 agentStatus 始终重置为 idle（避免持久化 "planning" 等中间状态）
       partialize: (state) => ({
         messages: state.messages.filter((m) => !m.loading),
+        sessionId: state.sessionId,
         currentSemanticWorkflow: state.currentSemanticWorkflow,
         currentYamlResult: state.currentYamlResult,
       }),
-      merge: (persisted, current) => ({
-        ...current,
-        ...(persisted as Partial<AgentState>),
-        agentStatus: 'idle',   // 运行时状态不恢复
-        isOpen: false,         // 面板默认收起
-      }),
+      merge: (persisted, current) => {
+        const p = persisted as Partial<AgentState>
+        return {
+          ...current,
+          ...p,
+          // 运行时状态不恢复
+          agentStatus: 'idle',
+          isOpen: false,
+          // 旧 localStorage 无 sessionId 时，保留初始生成的值
+          sessionId: p.sessionId || current.sessionId,
+        }
+      },
     },
   ),
 )

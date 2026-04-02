@@ -5,10 +5,11 @@
  * - 消息列表（用户 / Agent / 系统）
  * - 自然语言输入框
  * - 调用 Planner → 显示 SemanticWorkflow → 调用 YAML Coder
+ * - Clear 前自动保存完整会话到 userdata/agent_sessions/
  */
 
 import { useState, useRef, useEffect, memo, useCallback } from 'react'
-import { Send, X, Trash2, Loader2, Square } from 'lucide-react'
+import { Send, X, Trash2, Loader2, Square, Save } from 'lucide-react'
 import { useAgentStore } from '../../stores/agent-store'
 import { useWorkflowStore } from '../../stores/workflow-store'
 import { useUIStore } from '../../stores/ui-store'
@@ -25,7 +26,7 @@ import type { SemanticWorkflow } from '../../types/semantic'
 
 export const ChatPanel = memo(() => {
   const {
-    messages, agentStatus, isOpen,
+    messages, agentStatus, isOpen, sessionId,
     addMessage, updateMessage, clearMessages,
     setAgentStatus, setSemanticWorkflow, setYamlResult,
     closeChat,
@@ -35,35 +36,102 @@ export const ChatPanel = memo(() => {
   const { showNotification } = useUIStore()
 
   const [input, setInput] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortCtrlRef = useRef<AbortController | null>(null)
 
   const isRunning = agentStatus !== 'idle'
 
-  // 取消当前正在运行的 Agent 请求
-  const handleStop = useCallback(() => {
+  // 取消当前正在运行的 Agent 请求（同时静默保存当前对话）
+  const handleStop = useCallback(async () => {
     abortCtrlRef.current?.abort()
     abortCtrlRef.current = null
     setAgentStatus('idle')
-  }, [setAgentStatus])
+    // 静默保存：中止时也保留已有对话记录
+    const currentMessages = useAgentStore.getState().messages
+    if (currentMessages.filter(m => !m.loading).length > 0) {
+      try {
+        await agentsApi.saveSession({
+          session_id: useAgentStore.getState().sessionId,
+          messages: currentMessages
+            .filter(m => !m.loading)
+            .map(m => ({
+              id: m.id, role: m.role, content: m.content, timestamp: m.timestamp,
+              has_semantic_workflow: !!m.semantic_workflow,
+              semantic_workflow: m.semantic_workflow ?? undefined,
+              has_yaml_result: !!m.yaml_result,
+              yaml_result: m.yaml_result ?? undefined,
+            })),
+        })
+        showNotification('info', '已中止，对话已自动保存')
+      } catch {
+        // 保存失败不影响主流程
+      }
+    }
+  }, [setAgentStatus, showNotification])
 
   // 自动滚动到最新消息
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, agentStatus])
 
+  // ── 保存会话 ──────────────────────────────────────────────────────────────
+  const handleSaveSession = useCallback(async (showFeedback = true) => {
+    const currentMessages = useAgentStore.getState().messages
+    if (currentMessages.length === 0) return
+
+    setIsSaving(true)
+    try {
+      // 序列化消息（去掉 loading 态 + 精简大型 payload 以减小传输）
+      const serialized = currentMessages
+        .filter((m) => !m.loading)
+        .map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp,
+          // 保留结构化数据
+          has_semantic_workflow: !!m.semantic_workflow,
+          semantic_workflow: m.semantic_workflow ?? undefined,
+          has_yaml_result: !!m.yaml_result,
+          yaml_result: m.yaml_result ?? undefined,
+        }))
+
+      const resp = await agentsApi.saveSession({
+        session_id: useAgentStore.getState().sessionId,
+        messages: serialized,
+      })
+
+      if (showFeedback) {
+        showNotification('success', `会话已保存 → ${resp.path}`)
+      }
+    } catch (err) {
+      if (showFeedback) {
+        showNotification('error', `保存失败: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    } finally {
+      setIsSaving(false)
+    }
+  }, [showNotification])
+
+  // ── Clear（先保存再清空）────────────────────────────────────────────────
+  const handleClearAndSave = useCallback(async () => {
+    if (messages.length === 0) return
+    await handleSaveSession(false)    // 静默保存
+    clearMessages()
+    showNotification('success', '会话已保存并清空')
+  }, [messages.length, handleSaveSession, clearMessages, showNotification])
+
   // ── 显示到画布 ────────────────────────────────────────────────────────────
   const handleShowOnCanvas = useCallback((workflow: SemanticWorkflow) => {
     const { nodes: newNodes, edges: newEdges } = semanticWorkflowToCanvasState(
       workflow,
       (stepId, nodeName) => {
-        // 用户手动选择实现 → 触发 YAML Coder
         handleAutoResolve(workflow, { [stepId]: nodeName })
       },
     )
 
-    // 保留现有画布节点，追加语义节点
     loadFromNodes([...nodes, ...newNodes], [...edges, ...newEdges])
     showNotification('success', `已添加 ${newNodes.length} 个语义节点到画布`)
     setSemanticWorkflow(workflow)
@@ -84,13 +152,13 @@ export const ChatPanel = memo(() => {
       const result = await agentsApi.generateYaml({
         semantic_workflow: workflow,
         selected_implementations: selectedImplementations ?? {},
+        session_id: sessionId,
       }, signal)
 
       // ── Replace pending canvas nodes with resolved implementations ──────────
       const resolutions = result.result?.resolutions ?? []
       let resolvedCount = 0
 
-      // Build a lookup: pending_step_id → canvas node id
       const currentNodes = useWorkflowStore.getState().nodes
       const pendingByStepId = new Map(
         currentNodes
@@ -107,7 +175,6 @@ export const ChatPanel = memo(() => {
           const detail = await nodesApi.get(resolution.resolved_node)
           const newData = {
             ...buildNodeData(detail),
-            // Carry over any onboard param overrides from YAML Coder
             onboard_params: {
               ...buildNodeData(detail).onboard_params,
               ...resolution.onboard_params,
@@ -122,7 +189,7 @@ export const ChatPanel = memo(() => {
 
       // ── Replace semantic edges with real port-level edges ───────────────────
       if (result.mf_yaml && resolvedCount > 0) {
-        const newEdges = buildResolvedEdges(result.mf_yaml, resolutions)
+        const newEdges = buildResolvedEdges(result.mf_yaml, resolutions, pendingByStepId)
         if (newEdges.length > 0) {
           const currentEdges = useWorkflowStore.getState().edges
           const keptEdges = currentEdges.filter((e) => e.type !== SEMANTIC_EDGE_TYPE)
@@ -164,7 +231,7 @@ export const ChatPanel = memo(() => {
       abortCtrlRef.current = null
       setAgentStatus('idle')
     }
-  }, [addMessage, updateMessage, setAgentStatus, setYamlResult, showNotification, updateNodeWithHistory])
+  }, [addMessage, updateMessage, setAgentStatus, setYamlResult, showNotification, updateNodeWithHistory, sessionId])
 
   // ── 发送消息 ──────────────────────────────────────────────────────────────
   const handleSend = async () => {
@@ -173,10 +240,7 @@ export const ChatPanel = memo(() => {
 
     setInput('')
 
-    // 添加用户消息
     addMessage({ role: 'user', content: trimmed })
-
-    // 添加 loading 消息
     const loadingId = addMessage({ role: 'agent', content: '', loading: true })
 
     abortCtrlRef.current = new AbortController()
@@ -187,6 +251,7 @@ export const ChatPanel = memo(() => {
 
       const result = await agentsApi.plan({
         intent: trimmed,
+        session_id: sessionId,
       }, signal)
 
       if (result.error && !result.semantic_workflow) {
@@ -251,10 +316,24 @@ export const ChatPanel = memo(() => {
           )}
         </div>
         <div className="flex items-center gap-1">
+          {/* 手动保存按钮 */}
           <button
-            onClick={clearMessages}
-            className="p-1 text-mf-text-muted hover:text-mf-text-primary hover:bg-mf-hover rounded"
-            title="Clear messages"
+            onClick={() => handleSaveSession(true)}
+            disabled={messages.length === 0 || isSaving || isRunning}
+            className="p-1 text-mf-text-muted hover:text-mf-text-primary hover:bg-mf-hover rounded disabled:opacity-30 disabled:cursor-not-allowed"
+            title={`保存当前会话 (ID: ${sessionId})`}
+          >
+            {isSaving
+              ? <Loader2 size={12} className="animate-spin" />
+              : <Save size={12} />
+            }
+          </button>
+          {/* Clear（保存 + 清空） */}
+          <button
+            onClick={handleClearAndSave}
+            disabled={messages.length === 0 || isRunning}
+            className="p-1 text-mf-text-muted hover:text-mf-text-primary hover:bg-mf-hover rounded disabled:opacity-30 disabled:cursor-not-allowed"
+            title="保存并清空对话"
           >
             <Trash2 size={12} />
           </button>
@@ -266,6 +345,13 @@ export const ChatPanel = memo(() => {
             <X size={12} />
           </button>
         </div>
+      </div>
+
+      {/* Session ID 提示条 */}
+      <div className="px-3 py-0.5 bg-mf-hover/30 border-b border-mf-border/50 flex-shrink-0">
+        <span className="text-[9px] text-mf-text-muted/60 font-mono">
+          session: {sessionId}
+        </span>
       </div>
 
       {/* Messages */}

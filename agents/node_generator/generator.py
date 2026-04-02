@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from agents.llm_config import LLMConfig
 from agents.common.prompt_loader import load_prompt
+from agents.common.session_logger import get_session
 from agents.node_generator.state import NodeGenState
 from agents.node_generator.knowledge import load_available_images, load_reference_nodes
 
@@ -110,11 +111,21 @@ def generate_node(state: NodeGenState) -> dict[str, Any]:
 
     llm = LLMConfig.get_chat_model(purpose="node_generator", temperature=0.1)
 
+    gen_messages = [
+        SystemMessage(content=system_content),
+        HumanMessage(content=user_content),
+    ]
+
     try:
-        response = llm.invoke([
-            SystemMessage(content=system_content),
-            HumanMessage(content=user_content),
-        ])
+        response = llm.invoke(gen_messages)
+
+        # ── 记录 LLM 调用 ──
+        session = get_session()
+        if session:
+            session.log_llm_call(
+                "generate", gen_messages, response.content,
+                iteration=iteration,
+            )
 
         sections = _parse_generated_output(response.content)
 
@@ -132,6 +143,12 @@ def generate_node(state: NodeGenState) -> dict[str, Any]:
         }
 
     except Exception as e:
+        session = get_session()
+        if session:
+            session.log_event("generate_error", {
+                "iteration": iteration,
+                "error": str(e),
+            })
         return {
             "nodespec_yaml": "",
             "run_sh": "",

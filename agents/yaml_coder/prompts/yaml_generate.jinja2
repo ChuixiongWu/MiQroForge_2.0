@@ -6,12 +6,12 @@
 > **Note on `planner_notes`**: The planner_notes field above contains high-level scientific rationale only.
 > It has NO knowledge of specific port names, file formats, or software internals.
 > **Never use planner_notes to determine port connections.**
-> Port connections MUST be derived solely from the port definitions listed in the system prompt.
+> Port connections MUST be derived solely from get_node_details() tool results.
 
-## Node Resolutions (step → node mapping):
+## Suggested Nodes per Step (names only — use get_node_details for full spec):
 {% for res in resolutions %}
-- Step **{{ res.step_id }}** → Node: **{{ res.resolved_node or '(none)' }}**
-  {% if res.onboard_params %}Chemistry params hint: {{ res.onboard_params }}{% endif %}
+- Step **{{ res.step_id }}**: {{ res.resolved_node or '(none — use search_nodes_by_semantic_type to find one)' }}
+  {% if res.onboard_params %}Constraints hint: {{ res.onboard_params }}{% endif %}
 {% endfor %}
 
 ## User Parameters:
@@ -42,4 +42,10 @@
 {% endif %}
 {% endif %}
 
-Generate the complete MF YAML for this workflow now:
+**Important**:
+- Before generating the YAML, call get_node_details() for each node to verify exact
+  port names and onboard_params. Do NOT guess port names.
+- **Use the semantic step ID (step-1, step-2, …) as each node's instance `id`.**
+  This is required for frontend canvas mapping. See the example in the system prompt.
+
+Generate the complete MF YAML for this workflow:

@@ -65,6 +65,7 @@ export interface PlanRequest {
   intent: string
   molecule?: string
   preferences?: string
+  session_id?: string
 }
 
 export interface PlanResponse {
@@ -78,6 +79,7 @@ export interface YAMLRequest {
   semantic_workflow: SemanticWorkflow
   user_params?: Record<string, unknown>
   selected_implementations?: Record<string, string>
+  session_id?: string
 }
 
 export interface YAMLResponse {

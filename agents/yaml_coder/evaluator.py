@@ -17,6 +17,7 @@ from langchain_core.messages import HumanMessage
 from agents.llm_config import LLMConfig
 from agents.schemas import EvaluationResult
 from agents.common.prompt_loader import load_prompt
+from agents.common.session_logger import get_session
 from agents.yaml_coder.state import YAMLCoderState
 
 
@@ -100,6 +101,16 @@ def evaluate_yaml(state: YAMLCoderState) -> dict[str, Any]:
     validation_errors = val["errors"]
     validation_warnings = val["warnings"]
 
+    # ── 记录程序化校验结果 ──
+    session = get_session()
+    if session:
+        session.log_event("evaluate_programmatic", {
+            "iteration": iteration,
+            "valid": validation_valid,
+            "errors": validation_errors,
+            "warnings": validation_warnings,
+        })
+
     # LLM 意图评判
     semantic_workflow = state.get("semantic_workflow")
     semantic_workflow_json = (
@@ -117,8 +128,19 @@ def evaluate_yaml(state: YAMLCoderState) -> dict[str, Any]:
 
     llm = LLMConfig.get_chat_model(purpose="evaluator", temperature=0.0)
 
+    eval_messages = [HumanMessage(content=prompt)]
+
     try:
-        response = llm.invoke([HumanMessage(content=prompt)])
+        response = llm.invoke(eval_messages)
+
+        # ── 记录评判 LLM 调用 ──
+        session = get_session()
+        if session:
+            session.log_llm_call(
+                "evaluate", eval_messages, response.content,
+                iteration=iteration,
+            )
+
         raw_json = _extract_json(response.content)
         data = json.loads(raw_json)
 
@@ -135,6 +157,12 @@ def evaluate_yaml(state: YAMLCoderState) -> dict[str, Any]:
         )
     except Exception as e:
         # 评判失败，仅依赖程序化结果
+        session = get_session()
+        if session:
+            session.log_event("evaluate_error", {
+                "iteration": iteration,
+                "error": str(e),
+            })
         result = EvaluationResult(
             passed=validation_valid,
             issues=validation_errors if not validation_valid else [],

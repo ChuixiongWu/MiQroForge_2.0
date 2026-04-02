@@ -3,9 +3,10 @@
 检查 SemanticWorkflow 的：
 1. 完整性（是否回答了用户目标）
 2. DAG 无环
-3. 语义类型合法性
-4. 边端点有效性
-5. 科学合理性（如频率分析前需要几何优化）
+3. 边端点有效性
+4. constraints 清洁（只允许 geometry_file / inline_geometry）
+
+不检查：语义类型是否在注册表中（允许新类型）、科学计算策略合理性（尊重用户意图）
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from agents.llm_config import LLMConfig
 from agents.schemas import EvaluationResult
 from agents.common.prompt_loader import load_prompt
+from agents.common.session_logger import get_session
 from agents.planner.state import PlannerState
 
 
@@ -62,13 +64,14 @@ def _programmatic_check(state: PlannerState) -> list[str]:
                 issues.append("工作流包含循环依赖（DAG 校验失败）")
                 break
 
-    # 检查语义类型合法性
-    semantic_types = state.get("semantic_types") or {}
+    # 检查 constraints 清洁：只允许 geometry_file / inline_geometry
+    allowed_constraint_keys = {"geometry_file", "inline_geometry"}
     for step in workflow.steps:
-        if semantic_types and step.semantic_type not in semantic_types:
+        bad_keys = [k for k in step.constraints if k not in allowed_constraint_keys]
+        if bad_keys:
             issues.append(
-                f"步骤 '{step.id}' 的 semantic_type '{step.semantic_type}' "
-                f"不在注册表中。合法值: {list(semantic_types.keys())}"
+                f"步骤 '{step.id}' 的 constraints 包含计算参数 {bad_keys}，"
+                f"Planner 不应设置计算细节（method/basis/charge 等）"
             )
 
     return issues
@@ -104,6 +107,14 @@ def evaluate_plan(state: PlannerState) -> dict[str, Any]:
             suggestions=["修正上述程序化检查失败项"],
             iteration=iteration,
         )
+        # ── 记录程序化检查结果 ──
+        session = get_session()
+        if session:
+            session.log_event("evaluate_programmatic", {
+                "iteration": iteration,
+                "passed": False,
+                "issues": prog_issues,
+            })
         return {"evaluation": result}
 
     # LLM 评判
@@ -122,8 +133,19 @@ def evaluate_plan(state: PlannerState) -> dict[str, Any]:
 
     llm = LLMConfig.get_chat_model(purpose="evaluator", temperature=0.0)
 
+    eval_messages = [HumanMessage(content=system_content)]
+
     try:
-        response = llm.invoke([HumanMessage(content=system_content)])
+        response = llm.invoke(eval_messages)
+
+        # ── 记录评判 LLM 调用 ──
+        session = get_session()
+        if session:
+            session.log_llm_call(
+                "evaluate", eval_messages, response.content,
+                iteration=iteration,
+            )
+
         raw_json = _extract_json(response.content)
         data = json.loads(raw_json)
 
@@ -135,6 +157,13 @@ def evaluate_plan(state: PlannerState) -> dict[str, Any]:
         )
     except Exception as e:
         # 评判失败则放行（避免卡死）
+        session = get_session()
+        if session:
+            session.log_event("evaluate_error", {
+                "iteration": iteration,
+                "error": str(e),
+                "auto_pass": True,
+            })
         result = EvaluationResult(
             passed=True,
             issues=[],

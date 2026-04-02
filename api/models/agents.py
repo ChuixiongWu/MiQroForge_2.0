@@ -22,6 +22,7 @@ class PlanRequest(BaseModel):
     intent: str = Field(..., description="用户意图（自然语言），如 'Calculate thermodynamic properties of H₂O'")
     molecule: str = Field(default="", description="目标分子，如 'H₂O'")
     preferences: str = Field(default="", description="用户偏好，如 'use DFT/B3LYP'")
+    session_id: Optional[str] = Field(default=None, description="会话 ID，用于日志归组（前端生成）")
 
 
 class PlanResponse(BaseModel):
@@ -48,6 +49,7 @@ class YAMLRequest(BaseModel):
         default_factory=dict,
         description="step_id → node_name 的手动选择（可选，覆盖 RAG 选择）",
     )
+    session_id: Optional[str] = Field(default=None, description="会话 ID，用于日志归组")
 
 
 class YAMLResponse(BaseModel):
@@ -70,6 +72,7 @@ class NodeGenAPIRequest(BaseModel):
     target_software: Optional[str] = Field(default=None, description="目标软件，如 'ORCA'")
     target_method: Optional[str] = Field(default=None, description="目标计算方法，如 'B3LYP'")
     category: str = Field(default="chemistry", description="节点分类目录")
+    session_id: Optional[str] = Field(default=None, description="会话 ID，用于日志归组")
 
 
 class NodeGenAPIResponse(BaseModel):
@@ -81,3 +84,22 @@ class NodeGenAPIResponse(BaseModel):
     saved_path: Optional[str] = None
     evaluation: Optional[EvaluationResult] = None
     error: Optional[str] = None
+
+
+# ─── Save Session ─────────────────────────────────────────────────────────────
+
+class SaveSessionRequest(BaseModel):
+    """POST /api/v1/agents/save-session 请求体。"""
+    session_id: str = Field(..., description="会话 ID（前端生成的唯一标识）")
+    messages: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="前端 ChatMessage 列表（完整对话历史）",
+    )
+
+
+class SaveSessionResponse(BaseModel):
+    """POST /api/v1/agents/save-session 响应体。"""
+    saved: bool
+    session_id: str
+    path: str = Field(default="", description="保存路径（相对于项目根目录）")
+    message_count: int = Field(default=0)
