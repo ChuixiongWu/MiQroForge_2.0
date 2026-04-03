@@ -32,7 +32,7 @@ export const workflowsApi = {
     return fetchJSON(`${BASE}/workflows/compile`, jsonBody({ yaml_content: yamlContent }))
   },
 
-  submit(yamlContent: string, namespace?: string): Promise<WorkflowSubmitResponse> {
-    return fetchJSON(`${BASE}/workflows/submit`, jsonBody({ yaml_content: yamlContent, namespace }))
+  submit(yamlContent: string, projectId?: string): Promise<WorkflowSubmitResponse> {
+    return fetchJSON(`${BASE}/workflows/submit`, jsonBody({ yaml_content: yamlContent, project_id: projectId || undefined }))
   },
 }

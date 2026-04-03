@@ -16,8 +16,8 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const argoApi = {
-  listRuns(namespace?: string): Promise<RunListResponse> {
-    const q = namespace ? `?namespace=${encodeURIComponent(namespace)}` : ''
+  listRuns(projectId?: string): Promise<RunListResponse> {
+    const q = projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''
     return fetchJSON(`${BASE}/runs${q}`)
   },
 
@@ -30,12 +30,14 @@ export const argoApi = {
     return fetchJSON(`${BASE}/runs/${encodeURIComponent(name)}/logs${q}`)
   },
 
-  deleteRun(name: string): Promise<void> {
-    return fetchJSON(`${BASE}/runs/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  deleteRun(name: string, projectId?: string): Promise<void> {
+    const q = projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''
+    return fetchJSON(`${BASE}/runs/${encodeURIComponent(name)}${q}`, { method: 'DELETE' })
   },
 
   /** 将运行输出参数写入服务器 runs/{name}/outputs.json（终态时调用）*/
-  saveOutputs(name: string): Promise<{ saved: boolean; outputs_count: number }> {
-    return fetchJSON(`${BASE}/runs/${encodeURIComponent(name)}/save-outputs`, { method: 'POST' })
+  saveOutputs(name: string, projectId?: string): Promise<{ saved: boolean; outputs_count: number }> {
+    const q = projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''
+    return fetchJSON(`${BASE}/runs/${encodeURIComponent(name)}/save-outputs${q}`, { method: 'POST' })
   },
 }

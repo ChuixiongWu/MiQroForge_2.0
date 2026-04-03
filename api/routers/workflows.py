@@ -121,9 +121,11 @@ def submit_workflow(
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=f"Argo submission failed: {str(e)}")
 
-    # 3. 保存 MF YAML + Argo YAML 到 runs/{name}/
+    # 3. 保存 MF YAML + Argo YAML 到项目作用域 runs/{name}/
     run_name = submit_result["workflow_name"]
-    run_dir = settings.project_root / "runs" / run_name
+    if not req.project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    run_dir = settings.userdata_root / "projects" / req.project_id / "runs" / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "mf-workflow.yaml").write_text(req.yaml_content, encoding="utf-8")
     (run_dir / "argo-workflow.yaml").write_text(result["argo_yaml"], encoding="utf-8")

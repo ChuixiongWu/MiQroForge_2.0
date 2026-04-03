@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { argoApi } from '../api/argo-api'
 import { useRunOverlayStore } from '../stores/run-overlay-store'
+import { useProjectStore } from '../stores/project-store'
 
 const TERMINAL = new Set(['Succeeded', 'Failed', 'Error', 'PartialSuccess'])
 
@@ -27,7 +28,8 @@ export function useRunOverlayPolling() {
       // Save outputs to runs/ when run first reaches a terminal state
       if (TERMINAL.has(detail.phase) && savedRef.current !== activeRunName) {
         savedRef.current = activeRunName
-        argoApi.saveOutputs(activeRunName!).catch(() => {})
+        const projectId = useProjectStore.getState().currentProjectId ?? undefined
+        argoApi.saveOutputs(activeRunName!, projectId).catch(() => {})
       }
 
       return detail

@@ -25,11 +25,24 @@ def get_argo_service(settings: Settings = Depends(get_settings)) -> ArgoService:
 
 
 @router.get("", response_model=RunListResponse, summary="列出所有运行")
-def list_runs(argo: ArgoService = Depends(get_argo_service)) -> RunListResponse:
+def list_runs(
+    project_id: str | None = None,
+    argo: ArgoService = Depends(get_argo_service),
+    settings: Settings = Depends(get_settings),
+) -> RunListResponse:
     try:
         runs = argo.list_workflows()
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+    # If project_id provided, filter by local filesystem runs directory
+    if project_id:
+        project_runs_dir = settings.userdata_root / "projects" / project_id / "runs"
+        if project_runs_dir.exists():
+            local_run_names = {d.name for d in project_runs_dir.iterdir() if d.is_dir()}
+            runs = [r for r in runs if r.get("name") in local_run_names]
+        else:
+            runs = []
 
     return RunListResponse(
         total=len(runs),
@@ -58,6 +71,7 @@ def get_run(name: str, argo: ArgoService = Depends(get_argo_service)) -> RunDeta
 @router.delete("/{name}", status_code=204, summary="删除运行")
 def delete_run(
     name: str,
+    project_id: str | None = None,
     argo: ArgoService = Depends(get_argo_service),
     settings: Settings = Depends(get_settings),
 ) -> None:
@@ -66,10 +80,11 @@ def delete_run(
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
-    # Sync: remove local userdata/runs/{name}/ directory (outputs.json etc.) if present
-    run_dir = settings.userdata_root / "runs" / name
-    if run_dir.exists():
-        shutil.rmtree(run_dir)
+    # Sync: remove local run directory
+    if project_id:
+        run_dir = settings.userdata_root / "projects" / project_id / "runs" / name
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
 
 
 @router.get("/{name}/logs", response_model=RunLogsResponse, summary="运行日志")
@@ -85,6 +100,7 @@ def get_run_logs(name: str, argo: ArgoService = Depends(get_argo_service)) -> Ru
 @router.post("/{name}/save-outputs", summary="保存运行输出到 runs/ 目录")
 def save_run_outputs(
     name: str,
+    project_id: str | None = None,
     argo: ArgoService = Depends(get_argo_service),
     settings: Settings = Depends(get_settings),
 ) -> dict:
@@ -113,7 +129,9 @@ def save_run_outputs(
             if param.get("name") and param.get("value") is not None:
                 node_outputs[f"{canvas_id}.{param['name']}"] = str(param["value"])
 
-    run_dir = settings.userdata_root / "runs" / name
+    if not project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    run_dir = settings.userdata_root / "projects" / project_id / "runs" / name
     run_dir.mkdir(parents=True, exist_ok=True)
     outputs_path = run_dir / "outputs.json"
     outputs_path.write_text(

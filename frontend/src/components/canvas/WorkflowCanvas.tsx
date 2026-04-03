@@ -47,6 +47,10 @@ export function WorkflowCanvas() {
     updateNodeWithHistory, undoNode, redoNode,
     nodeHistory,
   } = useWorkflowStore()
+  const deleteEdge = useCallback(
+    (edgeId: string) => onEdgesChange([{ id: edgeId, type: 'remove' }]),
+    [onEdgesChange],
+  )
   const { selectNode } = useUIStore()
   const { isValidConnection: checkConnection } = useConnectionValidator()
   const { fitView } = useReactFlow()
@@ -66,6 +70,27 @@ export function WorkflowCanvas() {
     selectNode(null)
     setContextMenu(null)
   }, [selectNode])
+
+  // Edge deletion: double-click on edge deletes it
+  const onEdgeDoubleClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => {
+      deleteEdge(edge.id)
+    },
+    [deleteEdge],
+  )
+
+  // Handle × button click on edge (via event delegation on canvas wrapper)
+  const handleCanvasClick = useCallback(
+    (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement
+      const btn = target.closest('[data-edge-id]') as HTMLElement | null
+      if (btn) {
+        e.stopPropagation()
+        deleteEdge(btn.dataset.edgeId!)
+      }
+    },
+    [deleteEdge],
+  )
 
   // Right-click context menu on a node
   const onNodeContextMenu = useCallback(
@@ -297,7 +322,7 @@ export function WorkflowCanvas() {
   const redoLabel = displayKey(useShortcutsStore.getState().bindings.nodeRedo)
 
   return (
-    <div ref={reactFlowWrapper} className="flex-1 h-full relative">
+    <div ref={reactFlowWrapper} className="flex-1 h-full relative" onClick={handleCanvasClick}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -305,6 +330,7 @@ export function WorkflowCanvas() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onEdgeDoubleClick={onEdgeDoubleClick}
         onPaneClick={onPaneClick}
         onNodeContextMenu={onNodeContextMenu}
         onDragOver={onDragOver}

@@ -36,6 +36,10 @@ interface AgentState {
   currentSemanticWorkflow: SemanticWorkflow | null
   currentYamlResult: YAMLResponse | null
 
+  // Project scope
+  _projectId: string | null
+  setProjectId: (id: string | null) => void
+
   // Actions — chat
   addMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => string
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void
@@ -68,6 +72,9 @@ export const useAgentStore = create<AgentState>()(
       sessionId: generateSessionId(),
       currentSemanticWorkflow: null,
       currentYamlResult: null,
+      _projectId: null,
+
+      setProjectId: (id) => set({ _projectId: id }),
 
       addMessage: (msg) => {
         const id = nextId()

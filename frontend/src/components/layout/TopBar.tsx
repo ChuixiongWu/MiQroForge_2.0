@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useWorkflowStore } from '../../stores/workflow-store'
 import { useUIStore } from '../../stores/ui-store'
 import { useSavedWorkflowsStore } from '../../stores/saved-workflows-store'
 import { useRunOverlayStore } from '../../stores/run-overlay-store'
 import { useAgentStore } from '../../stores/agent-store'
+import { useProjectStore } from '../../stores/project-store'
 import { useWorkflowValidation } from '../../hooks/useWorkflowValidation'
 import { workflowsApi } from '../../api/workflows-api'
+import { projectsApi } from '../../api/projects-api'
 import {
   rfStateToWorkflowDoc,
   workflowDocToYaml,
@@ -26,6 +29,7 @@ import { phaseEmoji } from '../../lib/phase-utils'
 // ─── TopBar ───────────────────────────────────────────────────────────────────
 
 export function TopBar() {
+  const navigate = useNavigate()
   const { meta, setMeta, nodes, edges, clearCanvas, loadFromNodes } = useWorkflowStore()
   const {
     rightPanel, setRightPanel, filesOpen, toggleFiles,
@@ -36,6 +40,8 @@ export function TopBar() {
   const { setActiveRun } = useRunOverlayStore()
   const { validate, getYaml } = useWorkflowValidation()
   const { isOpen: chatOpen, toggleChat } = useAgentStore()
+  const currentProjectMeta = useProjectStore((s) => s.currentProjectMeta)
+  const currentProjectId = useProjectStore((s) => s.currentProjectId)
 
   const [editingName, setEditingName] = useState(false)
   const [nameVal, setNameVal] = useState(meta.name)
@@ -57,14 +63,30 @@ export function TopBar() {
     setEditingName(false)
   }
 
-  // ── Save workflow to localStorage ────────────────────────────────────────
-  const handleSave = () => {
+  // ── Save workflow ────────────────────────────────────────────────────────
+  const handleSave = async () => {
     if (nodes.length === 0) {
       showNotification('info', 'Canvas is empty — nothing to save')
       return
     }
+
+    // If inside a project, create a backend snapshot
+    if (currentProjectId) {
+      try {
+        const canvas = {
+          meta: JSON.parse(JSON.stringify(meta)),
+          nodes: JSON.parse(JSON.stringify(nodes)),
+          edges: JSON.parse(JSON.stringify(edges)),
+        }
+        await projectsApi.createSnapshot(currentProjectId, meta.name, canvas)
+        showNotification('success', `Snapshot saved for "${meta.name}"`)
+      } catch (err) {
+        showNotification('error', `Snapshot failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // Also save to frontend localStorage for the Saved Workflows sidebar
     saveWorkflow(meta, nodes, edges)
-    showNotification('success', `Saved "${meta.name}"`)
   }
 
   // ── Export MF YAML ───────────────────────────────────────────────────────
@@ -174,7 +196,8 @@ export function TopBar() {
 
       // Step 2: Submit (backend compiles internally)
       const mfYaml = getYaml()
-      const resp = await workflowsApi.submit(mfYaml)
+      const projectId = useProjectStore.getState().currentProjectId ?? undefined
+      const resp = await workflowsApi.submit(mfYaml, projectId)
 
       // Persist canvas snapshot + validation warnings for the run detail view
       saveRunSnapshot(
@@ -214,16 +237,30 @@ export function TopBar() {
 
   return (
     <div className="flex items-center h-10 px-3 bg-mf-panel border-b border-mf-border gap-3 flex-shrink-0">
-      {/* Logo */}
-      <div className="flex items-center gap-1.5 flex-shrink-0">
+      {/* Logo — click to go back to gallery */}
+      <button
+        onClick={() => navigate('/')}
+        className="flex items-center gap-1.5 flex-shrink-0 hover:opacity-80 transition-opacity"
+        title="Back to Project Gallery"
+      >
         <img src="/logo.png" alt="MiQroForge" className="h-6 w-auto" />
         <span className="text-sm font-bold text-mf-text-primary tracking-tight">MiQroForge</span>
         <span className="text-[10px] text-mf-text-muted border border-mf-border rounded px-1">2.0</span>
-      </div>
+      </button>
 
       <div className="w-px h-5 bg-mf-border" />
 
-      {/* Workflow name */}
+      {/* Project / Workflow breadcrumb */}
+      {currentProjectMeta && (
+        <span className="text-xs text-mf-text-muted truncate max-w-32 flex-shrink-0">
+          {currentProjectMeta.name}
+        </span>
+      )}
+      {currentProjectMeta && (
+        <span className="text-xs text-mf-text-muted">/</span>
+      )}
+
+      {/* Workflow name (editable) */}
       {editingName ? (
         <input
           autoFocus

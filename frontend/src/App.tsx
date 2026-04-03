@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReactFlowProvider } from '@xyflow/react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom'
 import { useEffect } from 'react'
 
 import { TopBar, StatusBar } from './components/layout/TopBar'
@@ -13,8 +13,12 @@ import { FilesPanel } from './components/files/FilesPanel'
 import { SettingsPanel } from './components/settings/SettingsPanel'
 import { UnitsPage } from './components/docs/UnitsPage'
 import { ChatPanel } from './components/chat/ChatPanel'
+import { ProjectGallery } from './pages/ProjectGallery'
 import { useUIStore } from './stores/ui-store'
 import { useAgentStore } from './stores/agent-store'
+import { setSavedWorkflowsProjectId } from './stores/saved-workflows-store'
+import { useProjectStore } from './stores/project-store'
+import { useWorkflowStore } from './stores/workflow-store'
 import { nodesApi } from './api/nodes-api'
 import { setSemanticRegistry } from './lib/semantic-labels'
 import { useRunOverlayPolling } from './hooks/useRunOverlayPolling'
@@ -35,11 +39,16 @@ const queryClient = new QueryClient({
 // ─── Main canvas layout ─────────────────────────────────────────────────────
 
 function CanvasLayout() {
+  const { projectId } = useParams<{ projectId: string }>()
   const rightPanel      = useUIStore((s) => s.rightPanel)
   const paletteCollapsed = useUIStore((s) => s.paletteCollapsed)
   const filesOpen       = useUIStore((s) => s.filesOpen)
   const selectedNodeId  = useUIStore((s) => s.selectedNodeId)
   const chatOpen        = useAgentStore((s) => s.isOpen)
+
+  const loadProject = useProjectStore((s) => s.loadProject)
+  const clearProject = useProjectStore((s) => s.clearProject)
+  const loadFromNodes = useWorkflowStore((s) => s.loadFromNodes)
 
   // Mount run overlay polling at app level (persists across panel changes)
   useRunOverlayPolling()
@@ -52,6 +61,46 @@ function CanvasLayout() {
       .then((data) => setSemanticRegistry(data.types))
       .catch(() => { /* silently fall back to hardcoded labels */ })
   }, [])
+
+  // Load project and canvas data when projectId changes
+  useEffect(() => {
+    if (!projectId) return
+
+    let cancelled = false
+    setSavedWorkflowsProjectId(projectId)
+    useWorkflowStore.getState().setProjectId(projectId)
+    ;(async () => {
+      await loadProject(projectId)
+      if (cancelled) return
+      try {
+        const canvas = await useProjectStore.getState().loadCanvas()
+        if (cancelled) return
+        if (!canvas || ((!canvas.nodes || canvas.nodes.length === 0) && (!canvas.edges || canvas.edges.length === 0))) {
+          // Empty project — clear canvas to prevent stale localStorage bleed-through
+          useWorkflowStore.getState().clearCanvas()
+          return
+        }
+        const nodes = canvas.nodes as Parameters<typeof loadFromNodes>[0]
+        const edges = canvas.edges as Parameters<typeof loadFromNodes>[1]
+        if (nodes.length > 0 || edges.length > 0) {
+          loadFromNodes(nodes, edges)
+          if (canvas.meta && typeof canvas.meta === 'object') {
+            useWorkflowStore.getState().setMeta(canvas.meta as import('./types/workflow').WorkflowMeta)
+          }
+        }
+      } catch { /* empty project, no canvas yet */ }
+    })()
+
+    return () => {
+      cancelled = true
+      // Save canvas on unmount
+      useProjectStore.getState().saveCanvas().catch(() => {})
+      clearProject()
+      setSavedWorkflowsProjectId(null)
+      useWorkflowStore.getState().setProjectId(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
 
   return (
     <div className="flex flex-col h-screen bg-mf-base overflow-hidden">
@@ -99,7 +148,8 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={
+          <Route path="/" element={<ProjectGallery />} />
+          <Route path="/project/:projectId" element={
             <ReactFlowProvider>
               <CanvasLayout />
             </ReactFlowProvider>

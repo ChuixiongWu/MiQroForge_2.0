@@ -51,8 +51,24 @@ export interface RunSnapshot {
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────
 
-const WF_KEY  = 'mf2:saved-workflows'
-const RUN_KEY = 'mf2:run-snapshots'
+let WF_KEY  = 'mf2:saved-workflows'
+let RUN_KEY = 'mf2:run-snapshots'
+
+/** Set project-scoped localStorage keys */
+export function setSavedWorkflowsProjectId(projectId: string | null) {
+  if (projectId) {
+    WF_KEY = `mf2:saved-workflows-${projectId}`
+    RUN_KEY = `mf2:run-snapshots-${projectId}`
+  } else {
+    WF_KEY = 'mf2:saved-workflows'
+    RUN_KEY = 'mf2:run-snapshots'
+  }
+  // Reload state from new keys
+  useSavedWorkflowsStore.setState({
+    savedWorkflows: loadLS<SavedWorkflow[]>(WF_KEY, []),
+    runSnapshots: loadLS<Record<string, RunSnapshot>>(RUN_KEY, {}),
+  })
+}
 
 function loadLS<T>(key: string, fallback: T): T {
   try {
@@ -123,13 +139,19 @@ export const useSavedWorkflowsStore = create<SavedWorkflowsState>((set, get) => 
   runSnapshots:   loadLS<Record<string, RunSnapshot>>(RUN_KEY, {}),
 
   saveWorkflow: (meta, nodes, edges) => {
+    const existing = get().savedWorkflows.find((w) => w.name === meta.name)
     const entry: SavedWorkflow = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: existing?.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       name: meta.name,
       savedAt: new Date().toISOString(),
       snapshot: serializeCanvas(meta, nodes, edges),
     }
-    const updated = [entry, ...get().savedWorkflows]
+    let updated: SavedWorkflow[]
+    if (existing) {
+      updated = get().savedWorkflows.map((w) => (w.id === existing.id ? entry : w))
+    } else {
+      updated = [entry, ...get().savedWorkflows]
+    }
     saveLS(WF_KEY, updated)
     set({ savedWorkflows: updated })
   },

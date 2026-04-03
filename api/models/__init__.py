@@ -9,6 +9,19 @@ from .workflows import (
     WorkflowValidateResponse,
 )
 from .runs import RunDetailResponse, RunListResponse, RunLogsResponse, RunSummaryResponse
+from .projects import (
+    CanvasState,
+    ConversationCreateRequest,
+    ConversationDetail,
+    ConversationMeta,
+    ProjectCreateRequest,
+    ProjectDuplicateRequest,
+    ProjectListResponse,
+    ProjectMeta,
+    ProjectUpdateRequest,
+    SnapshotListResponse,
+    SnapshotMeta,
+)
 
 __all__ = [
     "PortSummaryResponse",
@@ -25,4 +38,15 @@ __all__ = [
     "RunListResponse",
     "RunDetailResponse",
     "RunLogsResponse",
+    "CanvasState",
+    "ConversationCreateRequest",
+    "ConversationDetail",
+    "ConversationMeta",
+    "ProjectCreateRequest",
+    "ProjectDuplicateRequest",
+    "ProjectListResponse",
+    "ProjectMeta",
+    "ProjectUpdateRequest",
+    "SnapshotListResponse",
+    "SnapshotMeta",
 ]

@@ -33,6 +33,9 @@ CLAUDE.md
 frontend/dist/
 frontend/node_modules/
 
+# ── Backup files ──────────────────────────────────
+bak/
+
 # ── Workflow runs & logs ────────────────────────────
 # 运行时产生的工作流输出和日志，不入库
 runs/

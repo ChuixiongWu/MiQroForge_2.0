@@ -70,6 +70,10 @@ interface WorkflowState {
   validationResult: ValidationResult | null
   isValidating: boolean
 
+  // Project-scoped persistence key
+  _projectId: string | null
+  setProjectId: (id: string | null) => void
+
   // Actions
   setMeta: (meta: Partial<WorkflowMeta>) => void
   onNodesChange: (changes: NodeChange<RFNode<MFNodeData>>[]) => void
@@ -97,7 +101,36 @@ function _stripCallbacks(node: RFNode<MFNodeData>): RFNode<MFNodeData> {
   return { ...node, data: rest as MFNodeData }
 }
 
+// ─── Debounced backend sync ───────────────────────────────────────────────────
+
+let _syncTimer: ReturnType<typeof setTimeout> | null = null
+let _lastSerialized = ''
+
+function _debouncedBackendSync() {
+  if (_syncTimer) clearTimeout(_syncTimer)
+  _syncTimer = setTimeout(() => {
+    const state = useWorkflowStore.getState()
+    if (!state._projectId) return
+
+    // Diff check — skip if nothing changed
+    const serialized = JSON.stringify({
+      meta: state.meta,
+      nodes: state.nodes.map(_stripCallbacks),
+      edges: state.edges,
+    })
+    if (serialized === _lastSerialized) return
+    _lastSerialized = serialized
+
+    import('./project-store').then(({ useProjectStore }) => {
+      useProjectStore.getState().saveCanvas().catch(() => {})
+    })
+  }, 2000)
+}
+
 // ─── Store implementation ─────────────────────────────────────────────────────
+
+// Dynamic storage name: changes when project changes
+let _storageName = 'mf-canvas-v1'
 
 export const useWorkflowStore = create<WorkflowState>()(
   persist(
@@ -108,34 +141,75 @@ export const useWorkflowStore = create<WorkflowState>()(
       nodeHistory: {},
       validationResult: null,
       isValidating: false,
+      _projectId: null,
+
+      setProjectId: (id) => {
+        set({ _projectId: id })
+        if (id) {
+          _storageName = `mf-canvas-${id}`
+        } else {
+          _storageName = 'mf-canvas-v1'
+        }
+      },
 
       setMeta: (partial) =>
-        set((s) => ({ meta: { ...s.meta, ...partial } })),
+        set((s) => {
+          const next = { meta: { ...s.meta, ...partial } }
+          _debouncedBackendSync()
+          return next
+        }),
 
       onNodesChange: (changes) =>
-        set((s) => ({ nodes: applyNodeChanges(changes, s.nodes) })),
+        set((s) => {
+          const next = applyNodeChanges(changes, s.nodes)
+          _debouncedBackendSync()
+          return { nodes: next }
+        }),
 
       onEdgesChange: (changes) =>
-        set((s) => ({ edges: applyEdgeChanges(changes, s.edges) })),
+        set((s) => {
+          const next = applyEdgeChanges(changes, s.edges)
+          _debouncedBackendSync()
+          return { edges: next }
+        }),
 
       onConnect: (connection) =>
-        set((s) => ({
-          edges: [
-            ...s.edges,
-            {
-              ...connection,
-              id: `e-${connection.source}.${connection.sourceHandle}-${connection.target}.${connection.targetHandle}`,
-              type: 'mfEdge',
-            } as RFEdge,
-          ],
-        })),
+        set((s) => {
+          // Look up source port info for edge coloring
+          const sourceNode = s.nodes.find((n) => n.id === connection.source)
+          const sourcePort = connection.sourceHandle
+            ? (sourceNode?.data as MFNodeData | undefined)?.stream_outputs?.find(
+                (p) => p.name === connection.sourceHandle,
+              )
+            : undefined
+          const edgeData = sourcePort
+            ? { sourcePort: { name: sourcePort.name, category: sourcePort.category } }
+            : undefined
+
+          _debouncedBackendSync()
+          return {
+            edges: [
+              ...s.edges,
+              {
+                ...connection,
+                id: `e-${connection.source}.${connection.sourceHandle}-${connection.target}.${connection.targetHandle}`,
+                type: 'mfEdge',
+                data: edgeData,
+              } as RFEdge,
+            ],
+          }
+        }),
 
       addNode: (node) =>
-        set((s) => ({ nodes: [...s.nodes, node] })),
+        set((s) => {
+          _debouncedBackendSync()
+          return { nodes: [...s.nodes, node] }
+        }),
 
       removeNode: (nodeId) =>
         set((s) => {
           const { [nodeId]: _dropped, ...restHistory } = s.nodeHistory
+          _debouncedBackendSync()
           return {
             nodes: s.nodes.filter((n) => n.id !== nodeId),
             edges: s.edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
@@ -144,13 +218,16 @@ export const useWorkflowStore = create<WorkflowState>()(
         }),
 
       updateNodeParams: (nodeId, params) =>
-        set((s) => ({
-          nodes: s.nodes.map((n) =>
-            n.id === nodeId
-              ? { ...n, data: { ...n.data, onboard_params: { ...n.data.onboard_params, ...params } } }
-              : n,
-          ),
-        })),
+        set((s) => {
+          _debouncedBackendSync()
+          return {
+            nodes: s.nodes.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, onboard_params: { ...n.data.onboard_params, ...params } } }
+                : n,
+            ),
+          }
+        }),
 
       // ── Implementation history actions ──────────────────────────────────────
 
@@ -159,6 +236,7 @@ export const useWorkflowStore = create<WorkflowState>()(
           const currentNode = s.nodes.find((n) => n.id === nodeId)
           if (!currentNode) return {}
           const hist = s.nodeHistory[nodeId] ?? { past: [], future: [] }
+          _debouncedBackendSync()
           return {
             nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, data: newData } : n),
             nodeHistory: {
@@ -178,6 +256,7 @@ export const useWorkflowStore = create<WorkflowState>()(
           const currentNode = s.nodes.find((n) => n.id === nodeId)
           if (!currentNode) return {}
           const prevData = hist.past[hist.past.length - 1]
+          _debouncedBackendSync()
           return {
             nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, data: prevData } : n),
             nodeHistory: {
@@ -197,6 +276,7 @@ export const useWorkflowStore = create<WorkflowState>()(
           const currentNode = s.nodes.find((n) => n.id === nodeId)
           if (!currentNode) return {}
           const nextData = hist.future[0]
+          _debouncedBackendSync()
           return {
             nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, data: nextData } : n),
             nodeHistory: {
@@ -214,20 +294,25 @@ export const useWorkflowStore = create<WorkflowState>()(
       setValidationResult: (result) => set({ validationResult: result }),
       setIsValidating: (v) => set({ isValidating: v }),
 
-      loadFromNodes: (nodes, edges) =>
-        set({ nodes, edges, nodeHistory: {}, validationResult: null }),
+      loadFromNodes: (nodes, edges) => {
+        _debouncedBackendSync()
+        set({ nodes, edges, nodeHistory: {}, validationResult: null })
+      },
 
-      clearCanvas: () =>
+      clearCanvas: () => {
+        _lastSerialized = ''
+        _debouncedBackendSync()
         set({
           nodes: [],
           edges: [],
           nodeHistory: {},
           meta: { name: 'Untitled Workflow', description: '', version: '1.0.0' },
           validationResult: null,
-        }),
+        })
+      },
     }),
     {
-      name: 'mf-canvas-v1',
+      name: _storageName,
       storage: createJSONStorage(() => localStorage),
       // 只持久化画布内容（nodes/edges/meta），运行时状态不存
       partialize: (state) => ({

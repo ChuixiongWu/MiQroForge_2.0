@@ -23,6 +23,7 @@ from api.routers import nodes, runs, workflows
 from api.routers import argo_proxy
 from api.routers import files
 from api.routers import agents
+from api.routers import projects
 
 # 构建好的前端目录（npm run build 输出）
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
@@ -62,6 +63,7 @@ app.include_router(workflows.router, prefix=API_PREFIX)
 app.include_router(runs.router, prefix=API_PREFIX)
 app.include_router(files.router, prefix=API_PREFIX)
 app.include_router(agents.router, prefix=API_PREFIX)
+app.include_router(projects.router, prefix=API_PREFIX)
 app.include_router(argo_proxy.router)   # /argo/* → Argo server
 
 

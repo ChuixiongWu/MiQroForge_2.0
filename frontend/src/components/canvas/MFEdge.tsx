@@ -5,7 +5,6 @@ import {
   getBezierPath,
 } from '@xyflow/react'
 import type { EdgeProps } from '@xyflow/react'
-import { useWorkflowStore } from '../../stores/workflow-store'
 import { PORT_COLORS } from '../../lib/port-type-utils'
 
 export const MFEdge = memo((props: EdgeProps) => {
@@ -13,27 +12,18 @@ export const MFEdge = memo((props: EdgeProps) => {
     id,
     sourceX, sourceY, targetX, targetY,
     sourcePosition, targetPosition,
-    sourceHandleId,
+    data,
   } = props
 
   const [hovered, setHovered] = useState(false)
 
-  const nodes = useWorkflowStore((s) => s.nodes)
-  const onEdgesChange = useWorkflowStore((s) => s.onEdgesChange)
-
-  const sourceNode = nodes.find((n) => n.id === props.source)
-  const sourcePort = sourceNode?.data.stream_outputs?.find((p) => p.name === sourceHandleId)
-  const color = sourcePort ? PORT_COLORS[sourcePort.category] ?? '#6b7280' : '#6b7280'
+  const sourcePort = (data?.sourcePort as { name: string; category: string } | undefined)
+  const color = sourcePort ? PORT_COLORS[sourcePort.category as keyof typeof PORT_COLORS] ?? '#6b7280' : '#6b7280'
 
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX, sourceY, sourcePosition,
     targetX, targetY, targetPosition,
   })
-
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    onEdgesChange([{ id, type: 'remove' }])
-  }
 
   return (
     <>
@@ -46,7 +36,6 @@ export const MFEdge = memo((props: EdgeProps) => {
         style={{ cursor: 'pointer' }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        onClick={handleDelete}
       />
 
       {/* 可见边 */}
@@ -71,10 +60,8 @@ export const MFEdge = memo((props: EdgeProps) => {
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
               pointerEvents: 'all',
             }}
-            className="nodrag nopan w-4 h-4 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center shadow-lg hover:bg-red-500 transition-colors leading-none"
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-            onClick={handleDelete}
+            className="nopan nodrag w-4 h-4 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center shadow-lg hover:bg-red-500 transition-colors leading-none"
+            data-edge-id={id}
             title="Delete connection"
           >
             ×

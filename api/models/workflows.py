@@ -41,6 +41,7 @@ class WorkflowCompileResponse(BaseModel):
 
 class WorkflowSubmitRequest(BaseModel):
     yaml_content: str
+    project_id: str | None = None
 
 
 class WorkflowSubmitResponse(BaseModel):
