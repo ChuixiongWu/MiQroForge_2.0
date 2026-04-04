@@ -61,7 +61,7 @@ class Settings:
 
     def _ensure_userdata_dirs(self) -> None:
         """启动时自动创建 userdata/ 子目录（若不存在）。"""
-        for sub in ["nodes", "workflows", "workspace", "vectorstore", "projects"]:
+        for sub in ["nodes", "workspace", "vectorstore", "projects"]:
             (self.userdata_root / sub).mkdir(parents=True, exist_ok=True)
 
 
