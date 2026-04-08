@@ -44,6 +44,7 @@ onboard_inputs:
     display_name: Geometry File
     kind: string
     default: ""
+    multiple_input: true
     description: >
       Filename in workspace (e.g. "h2o.xyz"). Must exist and be standard XYZ format.
       Leave blank if using inline_geometry.

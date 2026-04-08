@@ -81,6 +81,7 @@ def generate_node(state: NodeGenState) -> dict[str, Any]:
 
     iteration = state.get("iteration", 0)
     evaluation = state.get("evaluation")
+    is_ephemeral = getattr(request, "node_mode", "formal") == "ephemeral"
 
     # 首次加载知识
     available_images = state.get("available_images") or load_available_images()
@@ -90,24 +91,37 @@ def generate_node(state: NodeGenState) -> dict[str, Any]:
         semantic_type=request.semantic_type,
     )
 
-    # 判断是否需要输入模板
-    needs_template = request.target_software is not None
+    if is_ephemeral:
+        # ── 临时节点模式：生成纯 Python 脚本 ──
+        system_content = load_prompt(
+            "node_generator/prompts/nodegen_ephemeral_system.jinja2",
+        )
+        user_content = load_prompt(
+            "node_generator/prompts/nodegen_ephemeral_generate.jinja2",
+            request=request.model_dump(),
+            iteration=iteration,
+            prev_nodespec=state.get("run_sh", ""),
+            eval_issues=(evaluation.issues if evaluation and not evaluation.passed else []),
+        )
+    else:
+        # ── 正式节点模式：生成完整 NodeSpec ──
+        needs_template = request.target_software is not None
 
-    system_content = load_prompt(
-        "node_generator/prompts/nodegen_system.jinja2",
-        available_images=available_images,
-        semantic_types=semantic_types,
-    )
+        system_content = load_prompt(
+            "node_generator/prompts/nodegen_system.jinja2",
+            available_images=available_images,
+            semantic_types=semantic_types,
+        )
 
-    user_content = load_prompt(
-        "node_generator/prompts/nodegen_generate.jinja2",
-        request=request.model_dump(),
-        reference_nodes=reference_nodes,
-        iteration=iteration,
-        prev_nodespec=state.get("nodespec_yaml", ""),
-        eval_issues=(evaluation.issues if evaluation and not evaluation.passed else []),
-        needs_template=needs_template,
-    )
+        user_content = load_prompt(
+            "node_generator/prompts/nodegen_generate.jinja2",
+            request=request.model_dump(),
+            reference_nodes=reference_nodes,
+            iteration=iteration,
+            prev_nodespec=state.get("nodespec_yaml", ""),
+            eval_issues=(evaluation.issues if evaluation and not evaluation.passed else []),
+            needs_template=needs_template,
+        )
 
     llm = LLMConfig.get_chat_model(purpose="node_generator", temperature=0.1)
 
@@ -128,6 +142,22 @@ def generate_node(state: NodeGenState) -> dict[str, Any]:
             )
 
         sections = _parse_generated_output(response.content)
+
+        if is_ephemeral:
+            # 临时节点：只取 run_sh 部分（实际是 Python 脚本）
+            script = sections.get("run_sh", "")
+            # 如果解析失败，尝试将整个响应作为脚本
+            if not script:
+                script = response.content.strip()
+            return {
+                "nodespec_yaml": "",
+                "run_sh": script,
+                "input_templates": {},
+                "available_images": available_images,
+                "semantic_types": semantic_types,
+                "reference_nodes": reference_nodes,
+                "error": None,
+            }
 
         return {
             "nodespec_yaml": sections.get("nodespec_yaml", ""),

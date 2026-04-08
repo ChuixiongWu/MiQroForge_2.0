@@ -20,6 +20,7 @@ export interface OnBoardParamResponse {
   min_value?: number
   max_value?: number
   unit?: string
+  multiple_input?: boolean
 }
 
 export interface OnBoardOutputResponse {

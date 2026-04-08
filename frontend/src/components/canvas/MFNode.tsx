@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import type { Node, NodeProps } from '@xyflow/react'
 import type { MFNodeData } from '../../stores/workflow-store'
+import { useWorkflowStore } from '../../stores/workflow-store'
 import type { OnBoardOutput } from '../../types/nodespec'
 import { PORT_COLORS, nodeTypeEmoji } from '../../lib/port-type-utils'
 import type { PickerOption } from '../../lib/semantic-labels'
@@ -228,6 +229,7 @@ PendingNodeCard.displayName = 'PendingNodeCard'
 export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
   // Each node selects only its own status; stable reference preserved by run-overlay-store
   const runStatus = useRunOverlayStore((s) => s.nodeStatuses[id])
+  const isCompiling = useWorkflowStore((s) => s.compilingNodeIds.includes(id))
 
   // ── Pending variant ────────────────────────────────────────────────────────
   if (data.pending) {
@@ -235,8 +237,20 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
   }
 
   // ── Normal variant ─────────────────────────────────────────────────────────
-  const inputPorts  = data.stream_inputs  ?? []
-  const outputPorts = data.stream_outputs ?? []
+  // For formal nodes: stream_inputs/stream_outputs from nodespec
+  // For ephemeral nodes: derive from ports field (simpler {name, type} shape)
+  let inputPorts  = data.stream_inputs  ?? []
+  let outputPorts = data.stream_outputs ?? []
+  if (inputPorts.length === 0 && outputPorts.length === 0 && data.ports) {
+    const toStreamPort = (p: { name: string; type: string }) => ({
+      name: p.name,
+      display_name: p.name,
+      category: p.type,
+      detail: '',
+    })
+    inputPorts = (data.ports.inputs ?? []).map(toStreamPort)
+    outputPorts = (data.ports.outputs ?? []).map(toStreamPort)
+  }
   const paramCount  = data.onboard_inputs?.length ?? 0
   const cpu = data.resources?.cpu
   const mem = data.resources?.memory_gb
@@ -249,7 +263,9 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
   // Phase-based border override
   const nodeClass = [
     'mf-node',
-    runStatus ? phaseBorderClass(runStatus.phase) : (selected ? 'selected' : ''),
+    isCompiling ? 'compiling' : '',
+    !isCompiling && runStatus ? phaseBorderClass(runStatus.phase) : '',
+    !isCompiling && !runStatus && selected ? 'selected' : '',
     runStatus && selected ? 'ring-1 ring-blue-400' : '',
   ].filter(Boolean).join(' ')
 
@@ -270,10 +286,23 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
               {data.name} v{data.version}
             </div>
           </div>
+          {/* Sweep badge */}
+          {data.parallel_sweep && (
+            <span className="text-[10px] bg-purple-900/40 text-purple-300 px-1.5 py-0.5 rounded flex-shrink-0">
+              sweep &times;{data.parallel_sweep.values.length}
+            </span>
+          )}
           {/* Phase badge */}
-          {runStatus && (
+          {runStatus && !isCompiling && (
             <span className={`${phaseBadgeClass(runStatus.phase)} flex-shrink-0`}>
               {runStatus.phase}
+            </span>
+          )}
+          {/* Compiling indicator */}
+          {isCompiling && (
+            <span className="flex items-center gap-1 text-[10px] text-purple-300 flex-shrink-0">
+              <span className="inline-block w-3 h-3 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" />
+              Generating…
             </span>
           )}
         </div>

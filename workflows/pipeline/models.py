@@ -16,11 +16,76 @@ from pydantic import BaseModel, Field, model_validator
 from nodes.schemas.io import GateDefault
 
 
+# ── 临时节点辅助模型 ──────────────────────────────────────────────────────────
+
+# Stream I/O 类型的合法 category 值
+_STREAM_IO_CATEGORIES = {
+    "physical_quantity",
+    "software_data_package",
+    "logic_value",
+    "report_object",
+}
+
+
+class EphemeralPortDecl(BaseModel):
+    """临时节点的端口声明。"""
+
+    name: str = Field(
+        ...,
+        pattern=r"^[A-Z][0-9]*$",
+        description="端口名称，格式 I1/I2/... 或 O1/O2/...",
+    )
+    type: str = Field(
+        ...,
+        description=(
+            "Stream IO category: physical_quantity / software_data_package "
+            "/ logic_value / report_object"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_type(self) -> "EphemeralPortDecl":
+        if self.type not in _STREAM_IO_CATEGORIES:
+            raise ValueError(
+                f"无效的端口类型 {self.type!r}，"
+                f"合法值: {sorted(_STREAM_IO_CATEGORIES)}"
+            )
+        return self
+
+
+class EphemeralPorts(BaseModel):
+    """临时节点的端口声明集合。"""
+
+    inputs: list[EphemeralPortDecl] = Field(default_factory=list)
+    outputs: list[EphemeralPortDecl] = Field(default_factory=list)
+
+
+class EphemeralOnboardInput(BaseModel):
+    """临时节点的可选 onboard 参数。"""
+
+    name: str
+    kind: str = "string"
+    default: Any = ""
+
+
+class ParallelSweep(BaseModel):
+    """并行扫描参数声明。"""
+
+    values: list[Any] = Field(
+        ...,
+        min_length=1,
+        description="扫描值列表，编译为 Argo withParam JSON array。",
+    )
+
+
 class MFNodeInstance(BaseModel):
     """工作流中的一个节点实例。
 
     节点解析优先级：``node`` → ``nodespec_path`` → ``inline_nodespec``。
     三选一，不得同时指定多个。
+
+    当 ``ephemeral=True`` 时，上述三选一约束解除，
+    改为使用 ``ports`` + ``description`` 声明临时节点。
     """
 
     id: str = Field(
@@ -44,9 +109,56 @@ class MFNodeInstance(BaseModel):
         description="On-board 参数值。",
     )
 
+    # ── 临时节点字段 ─────────────────────────────────────────────────────
+    ephemeral: bool = Field(
+        default=False,
+        description="是否为临时节点。True 时不需要 node/nodespec_path/inline_nodespec。",
+    )
+    description: str = Field(
+        default="",
+        description="临时节点的功能描述（Agent 据此生成脚本）。",
+    )
+    ports: Optional[EphemeralPorts] = Field(
+        default=None,
+        description="临时节点的端口声明。ephemeral=True 时必填。",
+    )
+    onboard_inputs: list[EphemeralOnboardInput] = Field(
+        default_factory=list,
+        description="临时节点的可选 onboard 参数。",
+    )
+    parallel_sweep: Optional[ParallelSweep] = Field(
+        default=None,
+        description="并行扫描声明。设置后节点将使用 Argo withParam 扇出执行。",
+    )
+    fan_in: bool = Field(
+        default=False,
+        description="显式标记此节点为 fan-in 收集点，不参与 sweep 传播。",
+    )
+
     @model_validator(mode="after")
     def _check_node_source(self) -> MFNodeInstance:
-        """确保 node / nodespec_path / inline_nodespec 三选一。"""
+        """确保 node / nodespec_path / inline_nodespec 三选一（或 ephemeral）。"""
+        if self.ephemeral:
+            # 临时节点模式：不需要传统节点源，但需要 ports
+            if self.ports is None:
+                raise ValueError(
+                    "临时节点 (ephemeral=True) 必须提供 ports 声明"
+                )
+            forbidden = []
+            if self.node is not None:
+                forbidden.append("node")
+            if self.nodespec_path is not None:
+                forbidden.append("nodespec_path")
+            if self.inline_nodespec is not None:
+                forbidden.append("inline_nodespec")
+            if forbidden:
+                raise ValueError(
+                    f"临时节点不得指定 {', '.join(forbidden)}，"
+                    "请只使用 ephemeral + ports + description"
+                )
+            return self
+
+        # 非临时节点：三选一
         sources = [
             ("node", self.node),
             ("nodespec_path", self.nodespec_path),
@@ -61,6 +173,23 @@ class MFNodeInstance(BaseModel):
             raise ValueError(
                 f"node, nodespec_path, inline_nodespec 只能三选一，"
                 f"当前同时指定了: {', '.join(provided)}"
+            )
+        return self
+
+    def get_generation_description(self) -> str:
+        """获取用于脚本生成的 description。
+
+        优先从 onboard_params 取值（用户/Agent 在 inspector 中填写），
+        fallback 到顶层 description 字段。
+        """
+        return self.onboard_params.get("description", "") or self.description
+
+    @model_validator(mode="after")
+    def _check_sweep_ephemeral(self) -> MFNodeInstance:
+        """parallel_sweep 不可与 ephemeral 同时使用。"""
+        if self.parallel_sweep is not None and self.ephemeral:
+            raise ValueError(
+                "临时节点 (ephemeral=True) 不支持 parallel_sweep"
             )
         return self
 

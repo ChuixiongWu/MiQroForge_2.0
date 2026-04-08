@@ -340,6 +340,14 @@ class OnBoardInput(BaseModel):
             "建议说明：取值含义、对计算的影响、与其他参数的联动关系。"
         ),
     )
+    multiple_input: bool = Field(
+        default=False,
+        description=(
+            "是否支持多输入模式（parallel sweep）。"
+            "True 时前端可将此参数翻转为多值模式，"
+            "编译器据此生成 Argo withParam 扇出执行。"
+        ),
+    )
 
     @model_validator(mode="after")
     def _auto_display_name(self) -> "OnBoardInput":

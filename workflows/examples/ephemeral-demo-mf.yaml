@@ -1,0 +1,70 @@
+# =============================================================================
+# ephemeral-demo-mf.yaml — 临时节点演示工作流
+#
+# MiQroForge 2.0 工作流定义：
+#   geom-input → geo-opt → extract-energy (临时节点) → report
+#
+# 演示临时节点功能：
+#   - extract-energy 是一个临时节点，从优化输出中提取最终能量
+#   - 编译时由 Node Generator Agent 自动生成 Python 脚本
+#   - 编译为 Argo script template（python:3.11-slim）
+#
+# 运行：
+#   bash scripts/mf2.sh validate workflows/examples/ephemeral-demo-mf.yaml
+#   bash scripts/mf2.sh compile  workflows/examples/ephemeral-demo-mf.yaml
+# =============================================================================
+
+mf_version: "1.0"
+name: ephemeral-demo
+description: >
+  演示临时节点：geometry input → DFT geometry optimization →
+  ephemeral energy extractor → thermo extractor.
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      inline_geometry: |
+        O   0.000000   0.000000   0.117176
+        H   0.000000   0.756950  -0.468705
+        H   0.000000  -0.756950  -0.468705
+
+  - id: geo-opt
+    nodespec_path: nodes/chemistry/orca/orca-geo-opt/nodespec.yaml
+    onboard_params:
+      charge: 0
+      multiplicity: 1
+      method: B3LYP
+      basis_set: def2-SVP
+      dispersion: D3BJ
+      convergence: TightOpt
+      max_iter: 200
+      n_cores: 4
+
+  # 临时节点：从 geo-opt 输出中提取优化后的总能量
+  - id: extract-energy
+    ephemeral: true
+    description: >
+      从 ORCA 几何优化输出的 optimized_xyz 中读取能量注释行，
+      提取最终总能量（Ha），输出为纯数值文本。
+    ports:
+      inputs:
+        - name: I1
+          type: software_data_package
+      outputs:
+        - name: O1
+          type: physical_quantity
+
+  - id: thermo-extract
+    nodespec_path: nodes/chemistry/orca/orca-thermo-extractor/nodespec.yaml
+
+connections:
+  - from: geom-input.xyz_geometry
+    to: geo-opt.xyz_geometry
+  - from: geo-opt.optimized_xyz
+    to: extract-energy.I1
+  - from: extract-energy.O1
+    to: thermo-extract.xyz_geometry

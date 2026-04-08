@@ -23,6 +23,7 @@ class OnBoardParamResponse(BaseModel):
     min_value: Optional[float] = None
     max_value: Optional[float] = None
     unit: Optional[str] = None
+    multiple_input: bool = False
 
 
 class OnBoardOutputResponse(BaseModel):

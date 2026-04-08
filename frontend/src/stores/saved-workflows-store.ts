@@ -47,6 +47,10 @@ export interface RunSnapshot {
   /** Warnings from the validation step (errors block submission; infos included too) */
   validationWarnings?: Array<{ message: string; node_id?: string }>
   validationInfos?: Array<{ message: string; node_id?: string }>
+  /** Error message for locally-recorded failures (compile/submit errors) */
+  error?: string
+  /** Marks this snapshot as a local-only record (not submitted to Argo) */
+  localOnly?: boolean
 }
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────
@@ -128,6 +132,8 @@ interface SavedWorkflowsState {
     edges: RFEdge[],
     validationWarnings?: Array<{ message: string; node_id?: string }>,
     validationInfos?: Array<{ message: string; node_id?: string }>,
+    error?: string,
+    localOnly?: boolean,
   ) => void
   deleteRunSnapshot: (runName: string) => void
   clearAllRunSnapshots: () => void
@@ -162,13 +168,15 @@ export const useSavedWorkflowsStore = create<SavedWorkflowsState>((set, get) => 
     set({ savedWorkflows: updated })
   },
 
-  saveRunSnapshot: (runName, meta, nodes, edges, validationWarnings, validationInfos) => {
+  saveRunSnapshot: (runName, meta, nodes, edges, validationWarnings, validationInfos, error, localOnly) => {
     const entry: RunSnapshot = {
       runName,
       savedAt: new Date().toISOString(),
       snapshot: serializeCanvas(meta, nodes, edges),
       validationWarnings,
       validationInfos,
+      error,
+      localOnly,
     }
     const updated = { ...get().runSnapshots, [runName]: entry }
     saveLS(RUN_KEY, updated)

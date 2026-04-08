@@ -42,6 +42,10 @@ class OnBoardInputSummary(BaseModel):
     min_value: Optional[float] = None
     max_value: Optional[float] = None
     unit: Optional[str] = None
+    multiple_input: bool = Field(
+        default=False,
+        description="是否支持多输入模式（parallel sweep）。",
+    )
 
 
 class OnBoardOutputSummary(BaseModel):

@@ -16,12 +16,17 @@
 from __future__ import annotations
 
 import copy
+import json
+import logging
 import re
-from collections import defaultdict
+from collections import defaultdict, deque
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 from nodes.schemas import (
     BaseImageRegistry,
@@ -33,12 +38,15 @@ from nodes.schemas.io import GateDefault
 from nodes.schemas.resources import ComputeResources
 from nodes.schemas.resource_defaults import get_resource_defaults
 
-from .models import MFWorkflow
+from .models import MFWorkflow, MFNodeInstance
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 模块常量
 # ═══════════════════════════════════════════════════════════════════════════
+
+# 临时节点 Python 镜像（与 lightweight 节点一致）
+_EPHEMERAL_PYTHON_VERSION = "3.11"
 
 # Workspace PVC 名称（与 infrastructure/k8s/workspace.yaml 保持一致）
 _WORKSPACE_PVC_NAME = "mf-workspace"
@@ -95,6 +103,12 @@ def compile_to_argo(
     # 构建 DAG dependencies
     dep_map = _build_dependency_map(workflow)
 
+    # 传播 fan-out：从显式 sweep 节点 BFS 传播 withParam 到下游
+    auto_fan_out, sweep_source, sweep_origin = _propagate_sweep(workflow)
+
+    # 检测 fan-in 节点（接收聚合 sweep 输出的节点）
+    fan_in_map = _detect_fan_in_nodes(workflow, auto_fan_out, sweep_source)
+
     # 构建 connection 信息：target (node_id, port_name) → (src_node_id, src_port_name)
     conn_map: dict[tuple[str, str], tuple[str, str]] = {}
     for conn in workflow.connections:
@@ -108,15 +122,75 @@ def compile_to_argo(
     for conn in workflow.connections:
         connected_outputs.add((conn.source_node_id, conn.source_port_name))
 
+    # ── 嵌套 DAG：识别 sweep 链并构建 pipeline ─────────────────────────────
+    sweep_chains = _identify_sweep_chains(
+        workflow, auto_fan_out, sweep_source, sweep_origin, conn_map,
+    )
+
+    # 构建 pipeline 重映射结构
+    pipelined_nodes: set[str] = set()
+    inner_to_pipeline: dict[str, str] = {}   # inner_id → pipeline_task_name
+    # (inner_id, port) → (pipeline_task_name, output_param_name)
+    port_remap: dict[tuple[str, str], tuple[str, str]] = {}
+
+    for chain in sweep_chains:
+        pipeline_name = f"sweep-pipeline-{chain.sweep_node_id}"
+        pipelined_nodes.update(chain.inner_node_ids)
+        for nid in chain.inner_node_ids:
+            inner_to_pipeline[nid] = pipeline_name
+        # 构建 port_remap — 注意与 pipeline template output 命名保持一致
+        seen_names: set[str] = set()
+        for inner_id, port_name in chain.output_ports:
+            if port_name in seen_names:
+                out_name = f"{inner_id}--{port_name}"
+            else:
+                out_name = port_name
+            seen_names.add(out_name)
+            port_remap[(inner_id, port_name)] = (pipeline_name, out_name)
+
+    # 重映射 dep_map：外层节点对内层节点的依赖 → 对 pipeline task 的依赖
+    for target_id in list(dep_map.keys()):
+        if target_id in pipelined_nodes:
+            continue  # 内层节点的依赖由 pipeline 模板内部管理
+        remapped: set[str] = set()
+        for dep_id in dep_map[target_id]:
+            if dep_id in inner_to_pipeline:
+                remapped.add(inner_to_pipeline[dep_id])
+            else:
+                remapped.add(dep_id)
+        dep_map[target_id] = remapped
+
+    # 重映射 conn_map：外层节点从内层节点获取的输入 → 从 pipeline task 获取
+    for key in list(conn_map.keys()):
+        target_id, _target_port = key
+        if target_id in pipelined_nodes:
+            continue  # 内层节点的连接由 pipeline 模板内部管理
+        src_id, src_port = conn_map[key]
+        remap_key = (src_id, src_port)
+        if remap_key in port_remap:
+            pipeline_task, out_name = port_remap[remap_key]
+            conn_map[key] = (pipeline_task, out_name)
+
     # 构建 templates 和 DAG tasks
     templates: list[dict[str, Any]] = []
     dag_tasks: list[dict[str, Any]] = []
+
+    # 预生成临时节点的脚本内容
+    ephemeral_scripts: dict[str, str] = {}
+    for node_inst in workflow.nodes:
+        if node_inst.ephemeral:
+            script = _generate_ephemeral_script(
+                node_inst, workflow, resolved_nodes,
+                auto_fan_out=auto_fan_out,
+                sweep_source=sweep_source,
+            )
+            ephemeral_scripts[node_inst.id] = script
 
     for node_inst in workflow.nodes:
         spec = resolved_nodes[node_inst.id]
         template_name = f"mf-{node_inst.id}"
 
-        # 构建 template
+        # 所有节点仍创建 template（pipeline 内层引用它们）
         template = _build_template(
             node_inst=node_inst,
             node_inst_id=node_inst.id,
@@ -127,10 +201,16 @@ def compile_to_argo(
             connected_outputs=connected_outputs,
             docker_hub_mirror=docker_hub_mirror,
             project_root=project_root,
+            ephemeral_scripts=ephemeral_scripts,
+            fan_in_map=fan_in_map,
         )
         templates.append(template)
 
-        # 构建 DAG task
+        # 被 pipeline 管理的节点不在外层 DAG 创建 task
+        if node_inst.id in pipelined_nodes:
+            continue
+
+        # 构建外层 DAG task（dep_map/conn_map 已重映射，自动引用 pipeline）
         task = _build_dag_task(
             node_inst=node_inst,
             template_name=template_name,
@@ -140,8 +220,24 @@ def compile_to_argo(
             resolved_nodes=resolved_nodes,
             workflow=workflow,
             project_root=project_root,
+            auto_fan_out=auto_fan_out,
+            sweep_source=sweep_source,
+            sweep_origin=sweep_origin,
+            fan_in_map=fan_in_map,
         )
         dag_tasks.append(task)
+
+    # 为每个 sweep chain 创建 pipeline DAG 模板 + 外层 DAG task
+    for chain in sweep_chains:
+        pipeline_tmpl = _build_sweep_pipeline_template(
+            chain, resolved_nodes, workflow, conn_map,
+        )
+        templates.append(pipeline_tmpl)
+
+        pipeline_task = _build_sweep_pipeline_dag_task(
+            chain, inner_to_pipeline=inner_to_pipeline, port_remap=port_remap,
+        )
+        dag_tasks.append(pipeline_task)
 
     # 组装 Argo Workflow
     argo_wf: dict[str, Any] = {
@@ -189,6 +285,100 @@ def compile_to_yaml_str(
         default_flow_style=False,
         allow_unicode=True,
         sort_keys=False,
+    )
+
+
+def _generate_ephemeral_script(
+    node_inst: MFNodeInstance,
+    workflow: MFWorkflow,
+    resolved_nodes: dict[str, NodeSpec],
+    auto_fan_out: set[str] | None = None,
+    sweep_source: dict[str, tuple[str, str]] | None = None,
+) -> str:
+    """为临时节点调用 Node Generator Agent 生成 Python 脚本。
+
+    如果 Agent 调用失败，抛出 ValueError 让编译流程中断。
+    """
+    from agents.schemas import NodeGenRequest
+    from agents.node_generator.graph import run_node_generator
+
+    if auto_fan_out is None:
+        auto_fan_out = set()
+    if sweep_source is None:
+        sweep_source = {}
+
+    # 收集连接上下文：上游/下游节点信息
+    upstream: list[dict[str, str]] = []
+    downstream: list[dict[str, str]] = []
+    for conn in workflow.connections:
+        if conn.target_node_id == node_inst.id:
+            src_spec = resolved_nodes.get(conn.source_node_id)
+            upstream.append({
+                "source": conn.source_node_id,
+                "port": conn.source_port_name,
+                "description": src_spec.metadata.name if src_spec else conn.source_node_id,
+            })
+        if conn.source_node_id == node_inst.id:
+            tgt_spec = resolved_nodes.get(conn.target_node_id)
+            downstream.append({
+                "target": conn.target_node_id,
+                "port": conn.target_port_name,
+                "description": tgt_spec.metadata.name if tgt_spec else conn.target_node_id,
+            })
+
+    # 检测是否为 fan-in 节点
+    node_map = {n.id: n for n in workflow.nodes}
+    sweep_info = None
+    for conn in workflow.connections:
+        if conn.target_node_id == node_inst.id:
+            src_id = conn.source_node_id
+            # 追溯到原始 sweep 源
+            if src_id in auto_fan_out:
+                orig_src_id, _ = sweep_source[src_id]
+                src_id = orig_src_id
+            src_node = node_map.get(src_id)
+            if src_node and src_node.parallel_sweep is not None:
+                sweep_info = {
+                    "sweep_param": _find_sweep_param(src_node),
+                    "sweep_values": src_node.parallel_sweep.values,
+                }
+                break
+
+    ports_dict: dict[str, Any] = {}
+    if node_inst.ports:
+        ports_dict = node_inst.ports.model_dump()
+
+    context: dict[str, Any] = {
+        "node_id": node_inst.id,
+        "upstream": upstream,
+        "downstream": downstream,
+        "onboard_params": node_inst.onboard_params,
+    }
+    if sweep_info:
+        context["sweep_context"] = sweep_info
+
+    request = NodeGenRequest(
+        semantic_type="ephemeral",
+        description=node_inst.get_generation_description(),
+        node_mode="ephemeral",
+        ports=ports_dict,
+        context=context,
+    )
+
+    result_state = run_node_generator(request)
+
+    result = result_state.get("result")
+    if result and result.script_content:
+        return result.script_content
+
+    # 降级：从 run_sh 取
+    run_sh = result_state.get("run_sh", "")
+    if run_sh:
+        return run_sh
+
+    error = result_state.get("error", "未知错误")
+    raise ValueError(
+        f"临时节点 '{node_inst.id}' 的脚本生成失败: {error}"
     )
 
 
@@ -311,6 +501,462 @@ def _build_dependency_map(workflow: MFWorkflow) -> dict[str, set[str]]:
     return dep_map
 
 
+def _propagate_sweep(
+    workflow: MFWorkflow,
+) -> tuple[set[str], dict[str, tuple[str, str]], dict[str, tuple[str, str]]]:
+    """BFS 从显式 sweep 节点传播 fan-out 到下游。
+
+    Returns:
+        auto_fan_out: 自动 fan-out 的节点 ID 集合
+        sweep_source: node_id → (最近上游任务名, 连接端口名)  — 用于 {{item}} 重写判断
+        sweep_origin: node_id → (原始显式 sweep 节点 ID, 其 sweep 端口名)  — 用于 withParam
+    """
+    # 构建前向邻接表：src_node → [(tgt_node, src_port_name)]
+    forward: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for conn in workflow.connections:
+        forward[conn.source_node_id].append(
+            (conn.target_node_id, conn.source_port_name)
+        )
+
+    # 识别显式 sweep 节点
+    node_map = {n.id: n for n in workflow.nodes}
+    explicit_sweeps = {
+        n.id for n in workflow.nodes if n.parallel_sweep is not None
+    }
+
+    auto_fan_out: set[str] = set()
+    sweep_source: dict[str, tuple[str, str]] = {}
+    sweep_origin: dict[str, tuple[str, str]] = {}
+
+    # BFS 从每个显式 sweep 节点出发
+    queue: deque[str] = deque(explicit_sweeps)
+    # 阻止传播的节点集合：fan_in 或已有显式 parallel_sweep
+    blocked: set[str] = {
+        n.id for n in workflow.nodes if n.fan_in or n.parallel_sweep is not None
+    }
+    # 记录已入队的节点，避免重复入队
+    enqueued: set[str] = set(explicit_sweeps)
+
+    while queue:
+        current = queue.popleft()
+        # 追溯当前节点的原始 sweep 源（如果 current 本身是显式 sweep，就是自己）
+        if current in explicit_sweeps:
+            current_origin = current
+        else:
+            current_origin = sweep_origin.get(current, (current, ""))[0]
+
+        for tgt_node_id, src_port_name in forward.get(current, []):
+            if tgt_node_id in blocked:
+                continue
+            tgt_node = node_map.get(tgt_node_id)
+            if tgt_node is None:
+                continue
+            # 只有有下游的节点才需要 auto fan-out（叶子节点不需要 withParam）
+            if tgt_node_id not in forward:
+                continue
+            # 多个上游 sweep 源 → 发出 warning
+            if tgt_node_id in auto_fan_out:
+                existing = sweep_source[tgt_node_id]
+                logger.warning(
+                    "节点 '%s' 有多个 sweep 源: '%s' 和 '%s'，使用后者",
+                    tgt_node_id, existing[0], current,
+                )
+            auto_fan_out.add(tgt_node_id)
+            sweep_source[tgt_node_id] = (current, src_port_name)
+            sweep_origin[tgt_node_id] = (current_origin, src_port_name)
+            if tgt_node_id not in enqueued:
+                enqueued.add(tgt_node_id)
+                queue.append(tgt_node_id)
+
+    return auto_fan_out, sweep_source, sweep_origin
+
+
+def _detect_fan_in_nodes(
+    workflow: MFWorkflow,
+    auto_fan_out: set[str],
+    sweep_source: dict[str, tuple[str, str]],
+) -> dict[str, list[tuple[str, list[Any]]]]:
+    """检测接收聚合 sweep 输出的 fan-in 节点。
+
+    一个节点是 fan-in 节点，当且仅当：
+    1. 它不在 auto_fan_out 中（不是 sweep 传播链路的一部分）
+    2. 它不是显式 parallel_sweep 节点
+    3. 它不是显式 fan_in=True 的节点
+    4. 它的至少一个上游是 sweep 参与者（显式 sweep 或 auto_fan_out）
+
+    Returns:
+        {fan_in_node_id: [(原始sweep源节点id, sweep_values), ...]}
+    """
+    node_map = {n.id: n for n in workflow.nodes}
+    explicit_sweeps = {
+        n.id for n in workflow.nodes if n.parallel_sweep is not None
+    }
+    blocked = explicit_sweeps | auto_fan_out
+
+    # 构建反向连接表：target_node → [source_nodes]
+    reverse: dict[str, list[str]] = defaultdict(list)
+    for conn in workflow.connections:
+        reverse[conn.target_node_id].append(conn.source_node_id)
+
+    fan_in_map: dict[str, list[tuple[str, list[Any]]]] = {}
+
+    for node_inst in workflow.nodes:
+        nid = node_inst.id
+        # 跳过 sweep 参与者和显式 fan-in 节点
+        if nid in blocked or node_inst.fan_in:
+            continue
+        # 检查上游是否有 sweep 参与者
+        for src_id in reverse.get(nid, []):
+            # 追溯到原始 sweep 源
+            orig_src_id = src_id
+            if src_id in auto_fan_out:
+                orig_src_id, _ = sweep_source[src_id]
+            src_node = node_map.get(orig_src_id)
+            if src_node and src_node.parallel_sweep is not None:
+                fan_in_map.setdefault(nid, []).append(
+                    (orig_src_id, src_node.parallel_sweep.values)
+                )
+
+    return fan_in_map
+
+
+def _find_sweep_param(node_inst: MFNodeInstance) -> str:
+    """找出 onboard_params 中包含 {{item}} 的参数名。"""
+    for key, val in node_inst.onboard_params.items():
+        if isinstance(val, str) and "{{item}}" in val:
+            return key
+    return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 嵌套 DAG（Sweep Pipeline）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class SweepChain:
+    """描述一个 sweep 链的嵌套 DAG 子图。
+
+    sweep 链 = 显式 sweep 节点 + 所有被 BFS 传播的 auto_fan_out 节点。
+    fan-in 节点不在内层，在外层 DAG 接收 pipeline 聚合输出。
+    """
+
+    sweep_node_id: str
+    """显式 sweep 源节点 ID。"""
+
+    sweep_values: list[Any]
+    """sweep 值列表（parallel_sweep.values）。"""
+
+    inner_node_ids: set[str]
+    """内层 DAG 中的所有节点 ID（含 sweep 源）。"""
+
+    fan_in_connections: list[tuple[str, str, str, str]]
+    """从内层到外层的连接：(inner_node_id, inner_port, outer_node_id, outer_port)。"""
+
+    inner_deps: dict[str, set[str]]
+    """内层 DAG 中的依赖关系：target_id → {source_ids}。"""
+
+    output_ports: list[tuple[str, str]]
+    """需要转发到外层的输出端口：(inner_node_id, port_name)。"""
+
+    external_inputs: list[tuple[str, str, str, str]]
+    """外层节点提供给内层节点的输入：(inner_node_id, inner_port, outer_node_id, outer_port)。"""
+
+    external_deps: set[str]
+    """pipeline task 在外层 DAG 中的额外依赖（提供 external_inputs 的外层节点）。"""
+
+
+def _identify_sweep_chains(
+    workflow: MFWorkflow,
+    auto_fan_out: set[str],
+    sweep_source: dict[str, tuple[str, str]],
+    sweep_origin: dict[str, tuple[str, str]],
+    conn_map: dict[tuple[str, str], tuple[str, str]],
+) -> list[SweepChain]:
+    """从 auto_fan_out 集合提取嵌套 DAG 子图。
+
+    内层子图 = 显式 sweep 节点 + 所有 auto_fan_out 节点（按 sweep_origin 归属）。
+    fan-in 节点不在内层，在外层 DAG 接收 pipeline 聚合输出。
+
+    只有当内层节点有连接到外层节点时（即存在 fan-in），才创建 pipeline。
+    使用 conn_map 而非 raw connections 确保多连接到同一端口时行为一致。
+    """
+    node_map = {n.id: n for n in workflow.nodes}
+    explicit_sweeps = {
+        n.id for n in workflow.nodes if n.parallel_sweep is not None
+    }
+
+    chains: list[SweepChain] = []
+
+    for sweep_id in sorted(explicit_sweeps):
+        sweep_node = node_map[sweep_id]
+
+        # 内层节点：sweep 源 + 所有 origin 指向此 sweep 的 auto_fan_out 节点
+        inner_ids: set[str] = {sweep_id}
+        for afo_id in auto_fan_out:
+            origin_id = sweep_origin.get(afo_id, (None, None))[0]
+            if origin_id == sweep_id:
+                inner_ids.add(afo_id)
+
+        # 从 conn_map 提取 fan-in 连接（内层 → 外层）和外部输入（外层 → 内层）
+        fan_in_conns: list[tuple[str, str, str, str]] = []
+        output_port_set: set[tuple[str, str]] = set()
+        external_inputs: list[tuple[str, str, str, str]] = []
+        external_dep_ids: set[str] = set()
+
+        for (tgt_id, tgt_port), (src_id, src_port) in conn_map.items():
+            if src_id in inner_ids and tgt_id not in inner_ids:
+                # 内层节点输出到外层 → fan-in 连接
+                fan_in_conns.append((src_id, src_port, tgt_id, tgt_port))
+                output_port_set.add((src_id, src_port))
+            elif tgt_id in inner_ids and src_id not in inner_ids:
+                # 外层节点输入到内层 → external input
+                external_inputs.append((tgt_id, tgt_port, src_id, src_port))
+                external_dep_ids.add(src_id)
+
+        # 没有 fan-in 连接 → 不创建 pipeline（如 sweep-only 工作流）
+        if not fan_in_conns:
+            continue
+
+        # 内层依赖关系（只看内层之间的连接）
+        inner_deps: dict[str, set[str]] = defaultdict(set)
+        for (tgt_id, _tgt_port), (src_id, _src_port) in conn_map.items():
+            if src_id in inner_ids and tgt_id in inner_ids:
+                inner_deps[tgt_id].add(src_id)
+
+        chains.append(SweepChain(
+            sweep_node_id=sweep_id,
+            sweep_values=sweep_node.parallel_sweep.values,
+            inner_node_ids=inner_ids,
+            fan_in_connections=fan_in_conns,
+            inner_deps=dict(inner_deps),
+            output_ports=list(output_port_set),
+            external_inputs=external_inputs,
+            external_deps=external_dep_ids,
+        ))
+
+    return chains
+
+
+def _build_sweep_pipeline_template(
+    chain: SweepChain,
+    resolved_nodes: dict[str, NodeSpec],
+    workflow: MFWorkflow,
+    conn_map: dict[tuple[str, str], tuple[str, str]],
+) -> dict[str, Any]:
+    """为一个 SweepChain 构建嵌套 DAG 模板。
+
+    外层 DAG 用 withParam 并行化 N 个实例，每个实例执行此内层 DAG。
+    quality gate 在内层 DAG 中自然生效。
+
+    Returns:
+        Argo template dict（DAG 类型）。
+    """
+    node_map = {n.id: n for n in workflow.nodes}
+    gate_policy = _resolve_gate_policy(workflow)
+    pipeline_name = f"sweep-pipeline-{chain.sweep_node_id}"
+
+    # ── Pipeline input parameters ─────────────────────────────────────────
+    input_params: list[dict[str, str]] = [{"name": "sweep_item"}]
+    # 外部输入（内层节点依赖外层节点的输出）
+    for _inner_id, _inner_port, outer_id, outer_port in chain.external_inputs:
+        param_name = f"ext__{outer_id}__{outer_port}"
+        # 去重（多个内层端口可能引用同一外部输出）
+        if not any(p["name"] == param_name for p in input_params):
+            input_params.append({"name": param_name})
+
+    # ── Pipeline output parameters ────────────────────────────────────────
+    # 转发内层节点的输出给外层 fan-in 节点
+    output_params: list[dict[str, Any]] = []
+    seen_output_names: set[str] = set()
+    for inner_node_id, port_name in chain.output_ports:
+        # 处理同名端口冲突
+        if port_name in seen_output_names:
+            param_name = f"{inner_node_id}--{port_name}"
+        else:
+            param_name = port_name
+        seen_output_names.add(param_name)
+        output_params.append({
+            "name": param_name,
+            "default": "",  # 兜底：quality gate 导致节点被 skip 时
+            "valueFrom": {
+                "parameter": f"{{{{tasks.{inner_node_id}.outputs.parameters.{port_name}}}}}",
+            },
+        })
+
+    # ── 内层 DAG tasks ────────────────────────────────────────────────────
+    inner_tasks: list[dict[str, Any]] = []
+
+    for node_id in sorted(chain.inner_node_ids):
+        node_inst = node_map[node_id]
+        spec = resolved_nodes[node_id]
+
+        task: dict[str, Any] = {
+            "name": node_id,
+            "template": f"mf-{node_id}",
+        }
+
+        # ── 内层依赖 + quality gate aware depends ────────────────────────
+        deps = chain.inner_deps.get(node_id, set())
+        if deps:
+            must_succeed: set[str] = set()
+            for dep_id in deps:
+                dep_spec = resolved_nodes.get(dep_id)
+                if dep_spec is None:
+                    continue
+                for gate in dep_spec.quality_gates:
+                    effective = gate_policy.get(
+                        (dep_id, gate.name), gate.gate_default
+                    )
+                    if effective == GateDefault.MUST_PASS:
+                        must_succeed.add(dep_id)
+                        break
+
+            if must_succeed:
+                dep_exprs = []
+                for dep_id in sorted(deps):
+                    dep_exprs.append(
+                        f"{dep_id}.Succeeded" if dep_id in must_succeed else dep_id
+                    )
+                task["depends"] = " && ".join(dep_exprs)
+            else:
+                task["depends"] = " && ".join(sorted(deps))
+
+        # ── Arguments: stream inputs + onboard params ─────────────────────
+        arguments: list[dict[str, Any]] = []
+
+        for port in spec.stream_inputs:
+            key = (node_id, port.name)
+            if key in conn_map:
+                src_node_id, src_port_name = conn_map[key]
+                if src_node_id in chain.inner_node_ids:
+                    # 引用内层上游节点的输出
+                    arguments.append({
+                        "name": port.name,
+                        "value": (
+                            f"{{{{tasks.{src_node_id}.outputs.parameters"
+                            f".{src_port_name}}}}}"
+                        ),
+                    })
+                else:
+                    # 引用 pipeline 输入参数（来自外层节点）
+                    ext_param = f"ext__{src_node_id}__{src_port_name}"
+                    arguments.append({
+                        "name": port.name,
+                        "value": f"{{{{inputs.parameters.{ext_param}}}}}",
+                    })
+
+        for param in spec.onboard_inputs:
+            raw = node_inst.onboard_params.get(param.name)
+            if raw is not None and str(raw).strip() != "":
+                value = str(raw)
+            elif param.default is not None:
+                value = str(param.default)
+            else:
+                continue
+            # sweep 源节点：替换 {{item}} 为 pipeline 输入参数
+            if node_id == chain.sweep_node_id:
+                value = value.replace("{{item}}", "{{inputs.parameters.sweep_item}}")
+            arguments.append({
+                "name": param.name,
+                "value": value,
+            })
+
+        if arguments:
+            task["arguments"] = {"parameters": arguments}
+
+        # ── Quality gate when conditions（内层上游的 quality gate）────────
+        when_conditions: list[str] = []
+        for dep_id in deps:
+            dep_spec = resolved_nodes.get(dep_id)
+            if dep_spec is None:
+                continue
+            for gate in dep_spec.quality_gates:
+                effective = gate_policy.get(
+                    (dep_id, gate.name), gate.gate_default
+                )
+                if effective == GateDefault.MUST_PASS:
+                    when_conditions.append(
+                        f"{{{{tasks.{dep_id}.outputs.parameters"
+                        f"._qg_{gate.name}}}}} == true"
+                    )
+        if when_conditions:
+            task["when"] = " && ".join(when_conditions)
+
+        inner_tasks.append(task)
+
+    # ── 组装模板 ──────────────────────────────────────────────────────────
+    template: dict[str, Any] = {
+        "name": pipeline_name,
+        "inputs": {"parameters": input_params},
+        "dag": {"tasks": inner_tasks},
+    }
+    if output_params:
+        template["outputs"] = {"parameters": output_params}
+
+    return template
+
+
+def _build_sweep_pipeline_dag_task(
+    chain: SweepChain,
+    inner_to_pipeline: dict[str, str] | None = None,
+    port_remap: dict[tuple[str, str], tuple[str, str]] | None = None,
+) -> dict[str, Any]:
+    """在外层 DAG 中为 sweep pipeline 创建 task 条目。
+
+    每个 item 触发一个独立的内层 DAG 实例，实现同流异步。
+    如果 external deps/inputs 指向其他 pipeline 的内层节点，自动重映射。
+    """
+    if inner_to_pipeline is None:
+        inner_to_pipeline = {}
+    if port_remap is None:
+        port_remap = {}
+
+    pipeline_name = f"sweep-pipeline-{chain.sweep_node_id}"
+
+    arguments: list[dict[str, Any]] = [
+        {"name": "sweep_item", "value": "{{item}}"},
+    ]
+
+    # 传递外部依赖的输出作为 pipeline 参数
+    seen_ext: set[str] = set()
+    for _inner_id, _inner_port, outer_id, outer_port in chain.external_inputs:
+        param_name = f"ext__{outer_id}__{outer_port}"
+        if param_name not in seen_ext:
+            seen_ext.add(param_name)
+            # 如果外部节点是另一个 pipeline 的内层节点，重映射引用
+            remap_key = (outer_id, outer_port)
+            if remap_key in port_remap:
+                p_task, p_out = port_remap[remap_key]
+                value = (
+                    f"{{{{tasks.{p_task}.outputs.parameters"
+                    f".{p_out}}}}}"
+                )
+            else:
+                value = (
+                    f"{{{{tasks.{outer_id}.outputs.parameters"
+                    f".{outer_port}}}}}"
+                )
+            arguments.append({"name": param_name, "value": value})
+
+    task: dict[str, Any] = {
+        "name": pipeline_name,
+        "template": pipeline_name,
+        "withParam": json.dumps(chain.sweep_values, ensure_ascii=False),
+        "arguments": {"parameters": arguments},
+    }
+
+    # 外部依赖（pipeline 需要等待外部节点完成）
+    # 如果外部节点自身被 pipeline 化，引用其 pipeline 任务名
+    remapped_deps: set[str] = set()
+    for dep_id in chain.external_deps:
+        remapped_deps.add(inner_to_pipeline.get(dep_id, dep_id))
+    if remapped_deps:
+        task["depends"] = " && ".join(sorted(remapped_deps))
+
+    return task
+
+
 def _build_template(
     *,
     node_inst,  # MFNodeInstance
@@ -322,6 +968,8 @@ def _build_template(
     connected_outputs: set[tuple[str, str]],
     docker_hub_mirror: str = "",
     project_root: Path | None = None,
+    ephemeral_scripts: dict[str, str] | None = None,
+    fan_in_map: dict[str, list[tuple[str, list[Any]]]] | None = None,
 ) -> dict[str, Any]:
     """为单个节点构建 Argo template。
 
@@ -329,6 +977,8 @@ def _build_template(
     未连接的大型二进制输出（如 gbw_file）会被跳过，避免参数体积超限错误。
     Quality gate 输出始终收集（DAG depends 条件所需）。
     """
+    if fan_in_map is None:
+        fan_in_map = {}
 
     # 收集所有 input 参数名（stream inputs + onboard inputs）
     input_params: list[dict[str, str]] = []
@@ -336,6 +986,10 @@ def _build_template(
         input_params.append({"name": port.name})
     for param in spec.onboard_inputs:
         input_params.append({"name": param.name})
+
+    # fan-in 临时节点：注入 _sweep_keys 作为隐式输入参数
+    if node_inst_id in fan_in_map:
+        input_params.append({"name": "_sweep_keys"})
 
     # 只收集被下游节点连接的 stream output 端口
     output_params: list[dict[str, Any]] = []
@@ -361,6 +1015,19 @@ def _build_template(
 
     # 解析 resource_bindings（用实例的 onboard_params 覆盖静态资源值）
     resource_overrides = _resolve_resources(spec, node_inst.onboard_params)
+
+    # ── 临时节点：使用 Agent 生成的脚本，构建 lightweight script template ───
+    if node_inst.ephemeral and ephemeral_scripts:
+        script_source = ephemeral_scripts.get(node_inst_id, "")
+        return _build_ephemeral_template(
+            template_name=template_name,
+            spec=spec,
+            script_source=script_source,
+            docker_hub_mirror=docker_hub_mirror,
+            input_params=input_params,
+            output_params=output_params,
+            onboard_params=node_inst.onboard_params,
+        )
 
     if isinstance(spec.execution, ComputeExecutionConfig):
         return _build_compute_template(
@@ -388,6 +1055,8 @@ def _build_template(
             spec_dir: Path | None = None
             if project_root and node_inst.nodespec_path:
                 spec_dir = (project_root / node_inst.nodespec_path).parent
+            elif project_root and node_inst.node:
+                spec_dir = _find_node_dir(spec.metadata.name, project_root)
             return _build_lightweight_script_template(
                 template_name=template_name,
                 spec=spec,
@@ -601,6 +1270,81 @@ def _build_lightweight_script_template(
     return template
 
 
+def _build_ephemeral_template(
+    *,
+    template_name: str,
+    spec: NodeSpec,
+    script_source: str,
+    docker_hub_mirror: str = "",
+    input_params: list[dict[str, str]],
+    output_params: list[dict[str, Any]],
+    onboard_params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """构建临时节点的 Argo script template。
+
+    与 lightweight inline_script 模式结构一致：python:3.11-slim + 内联脚本。
+    所有 input 参数通过环境变量注入（与 lightweight 约定一致）。
+    """
+    # ── Python 镜像解析 ──
+    if docker_hub_mirror:
+        python_image = f"{docker_hub_mirror}/library/python:{_EPHEMERAL_PYTHON_VERSION}-slim"
+    else:
+        python_image = f"python:{_EPHEMERAL_PYTHON_VERSION}-slim"
+
+    # ── 环境变量注入 ──
+    env_vars: list[dict[str, str]] = [
+        {"name": "MF_OUTPUT_DIR", "value": "/mf/output"},
+        {"name": "MF_WORKSPACE_DIR", "value": "/mf/workspace"},
+    ]
+    for param in input_params:
+        env_vars.append({
+            "name": param["name"],
+            "value": f"{{{{inputs.parameters.{param['name']}}}}}",
+        })
+    # 注入 IMAGE_OUTPUT（如果 onboard_params 中声明了 image_output）
+    if onboard_params and onboard_params.get("image_output"):
+        env_vars.append({
+            "name": "IMAGE_OUTPUT",
+            "value": str(onboard_params["image_output"]),
+        })
+
+    template: dict[str, Any] = {
+        "name": template_name,
+        "inputs": {"parameters": input_params} if input_params else {},
+        "outputs": {"parameters": output_params} if output_params else {},
+        "script": {
+            "image": python_image,
+            "command": ["python"],
+            "env": env_vars,
+            "source": script_source,
+            "resources": {
+                "requests": {
+                    "cpu": str(spec.resources.cpu_cores),
+                    "memory": f"{spec.resources.memory_gb}Gi",
+                },
+                "limits": {
+                    "cpu": str(spec.resources.cpu_cores),
+                    "memory": f"{spec.resources.memory_gb}Gi",
+                },
+            },
+            "volumeMounts": [
+                {
+                    "name": "workspace",
+                    "mountPath": "/mf/workspace",
+                },
+            ],
+        },
+        "volumes": [
+            {
+                "name": "workspace",
+                "persistentVolumeClaim": {"claimName": _WORKSPACE_PVC_NAME},
+            },
+        ],
+    }
+
+    return template
+
+
 def _build_lightweight_profile_template(
     *,
     template_name: str,
@@ -711,6 +1455,10 @@ def _build_dag_task(
     resolved_nodes: dict[str, NodeSpec],
     workflow: MFWorkflow,
     project_root: Path,
+    auto_fan_out: set[str],
+    sweep_source: dict[str, tuple[str, str]],
+    sweep_origin: dict[str, tuple[str, str]],
+    fan_in_map: dict[str, list[tuple[str, list[Any]]]] | None = None,
 ) -> dict[str, Any]:
     """构建 DAG task 条目。
 
@@ -762,14 +1510,27 @@ def _build_dag_task(
     # ── Arguments: stream inputs + onboard params ──────────────────────────
     arguments: list[dict[str, Any]] = []
 
+    # 确定 auto fan-out 节点的 sweep 源任务（用于 {{item}} 重写）
+    af_sweep_src_task: str | None = None
+    if node_inst.id in auto_fan_out:
+        af_sweep_src_task, _ = sweep_source.get(node_inst.id, (None, None))
+
     for port in spec.stream_inputs:
         key = (node_inst.id, port.name)
         if key in conn_map:
             src_node_id, src_port_name = conn_map[key]
-            arguments.append({
-                "name": port.name,
-                "value": f"{{{{tasks.{src_node_id}.outputs.parameters.{src_port_name}}}}}",
-            })
+            # auto fan-out 节点：来自 sweep 源的 stream 输入使用 {{item}}
+            # （withParam 已设为上游聚合输出，{{item}} 逐迭代取值）
+            if af_sweep_src_task and src_node_id == af_sweep_src_task:
+                arguments.append({
+                    "name": port.name,
+                    "value": "{{item}}",
+                })
+            else:
+                arguments.append({
+                    "name": port.name,
+                    "value": f"{{{{tasks.{src_node_id}.outputs.parameters.{src_port_name}}}}}",
+                })
 
     for param in spec.onboard_inputs:
         raw = node_inst.onboard_params.get(param.name)
@@ -790,11 +1551,40 @@ def _build_dag_task(
     if arguments:
         task["arguments"] = {"parameters": arguments}
 
+    # fan-in 节点：注入 _sweep_keys 常量值
+    if fan_in_map and node_inst.id in fan_in_map:
+        _, sweep_values = fan_in_map[node_inst.id][0]
+        if "arguments" not in task:
+            task["arguments"] = {"parameters": []}
+        task["arguments"]["parameters"].append({
+            "name": "_sweep_keys",
+            "value": json.dumps(sweep_values, ensure_ascii=False),
+        })
+
+    # ── withParam（并行扫描）─────────────────────────────────────────────────
+    if node_inst.parallel_sweep is not None:
+        task["withParam"] = json.dumps(
+            node_inst.parallel_sweep.values, ensure_ascii=False,
+        )
+    elif node_inst.id in auto_fan_out:
+        # auto fan-out 节点：withParam 引用上游任务的动态输出。
+        # Argo 会将上游 fan-out pod 的 valueFrom.path 输出自动聚合为 JSON 数组，
+        # 下游 withParam 的 {{item}} 逐个取值。
+        src_task, src_port = sweep_source[node_inst.id]
+        task["withParam"] = (
+            f"{{{{tasks.{src_task}.outputs.parameters.{src_port}}}}}"
+        )
+
     # ── When conditions — from upstream must_pass quality gates ────────────
     gate_policy = _resolve_gate_policy(workflow)
     when_conditions: list[str] = []
 
     for dep_node_id in dep_map.get(node_inst.id, set()):
+        # 跳过 auto fan-out 上游的 when 条件：fan-out 节点的 outputs 会被 Argo
+        # 聚合为数组，`== true` 判断必然失败。fan-out 的 .Succeeded 语义已由
+        # depends 字段保证（所有实例都成功才触发下游），无需额外 when。
+        if dep_node_id in auto_fan_out:
+            continue
         dep_spec = resolved_nodes.get(dep_node_id)
         if dep_spec is None:
             continue

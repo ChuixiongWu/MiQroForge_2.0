@@ -40,6 +40,7 @@ export function buildNodeData(detail: NodeDetailResponse): MFNodeData {
       min: p.min_value,
       max: p.max_value,
       unit: p.unit,
+      multiple_input: p.multiple_input,
     })),
     onboard_outputs: (detail.onboard_outputs ?? []).map((o) => ({
       name: o.name,

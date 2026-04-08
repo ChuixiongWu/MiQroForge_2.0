@@ -31,12 +31,46 @@ def _extract_json(text: str) -> str:
     return text.strip()
 
 
+def _programmatic_check_ephemeral(state: NodeGenState) -> list[str]:
+    """临时节点的程序化检查。"""
+    issues = []
+    run_sh = state.get("run_sh", "")
+
+    if not run_sh:
+        return ["生成的脚本内容为空"]
+
+    # Python 语法检查
+    try:
+        compile(run_sh, "<ephemeral>", "exec")
+    except SyntaxError as e:
+        issues.append(f"Python 语法错误: {e}")
+
+    # I/O 路径约定检查
+    request = state.get("request")
+    if request and request.ports:
+        for p in request.ports.get("inputs", []):
+            expected = f"/mf/input/{p['name']}"
+            if expected not in run_sh:
+                issues.append(f"脚本未读取输入端口 {p['name']}（预期路径: {expected}）")
+        for p in request.ports.get("outputs", []):
+            expected = f"/mf/output/{p['name']}"
+            if expected not in run_sh:
+                issues.append(f"脚本未写入输出端口 {p['name']}（预期路径: {expected}）")
+
+    return issues
+
+
 def _programmatic_check(state: NodeGenState) -> list[str]:
     """程序化检查。"""
     issues = []
     nodespec_yaml = state.get("nodespec_yaml", "")
     run_sh = state.get("run_sh", "")
     semantic_types = state.get("semantic_types") or {}
+    request = state.get("request")
+    is_ephemeral = getattr(request, "node_mode", "formal") == "ephemeral" if request else False
+
+    if is_ephemeral:
+        return _programmatic_check_ephemeral(state)
 
     if not nodespec_yaml:
         return ["nodespec_yaml 为空"]
@@ -110,13 +144,21 @@ def evaluate_node(state: NodeGenState) -> dict[str, Any]:
     request = state.get("request")
     nodespec_yaml = state.get("nodespec_yaml", "")
     run_sh = state.get("run_sh", "")
+    is_ephemeral = getattr(request, "node_mode", "formal") == "ephemeral" if request else False
 
-    prompt = load_prompt(
-        "node_generator/prompts/nodegen_evaluate.jinja2",
-        request=request.model_dump() if request else {},
-        nodespec_yaml=nodespec_yaml,
-        run_sh=run_sh,
-    )
+    if is_ephemeral:
+        prompt = load_prompt(
+            "node_generator/prompts/nodegen_ephemeral_evaluate.jinja2",
+            request=request.model_dump() if request else {},
+            run_sh=run_sh,
+        )
+    else:
+        prompt = load_prompt(
+            "node_generator/prompts/nodegen_evaluate.jinja2",
+            request=request.model_dump() if request else {},
+            nodespec_yaml=nodespec_yaml,
+            run_sh=run_sh,
+        )
 
     llm = LLMConfig.get_chat_model(purpose="evaluator", temperature=0.0)
 

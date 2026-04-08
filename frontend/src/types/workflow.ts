@@ -8,6 +8,15 @@ export interface WorkflowNode {
   onboard_params: Record<string, unknown>
   /** Canvas position stored in _ui metadata */
   position?: { x: number; y: number }
+  // Phase 2 fields
+  ephemeral?: boolean
+  description?: string
+  ports?: { inputs: Array<{ name: string; type: string }>; outputs: Array<{ name: string; type: string }> }
+  node?: string
+  parallel_sweep?: { values: unknown[] }
+  sweep_values?: unknown[]
+  stream_inputs?: Array<{ name: string; category?: string; display_name?: string }>
+  stream_outputs?: Array<{ name: string; category?: string; display_name?: string }>
 }
 
 // ─── Connection ──────────────────────────────────────────────────────────────

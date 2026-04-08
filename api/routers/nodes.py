@@ -218,6 +218,7 @@ def get_node(
             min_value=p.min_value,
             max_value=p.max_value,
             unit=p.unit,
+            multiple_input=p.multiple_input,
         )
         for p in entry.onboard_inputs
     ]

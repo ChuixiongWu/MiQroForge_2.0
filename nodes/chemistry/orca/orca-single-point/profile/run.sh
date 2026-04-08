@@ -67,7 +67,7 @@ python3 /mf/profile/postprocess.py
 
 # ── 写入输出 ──────────────────────────────────────────────────────────────────
 echo "${ENERGY}"      > "${OUTPUT_DIR}/total_energy"
-echo "${CONVERGED}"   > "${OUTPUT_DIR}/converged"
+echo "${CONVERGED}"   > "${OUTPUT_DIR}/scf_converged"
 echo "${ENERGY}"      > "${OUTPUT_DIR}/scf_energy"
 echo "${SCF_ITER:-0}" > "${OUTPUT_DIR}/scf_iterations"
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -24,9 +24,19 @@ from nodes.schemas import (
     StreamOutputPort,
     validate_connection,
 )
+from nodes.schemas.base import NodeMetadata, NodeType, NodeCategory, NodeTags
+from nodes.schemas.io import (
+    PhysicalQuantityType,
+    SoftwareDataPackageType,
+    LogicValueType,
+    ReportObjectType,
+    StreamIOCategory,
+)
+from nodes.schemas.resources import LightweightResources
+from nodes.schemas.node import LightweightExecutionConfig
 
 from .loader import resolve_nodespec
-from .models import MFWorkflow, QualityGateOverride
+from .models import MFWorkflow, MFNodeInstance, QualityGateOverride
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -69,6 +79,99 @@ class ValidationReport(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 临时节点 → 虚拟 NodeSpec 构建
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _make_stream_io_type(type_str: str):
+    """根据 category 字符串创建默认的 StreamIOType 实例。
+
+    临时节点声明端口时只提供 category 字符串（如 "physical_quantity"），
+    不提供具体的 unit/ecosystem/format 等字段。这里生成合理的默认值，
+    使得连接校验可以基本通过（不做语义深度检查）。
+    """
+    cat = StreamIOCategory(type_str)
+    if cat == StreamIOCategory.PHYSICAL_QUANTITY:
+        # 使用通用能量单位，shape=scalar
+        return PhysicalQuantityType(category=cat, unit="eV", shape="scalar")
+    elif cat == StreamIOCategory.SOFTWARE_DATA_PACKAGE:
+        return SoftwareDataPackageType(category=cat, ecosystem="generic", data_type="text")
+    elif cat == StreamIOCategory.LOGIC_VALUE:
+        from nodes.schemas.io import LogicValueKind
+        return LogicValueType(category=cat, kind=LogicValueKind.BOOLEAN)
+    elif cat == StreamIOCategory.REPORT_OBJECT:
+        from nodes.schemas.io import ReportFormat
+        return ReportObjectType(category=cat, format=ReportFormat.JSON)
+    else:
+        raise ValueError(f"未知的 StreamIOCategory: {type_str!r}")
+
+
+def _build_ephemeral_nodespec(node_inst: MFNodeInstance) -> NodeSpec:
+    """为临时节点构建虚拟 NodeSpec，用于连接校验和 DAG 构建。
+
+    临时节点没有真实的 nodespec.yaml，但需要一个 NodeSpec 来让
+    连接校验和编译器能够统一处理。虚拟 NodeSpec 使用 lightweight
+    执行配置（inline_script 模式，脚本内容为占位符）。
+    """
+    ports = node_inst.ports
+    assert ports is not None  # 已由 model_validator 保证
+
+    # 构造 StreamInputPort / StreamOutputPort
+    stream_inputs: list[StreamInputPort] = []
+    for p in ports.inputs:
+        stream_inputs.append(StreamInputPort(
+            name=p.name,
+            display_name=p.name,
+            io_type=_make_stream_io_type(p.type),
+            required=True,
+        ))
+
+    stream_outputs: list[StreamOutputPort] = []
+    for p in ports.outputs:
+        stream_outputs.append(StreamOutputPort(
+            name=p.name,
+            display_name=p.name,
+            io_type=_make_stream_io_type(p.type),
+        ))
+
+    # 构造 OnBoardInput 列表
+    from nodes.schemas.io import OnBoardInput, OnBoardInputKind
+    onboard_inputs: list[OnBoardInput] = []
+    for ob in node_inst.onboard_inputs:
+        kind = OnBoardInputKind(ob.kind) if ob.kind in {k.value for k in OnBoardInputKind} else OnBoardInputKind.STRING
+        onboard_inputs.append(OnBoardInput(
+            name=ob.name,
+            kind=kind,
+            default=ob.default,
+        ))
+
+    # 使用 lightweight inline_script 执行配置（脚本内容为占位符，编译时替换）
+    metadata = NodeMetadata(
+        name=node_inst.id,
+        version="0.0.0",
+        display_name=node_inst.id.replace("-", " ").title(),
+        description=node_inst.description or f"Ephemeral node {node_inst.id}",
+        node_type=NodeType.LIGHTWEIGHT,
+        category=NodeCategory.UTILITY,
+        tags=NodeTags(keywords=["ephemeral"]),
+    )
+
+    # 使用 model_validate(dict) 而非直接构造，确保 _inject_type_discriminators 正确运行
+    spec_dict = {
+        "metadata": metadata.model_dump(),
+        "stream_inputs": [p.model_dump() for p in stream_inputs],
+        "stream_outputs": [p.model_dump() for p in stream_outputs],
+        "onboard_inputs": [o.model_dump() for o in onboard_inputs],
+        "quality_gates": [],
+        "resources": LightweightResources().model_dump(),
+        "execution": LightweightExecutionConfig(
+            inline_script="# placeholder — compiled by ephemeral compiler"
+        ).model_dump(),
+    }
+    return NodeSpec.model_validate(spec_dict)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 主校验函数
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -92,21 +195,40 @@ def validate_workflow(
 
     # ── Step 1: 解析每个节点的 NodeSpec ──────────────────────────────────
     for node_inst in workflow.nodes:
-        try:
-            spec = resolve_nodespec(node_inst, project_root=project_root)
+        # sweep 校验：sweep 节点必须通过 node 名称引用正式节点
+        if node_inst.parallel_sweep is not None:
+            if node_inst.node is None:
+                issues.append(ValidationIssue(
+                    severity="error",
+                    location=f"node: {node_inst.id}",
+                    message="parallel_sweep 节点必须使用 'node' 字段引用正式节点",
+                ))
+
+        if node_inst.ephemeral:
+            # 临时节点：构建虚拟 NodeSpec
+            spec = _build_ephemeral_nodespec(node_inst)
             resolved_nodes[node_inst.id] = spec
-        except FileNotFoundError as e:
             issues.append(ValidationIssue(
-                severity="error",
+                severity="info",
                 location=f"node: {node_inst.id}",
-                message=f"NodeSpec 文件未找到: {e}",
+                message=f"临时节点 (ephemeral): {node_inst.description}",
             ))
-        except Exception as e:
-            issues.append(ValidationIssue(
-                severity="error",
-                location=f"node: {node_inst.id}",
-                message=f"NodeSpec 解析失败: {e}",
-            ))
+        else:
+            try:
+                spec = resolve_nodespec(node_inst, project_root=project_root)
+                resolved_nodes[node_inst.id] = spec
+            except FileNotFoundError as e:
+                issues.append(ValidationIssue(
+                    severity="error",
+                    location=f"node: {node_inst.id}",
+                    message=f"NodeSpec 文件未找到: {e}",
+                ))
+            except Exception as e:
+                issues.append(ValidationIssue(
+                    severity="error",
+                    location=f"node: {node_inst.id}",
+                    message=f"NodeSpec 解析失败: {e}",
+                ))
 
     # 如果有节点解析失败，后续校验无法进行
     if len(resolved_nodes) != len(workflow.nodes):

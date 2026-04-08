@@ -31,6 +31,7 @@ export interface OnBoardParam {
   min?: number
   max?: number
   unit?: string
+  multiple_input?: boolean
 }
 
 export interface OnBoardOutput {

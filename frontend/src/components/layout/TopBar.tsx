@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkflowStore } from '../../stores/workflow-store'
+import type { MFNodeData } from '../../stores/workflow-store'
 import { useUIStore } from '../../stores/ui-store'
 import { useSavedWorkflowsStore } from '../../stores/saved-workflows-store'
 import { useRunOverlayStore } from '../../stores/run-overlay-store'
@@ -30,7 +31,7 @@ import { phaseEmoji } from '../../lib/phase-utils'
 
 export function TopBar() {
   const navigate = useNavigate()
-  const { meta, setMeta, nodes, edges, clearCanvas, loadFromNodes } = useWorkflowStore()
+  const { meta, setMeta, nodes, edges, clearCanvas, loadFromNodes, setCompilingNodeIds, clearCompilingNodeIds } = useWorkflowStore()
   const {
     rightPanel, setRightPanel, filesOpen, toggleFiles,
     showNotification, runTrigger,
@@ -118,7 +119,26 @@ export function TopBar() {
 
         const rfNodes = await Promise.all(
           parsed.nodes.map(async (wfNode) => {
-            const nodeName = wfNode.nodespec_name || wfNode.nodespec_path.split('/').slice(-2, -1)[0]
+            // Ephemeral nodes have no nodespec — build directly from YAML data
+            if (wfNode.ephemeral) {
+              return workflowNodeToRF(wfNode, {
+                name: wfNode.id,
+                version: '?',
+                display_name: wfNode.id,
+                description: wfNode.description ?? '',
+                node_type: 'lightweight',
+                category: '',
+                ephemeral: true,
+                ephemeral_description: wfNode.description,
+                ports: wfNode.ports,
+                stream_inputs: wfNode.stream_inputs as never ?? [],
+                stream_outputs: wfNode.stream_outputs as never ?? [],
+                onboard_inputs: [],
+                onboard_params: wfNode.onboard_params ?? {},
+              })
+            }
+
+            const nodeName = wfNode.node || wfNode.nodespec_name || wfNode.nodespec_path.split('/').slice(-2, -1)[0]
             try {
               const detail = await nodesApi.get(nodeName)
               const defaultParams = Object.fromEntries(
@@ -149,21 +169,24 @@ export function TopBar() {
                     min: p.min_value,
                     max: p.max_value,
                     unit: p.unit,
+                    multiple_input: p.multiple_input,
                   })) as never,
                 },
               )
             } catch {
-              return workflowNodeToRF(wfNode, {
+              // Fallback: use wfNode data directly (especially important for ephemeral nodes)
+              const fallbackData: Record<string, unknown> = {
                 name: nodeName,
                 version: '?',
-                display_name: nodeName,
+                display_name: wfNode.id,
                 description: '',
-                node_type: 'compute',
+                node_type: wfNode.ephemeral ? 'lightweight' : 'compute',
                 category: '',
                 stream_inputs: [],
                 stream_outputs: [],
                 onboard_inputs: [],
-              })
+              }
+              return workflowNodeToRF(wfNode, fallbackData as Partial<MFNodeData>)
             }
           }),
         )
@@ -194,12 +217,21 @@ export function TopBar() {
         return
       }
 
-      // Step 2: Submit (backend compiles internally)
+      // Step 2: Submit (backend compiles internally — may take ~2 min for ephemeral nodes)
       const mfYaml = getYaml()
       const projectId = useProjectStore.getState().currentProjectId ?? undefined
+      showNotification('info', 'Compiling and submitting workflow… (may take up to 2 min)')
+
+      // Set compiling state on ephemeral/sweep nodes for visual feedback
+      const compilingIds = nodes
+        .filter((n) => n.data.ephemeral)
+        .map((n) => n.id)
+      setCompilingNodeIds(compilingIds)
+
       const resp = await workflowsApi.submit(mfYaml, projectId)
 
       // Persist canvas snapshot + validation warnings for the run detail view
+      clearCompilingNodeIds()
       saveRunSnapshot(
         resp.workflow_name,
         meta, nodes, edges,
@@ -214,9 +246,23 @@ export function TopBar() {
 
       showNotification('success', `Submitted: ${resp.workflow_name}`)
     } catch (err) {
-      showNotification('error', `Submit failed: ${err instanceof Error ? err.message : String(err)}`)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      showNotification('error', `Submit failed: ${errMsg}`)
+
+      // Persist the failure as a local-only run snapshot
+      const syntheticName = `compile-error-${new Date().toLocaleTimeString('en-GB').replace(/:/g, '')}`
+      saveRunSnapshot(
+        syntheticName,
+        meta, nodes, edges,
+        undefined, undefined,
+        errMsg,
+        true,
+      )
+      setPendingRunName(syntheticName)
+      setRightPanel('runs')
     } finally {
       setIsRunning(false)
+      clearCompilingNodeIds()
     }
   }
 

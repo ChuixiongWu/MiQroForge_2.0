@@ -8,6 +8,7 @@ import { PORT_COLORS, portCategoryLabel } from '../../lib/port-type-utils'
 import type { OnBoardOutput } from '../../types/nodespec'
 import { phaseEmoji, phaseBadgeClass, formatElapsed } from '../../lib/phase-utils'
 import { X, Cpu, MemoryStick, Clock } from 'lucide-react'
+import { filesApi } from '../../api/files-api'
 
 // ─── Parameter form ───────────────────────────────────────────────────────────
 
@@ -34,11 +35,50 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
 
   const { register, handleSubmit } = useForm({ defaultValues: defaults })
 
+  // Track which params are in multi-input mode
+  // Auto-activate if stored value is an array, or if node has parallel_sweep / sweep_values data
+  const hasSweep = !!node?.data.parallel_sweep
+  const hasSweepValues = !!node?.data.sweep_values
+  const [multiMode, setMultiMode] = React.useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {}
+    for (const inp of inputs) {
+      if (inp.multiple_input) {
+        if (Array.isArray(storedParams[inp.name]) || (hasSweep && inp.name in storedParams) || hasSweepValues) {
+          init[inp.name] = true
+        }
+      }
+    }
+    return init
+  })
+
+  const toggleMultiMode = (paramName: string) => {
+    setMultiMode((prev) => {
+      const next = !prev[paramName]
+      // When switching to single mode, clear sweep data
+      if (!next) {
+        updateNodeParams(nodeId, { [paramName]: '', __sweep_values: [] })
+      }
+      return { ...prev, [paramName]: next }
+    })
+  }
+
   if (inputs.length === 0) {
     return <p className="text-xs text-mf-text-muted px-3 py-2">No parameters</p>
   }
 
   const onSubmit = (data: Record<string, unknown>) => {
+    // Handle sweep mode: split __sweep_values from pattern
+    for (const inp of inputs) {
+      if (inp.multiple_input && multiMode[inp.name]) {
+        const valuesKey = `${inp.name}__sweep_values`
+        const valuesText = (data[valuesKey] as string) ?? ''
+        const values = valuesText.split(/[,\n]+/).map((v) => v.trim()).filter(Boolean)
+        // Move sweep values into __sweep_values for the store to extract
+        data.__sweep_values = values
+        // Remove the raw sweep values text; pattern stays in data[inp.name]
+        delete data[valuesKey]
+      }
+    }
     updateNodeParams(nodeId, data)
   }
 
@@ -50,9 +90,72 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
             {param.display_name}
             {param.default == null && <span className="text-red-400 ml-0.5">*</span>}
             {param.unit && <span className="text-mf-text-muted ml-1">({param.unit})</span>}
+            {param.multiple_input && (
+              <button
+                type="button"
+                onClick={() => toggleMultiMode(param.name)}
+                title={multiMode[param.name]
+                  ? 'Switch back to single value mode'
+                  : 'Enable parallel sweep — enter multiple values (one per line) to fan-out execution'}
+                className={`text-[10px] ml-2 px-1.5 py-0.5 rounded border transition-colors ${
+                  multiMode[param.name]
+                    ? 'border-purple-500/60 bg-purple-900/40 text-purple-300 hover:bg-purple-900/60'
+                    : 'border-purple-700/30 bg-purple-950/30 text-purple-500 hover:border-purple-500/50 hover:text-purple-400'
+                }`}
+              >
+                {multiMode[param.name] ? '\u21A9 Single' : '\u26A1 Sweep'}
+              </button>
+            )}
           </label>
 
-          {param.type === 'textarea' ? (
+          {param.multiple_input && multiMode[param.name] ? (
+            // Sweep mode: Values + Pattern
+            <div className="space-y-1.5">
+              {/* Values textarea */}
+              <div>
+                <label className="block text-[10px] text-purple-400/80 mb-0.5">Values</label>
+                <textarea
+                  rows={3}
+                  {...register(`${param.name}__sweep_values`)}
+                  placeholder={'0.5\n0.6\n0.7'}
+                  defaultValue={
+                    node?.data.sweep_values
+                      ? (node.data.sweep_values as unknown[]).join('\n')
+                      : Array.isArray(storedParams[param.name])
+                        ? (storedParams[param.name] as string[]).join('\n')
+                        : ''
+                  }
+                  className="w-full px-2 py-1 bg-mf-input border border-purple-700/40 rounded text-xs text-mf-text-primary focus:outline-none focus:border-purple-500 font-mono resize-y"
+                />
+                <p className="text-[10px] text-mf-text-muted mt-0.5">
+                  One value per line or comma-separated.
+                </p>
+              </div>
+              {/* Pattern input */}
+              <div>
+                <label className="block text-[10px] text-purple-400/80 mb-0.5">Pattern</label>
+                <input
+                  type="text"
+                  {...register(param.name)}
+                  placeholder={param.name === 'geometry_file' ? 'h2_{{item}}.xyz' : '{{item}}'}
+                  defaultValue={
+                    typeof storedParams[param.name] === 'string' && String(storedParams[param.name]).includes('{{item}}')
+                      ? String(storedParams[param.name])
+                      : '{{item}}'
+                  }
+                  className="w-full px-2 py-1 bg-mf-input border border-purple-700/40 rounded text-xs text-mf-text-primary focus:outline-none focus:border-purple-500 font-mono"
+                />
+                <p className="text-[10px] text-mf-text-muted mt-0.5">
+                  Expression with {'{{item}}'}, replaced per sweep value.
+                </p>
+              </div>
+              {(hasSweep || hasSweepValues) && (
+                <p className="text-[10px] text-purple-400/70">
+                  Sweep: {(node?.data.sweep_values ?? node?.data.parallel_sweep?.values ?? []).length} values configured
+                </p>
+              )}
+            </div>
+          ) : param.type === 'textarea' ? (
             <textarea
               rows={5}
               {...register(param.name)}
@@ -107,11 +210,97 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
   )
 }
 
+// ─── Ephemeral description editor (as onboard param) ─────────────────────────
+
+function EphemeralDescriptionEditor({ nodeId }: { nodeId: string }) {
+  const node = useWorkflowStore((s) => s.nodes.find((n) => n.id === nodeId))
+  const updateNodeParams = useWorkflowStore((s) => s.updateNodeParams)
+
+  if (!node?.data.ephemeral) return null
+
+  // Read from onboard_params.description, fallback to ephemeral_description
+  const desc = (node.data.onboard_params?.description as string) ?? node.data.ephemeral_description ?? ''
+
+  return (
+    <div className="px-3 py-2">
+      <label className="block text-[11px] text-mf-text-secondary mb-0.5">
+        Description <span className="text-mf-text-muted">(ephemeral node script intent)</span>
+      </label>
+      <textarea
+        rows={3}
+        value={desc}
+        onChange={(e) => updateNodeParams(nodeId, { description: e.target.value })}
+        placeholder="Describe what this ephemeral node should do..."
+        className="w-full px-2 py-1 bg-mf-input border border-mf-border rounded text-xs text-mf-text-primary focus:outline-none focus:border-gray-400 font-mono resize-y"
+      />
+      <p className="text-[10px] text-mf-text-muted mt-0.5">
+        Script will be generated when you compile. Edit this before compiling.
+      </p>
+    </div>
+  )
+}
+
+// ─── Workspace image display ──────────────────────────────────────────────────
+
+function WorkspaceImage({ filename, nodeId }: { filename: string; nodeId: string }) {
+  const [imageUrl, setImageUrl] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const runStatus = useRunOverlayStore((s) => s.nodeStatuses[nodeId])
+
+  React.useEffect(() => {
+    let revokedUrl: string | null = null
+    let cancelled = false
+
+    async function loadImage() {
+      try {
+        const blob = await filesApi.download(filename)
+        if (cancelled) return
+        const url = URL.createObjectURL(blob)
+        revokedUrl = url
+        setImageUrl(url)
+        setError(null)
+      } catch {
+        if (!cancelled) setError('Image not available')
+      }
+    }
+
+    // Load when run succeeds, or on mount
+    if (!runStatus || runStatus.phase === 'Succeeded') {
+      loadImage()
+    }
+
+    return () => {
+      cancelled = true
+      if (revokedUrl) URL.revokeObjectURL(revokedUrl)
+    }
+  }, [filename, runStatus?.phase])
+
+  if (error) return null
+  if (!imageUrl) return null
+
+  return (
+    <div className="px-3 py-2">
+      <div className="text-[11px] text-mf-text-secondary mb-1">Workspace Output</div>
+      <img
+        src={imageUrl}
+        alt={filename}
+        className="w-full rounded border border-mf-border"
+      />
+    </div>
+  )
+}
+
 // ─── Port list ────────────────────────────────────────────────────────────────
 
 function PortList({ nodeId, direction }: { nodeId: string; direction: 'input' | 'output' }) {
   const node = useWorkflowStore((s) => s.nodes.find((n) => n.id === nodeId))
-  const ports = direction === 'input' ? (node?.data.stream_inputs ?? []) : (node?.data.stream_outputs ?? [])
+  // For formal nodes: stream_inputs/stream_outputs from nodespec
+  // For ephemeral nodes: derive from ports field (simpler {name, type} shape)
+  let ports = direction === 'input' ? (node?.data.stream_inputs ?? []) : (node?.data.stream_outputs ?? [])
+  if (ports.length === 0 && node?.data.ports) {
+    const raw = direction === 'input' ? (node.data.ports.inputs ?? []) : (node.data.ports.outputs ?? [])
+    ports = raw.map((p) => ({ name: p.name, display_name: p.name, category: p.type as never, detail: '' }))
+  }
 
   if (ports.length === 0) return <p className="text-xs text-mf-text-muted px-3 py-1">None</p>
 
@@ -265,6 +454,7 @@ export function NodeInspector() {
   const res = d.resources
   const onboardOutputs = (d.onboard_outputs ?? []) as OnBoardOutput[]
   const hasRunData = !!runStatus
+  const isEphemeral = !!d.ephemeral
 
   return (
     <div className="w-72 mf-panel border-l border-r-0 flex-shrink-0">
@@ -286,6 +476,13 @@ export function NodeInspector() {
           <div className="text-[11px] text-mf-text-muted font-mono mt-0.5">{d.name} v{d.version}</div>
           <div className="text-xs text-mf-text-secondary mt-1 leading-relaxed">{d.description}</div>
         </div>
+
+        {/* Ephemeral description editor */}
+        {isEphemeral && (
+          <Section title="Script Description">
+            <EphemeralDescriptionEditor nodeId={node.id} />
+          </Section>
+        )}
 
         {/* Run status (when available) */}
         {runStatus && (
@@ -334,6 +531,10 @@ export function NodeInspector() {
             <Section title="Parameters">
               <OnBoardParamForm key={node.id} nodeId={node.id} />
             </Section>
+            {/* Workspace image display for ephemeral nodes that produce plots */}
+            {(d.onboard_params?.image_output as string) && (
+              <WorkspaceImage filename={d.onboard_params.image_output as string} nodeId={node.id} />
+            )}
           </>
         ) : (
           <>

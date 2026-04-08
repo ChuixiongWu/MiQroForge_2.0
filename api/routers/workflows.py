@@ -7,6 +7,8 @@ POST /api/v1/workflows/submit   — 校验 + 编译 + 提交到 Argo
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.config import Settings, get_settings
@@ -69,7 +71,7 @@ def validate_workflow(
 
 
 @router.post("/compile", response_model=WorkflowCompileResponse, summary="编译 MF 工作流")
-def compile_workflow(
+async def compile_workflow(
     req: WorkflowCompileRequest,
     svc: WorkflowService = Depends(get_workflow_service),
 ) -> WorkflowCompileResponse:
@@ -77,9 +79,10 @@ def compile_workflow(
     校验并编译 MF YAML 为 Argo Workflow YAML + ConfigMaps。
 
     校验失败返回 400。
+    编译可能较慢（含 LLM 调用），使用线程池避免阻塞事件循环。
     """
     try:
-        result = svc.compile_yaml_str(req.yaml_content)
+        result = await asyncio.to_thread(svc.compile_yaml_str, req.yaml_content)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -95,7 +98,7 @@ def compile_workflow(
 
 
 @router.post("/submit", response_model=WorkflowSubmitResponse, summary="提交工作流到 Argo")
-def submit_workflow(
+async def submit_workflow(
     req: WorkflowSubmitRequest,
     svc: WorkflowService = Depends(get_workflow_service),
     argo: ArgoService = Depends(get_argo_service),
@@ -106,10 +109,11 @@ def submit_workflow(
 
     校验失败返回 400。提交失败返回 502。
     提交成功后自动将 MF YAML 和 Argo YAML 保存到 runs/{name}/。
+    编译可能较慢（含 LLM 调用），使用线程池避免阻塞事件循环。
     """
-    # 1. 编译
+    # 1. 编译（含 LLM 调用，在线程池中运行以避免阻塞）
     try:
-        result = svc.compile_yaml_str(req.yaml_content)
+        result = await asyncio.to_thread(svc.compile_yaml_str, req.yaml_content)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -117,7 +121,9 @@ def submit_workflow(
 
     # 2. 提交
     try:
-        submit_result = argo.submit(result["workflow"], result["configmaps"])
+        submit_result = await asyncio.to_thread(
+            argo.submit, result["workflow"], result["configmaps"]
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=f"Argo submission failed: {str(e)}")
 

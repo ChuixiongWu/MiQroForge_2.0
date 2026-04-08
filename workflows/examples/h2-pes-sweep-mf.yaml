@@ -1,0 +1,49 @@
+mf_version: "1.0"
+name: h2-pes-sweep
+description: >-  # H₂ 分子势能曲线扫描：不同 H-H 距离下的单点能
+  使用 ORCA B3LYP/def2-SVP-D3BJ 对 H₂ 分子在不同 H-H 距离下进行单点能计算，
+  通过 withParam 扫描多个距离值（12 个点），最终收集能量绘制势能曲线。
+  需要先在 workspace 放置 h2_*.xyz 几何文件。
+namespace: miqroforge-v2
+
+nodes:
+  # 几何输入节点：通过 {{item}} 读取不同距离的 xyz 文件
+  - id: geom-input
+    node: geometry-file-input
+    parallel_sweep:
+      values: [0.5, 0.6, 0.7, 0.74, 0.742, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0, 3.0]
+    onboard_params:
+      geometry_file: "h2_{{item}}.xyz"
+
+  # ORCA 单点能计算（依赖上游几何输入）
+  - id: sp-calc
+    node: orca-single-point
+    onboard_params:
+      charge: 0
+      multiplicity: 1
+      method: B3LYP
+      basis_set: def2-SVP
+      dispersion: D3BJ
+      n_cores: 4
+
+  # 临时节点：收集能量列表，绘制势能曲线，输出 CSV + PNG
+  - id: collect-energy
+    ephemeral: true
+    onboard_params:
+      description: >-
+        收集所有 H-H 距离扫描点的单点能量，绘制势能曲线（PES），
+        输出 PNG 图片到 workspace/pes_plot.png，同时将距离-能量数据写入 O1（CSV）。
+      image_output: pes_plot.png
+    ports:
+      inputs:
+        - name: I1
+          type: physical_quantity
+      outputs:
+        - name: O1
+          type: software_data_package
+
+connections:
+  - from: geom-input.xyz_geometry
+    to: sp-calc.xyz_geometry
+  - from: sp-calc.total_energy
+    to: collect-energy.I1

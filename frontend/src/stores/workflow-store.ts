@@ -29,6 +29,14 @@ export interface MFNodeData extends Record<string, unknown> {
   resources?: ResourceSpec
   onboard_params: Record<string, unknown>
 
+  // ── Sweep / Ephemeral 扩展字段 ────────────────────────────────────────────
+  parallel_sweep?: { values: unknown[] }
+  sweep_values?: unknown[]
+  ephemeral?: boolean
+  ephemeral_description?: string
+  ports?: { inputs: Array<{ name: string; type: string }>; outputs: Array<{ name: string; type: string }> }
+  node?: string
+
   // ── Phase 2 语义扩展字段 ──────────────────────────────────────────────────
   // pending=true 时显示为 ❓ PendingNodeCard
   pending?: boolean
@@ -82,11 +90,17 @@ interface WorkflowState {
   addNode: (node: RFNode<MFNodeData>) => void
   removeNode: (nodeId: string) => void
   updateNodeParams: (nodeId: string, params: Record<string, unknown>) => void
+  updateNodeData: (nodeId: string, data: Partial<MFNodeData>) => void
 
   // Implementation undo/redo
   updateNodeWithHistory: (nodeId: string, newData: MFNodeData) => void
   undoNode: (nodeId: string) => void
   redoNode: (nodeId: string) => void
+
+  // Compilation state (pre-Argo visual feedback)
+  compilingNodeIds: string[]
+  setCompilingNodeIds: (ids: string[]) => void
+  clearCompilingNodeIds: () => void
 
   setValidationResult: (result: ValidationResult | null) => void
   setIsValidating: (v: boolean) => void
@@ -141,6 +155,7 @@ export const useWorkflowStore = create<WorkflowState>()(
       nodeHistory: {},
       validationResult: null,
       isValidating: false,
+      compilingNodeIds: [],
       _projectId: null,
 
       setProjectId: (id) => {
@@ -221,10 +236,27 @@ export const useWorkflowStore = create<WorkflowState>()(
         set((s) => {
           _debouncedBackendSync()
           return {
+            nodes: s.nodes.map((n) => {
+              if (n.id !== nodeId) return n
+              const { __sweep_values, ...rest } = params as Record<string, unknown> & { __sweep_values?: unknown[] }
+              const data: MFNodeData = {
+                ...n.data,
+                onboard_params: { ...n.data.onboard_params, ...rest },
+              }
+              if (__sweep_values !== undefined) {
+                data.sweep_values = __sweep_values
+              }
+              return { ...n, data }
+            }),
+          }
+        }),
+
+      updateNodeData: (nodeId, data) =>
+        set((s) => {
+          _debouncedBackendSync()
+          return {
             nodes: s.nodes.map((n) =>
-              n.id === nodeId
-                ? { ...n, data: { ...n.data, onboard_params: { ...n.data.onboard_params, ...params } } }
-                : n,
+              n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n,
             ),
           }
         }),
@@ -293,6 +325,8 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       setValidationResult: (result) => set({ validationResult: result }),
       setIsValidating: (v) => set({ isValidating: v }),
+      setCompilingNodeIds: (ids) => set({ compilingNodeIds: ids }),
+      clearCompilingNodeIds: () => set({ compilingNodeIds: [] }),
 
       loadFromNodes: (nodes, edges) => {
         _debouncedBackendSync()

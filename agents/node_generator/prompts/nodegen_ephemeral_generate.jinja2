@@ -1,0 +1,64 @@
+## Ephemeral Node Generation Request:
+
+**Description**: {{ request.description }}
+
+### Port Declarations:
+{% if request.ports %}
+**Inputs**:
+{% for p in request.ports.get('inputs', []) %}
+- `{{ p.name }}` ({{ p.type }})
+{% endfor %}
+
+**Outputs**:
+{% for p in request.ports.get('outputs', []) %}
+- `{{ p.name }}` ({{ p.type }})
+{% endfor %}
+{% endif %}
+
+{% if request.context %}
+### Workflow Context:
+{% if request.context.get('upstream') %}
+**Upstream connections** (what data flows into this node):
+{% for conn in request.context.upstream %}
+- `{{ conn.port }}` ← `{{ conn.source }}` ({{ conn.description }})
+{% endfor %}
+{% endif %}
+{% if request.context.get('downstream') %}
+**Downstream connections** (what data flows out of this node):
+{% for conn in request.context.downstream %}
+- `{{ conn.port }}` → `{{ conn.target }}` ({{ conn.description }})
+{% endfor %}
+{% endif %}
+{% if request.context.get('onboard_params') %}
+**User-provided parameters**:
+{% for k, v in request.context.onboard_params.items() %}
+- `{{ k }}`: {{ v }}
+{% endfor %}
+{% endif %}
+{% if request.context.get('sweep_context') %}
+### Sweep Context:
+This node receives aggregated output from a sweep node.
+- Sweep parameter: `{{ request.context.sweep_context.sweep_param }}`
+- Sweep values: {{ request.context.sweep_context.sweep_values }}
+- Input I1 will be a JSON array (one element per sweep iteration).
+- Environment variable `_sweep_keys` contains the original sweep values.
+- Use `json.loads()` to parse both.
+{% endif %}
+{% endif %}
+
+{% if iteration > 0 and prev_nodespec %}
+### Previous Attempt (failed evaluation):
+```python
+{{ prev_nodespec }}
+```
+
+### Issues to Fix:
+{% for issue in eval_issues %}
+- {{ issue }}
+{% endfor %}
+{% endif %}
+
+Generate the Python script now. Output ONLY the script content using this marker:
+
+=== RUN_SH ===
+<scriptle content here>

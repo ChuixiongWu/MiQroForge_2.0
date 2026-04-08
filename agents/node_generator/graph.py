@@ -43,7 +43,26 @@ def _save_to_userdata(state: NodeGenState) -> dict[str, Any]:
     run_sh = state.get("run_sh", "")
     input_templates = state.get("input_templates") or {}
 
-    if not nodespec_yaml or not request:
+    if not request:
+        return {}
+
+    is_ephemeral = getattr(request, "node_mode", "formal") == "ephemeral"
+
+    # ── 临时节点模式：不保存文件，直接返回脚本内容 ──
+    if is_ephemeral:
+        evaluation = state.get("evaluation")
+        result = NodeGenResult(
+            node_name=request.semantic_type or "ephemeral",
+            nodespec_yaml="",
+            run_sh=run_sh,
+            input_templates={},
+            saved_path=None,
+            evaluation=evaluation,
+            script_content=run_sh,
+        )
+        return {"result": result}
+
+    if not nodespec_yaml:
         return {}
 
     # 提取节点名
@@ -136,8 +155,13 @@ def get_node_generator_graph():
     return _node_gen_graph
 
 
-def run_node_generator(request) -> NodeGenState:
-    """运行 Node Generator Agent。"""
+def run_node_generator(request, **extra_state) -> NodeGenState:
+    """运行 Node Generator Agent。
+
+    Parameters:
+        request: NodeGenRequest 实例。
+        **extra_state: 额外的状态字段（如 context、ports 等）。
+    """
     graph = get_node_generator_graph()
-    initial_state: NodeGenState = {"request": request, "iteration": 0}
+    initial_state: NodeGenState = {"request": request, "iteration": 0, **extra_state}
     return graph.invoke(initial_state)

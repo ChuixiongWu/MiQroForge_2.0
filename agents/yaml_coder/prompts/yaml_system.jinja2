@@ -61,3 +61,24 @@ connections:
    `category` matches (physical_quantity↔physical_quantity, software_data_package↔
    software_data_package, etc.). Call get_node_details() to verify categories before
    connecting.
+
+## Ephemeral Nodes:
+When the plan includes a step that doesn't match any existing node (e.g. data collection,
+plotting, format conversion), use an ephemeral node. Ephemeral nodes are temporary scripts
+generated at compile time. Declare them as:
+```yaml
+  - id: step-N
+    ephemeral: true
+    onboard_params:
+      description: "One sentence describing what the script should do"
+    ports:
+      inputs:
+        - name: I1
+          type: physical_quantity    # or software_data_package
+      outputs:
+        - name: O1
+          type: software_data_package
+```
+- The `description` MUST be in `onboard_params` (not top-level field)
+- Port count: keep minimal — only the ports actually needed
+- Connect ephemeral ports to other nodes using the standard connections format
