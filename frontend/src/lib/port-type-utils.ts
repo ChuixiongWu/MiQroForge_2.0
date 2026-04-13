@@ -9,6 +9,9 @@ export const PORT_COLORS: Record<PortCategory, string> = {
   report_object:        '#a855f7',
 }
 
+// Ephemeral wildcard port — rainbow gradient, rendered via inline style
+export const EPHEMERAL_PORT_COLOR = '#f97316'  // orange-500 fallback
+
 export const PORT_LABELS: Record<PortCategory, string> = {
   physical_quantity:     'Physical',
   software_data_package: 'Software',

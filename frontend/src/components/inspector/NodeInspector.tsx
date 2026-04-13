@@ -1,6 +1,6 @@
 import React from 'react'
 import { useForm } from 'react-hook-form'
-import { useWorkflowStore } from '../../stores/workflow-store'
+import { useWorkflowStore, type MFNodeData } from '../../stores/workflow-store'
 import { useUIStore } from '../../stores/ui-store'
 import { useRunOverlayStore } from '../../stores/run-overlay-store'
 import type { NodeRunStatus } from '../../stores/run-overlay-store'
@@ -54,9 +54,9 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
   const toggleMultiMode = (paramName: string) => {
     setMultiMode((prev) => {
       const next = !prev[paramName]
-      // When switching to single mode, clear sweep data
+      // When switching to single mode, clear sweep data but keep the param value
       if (!next) {
-        updateNodeParams(nodeId, { [paramName]: '', __sweep_values: [] })
+        updateNodeParams(nodeId, { __sweep_values: [] })
       }
       return { ...prev, [paramName]: next }
     })
@@ -240,11 +240,82 @@ function EphemeralDescriptionEditor({ nodeId }: { nodeId: string }) {
   )
 }
 
+// ─── Ephemeral I/O port count editor ─────────────────────────────────────────
+
+function EphemeralPortEditor({ nodeId }: { nodeId: string }) {
+  const node = useWorkflowStore((s) => s.nodes.find((n) => n.id === nodeId))
+  const updateNodeData = useWorkflowStore((s) => s.updateNodeWithHistory)
+
+  if (!node?.data.ephemeral) return null
+
+  const ports = node.data.ports as { inputs: { name: string; type: string }[]; outputs: { name: string; type: string }[] } | undefined
+  const inputCount = ports?.inputs?.length ?? 1
+  const outputCount = ports?.outputs?.length ?? 1
+
+  const updatePorts = (dir: 'inputs' | 'outputs', count: number) => {
+    const otherCount = dir === 'inputs' ? outputCount : inputCount
+    // At least 1 port total; max 8 per direction
+    const clamped = Math.max(0, Math.min(8, count))
+    if (clamped === 0 && otherCount === 0) return // can't have 0 total
+    const prefix = dir === 'inputs' ? 'I' : 'O'
+    const newPorts = Array.from({ length: clamped }, (_, i) => ({
+      name: `${prefix}${i + 1}`,
+      type: 'software_data_package',
+    }))
+    const currentPorts = ports ?? { inputs: [{ name: 'I1', type: 'software_data_package' }], outputs: [{ name: 'O1', type: 'software_data_package' }] }
+    updateNodeData(nodeId, {
+      ...node.data,
+      ports: { ...currentPorts, [dir]: newPorts },
+    } as MFNodeData)
+  }
+
+  return (
+    <div className="px-3 py-2 space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-[11px] text-mf-text-secondary">Inputs</label>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => updatePorts('inputs', inputCount - 1)}
+            disabled={inputCount <= 0 || (inputCount === 1 && outputCount === 0)}
+            className="w-5 h-5 flex items-center justify-center rounded bg-mf-input border border-mf-border text-xs text-mf-text-muted hover:text-mf-text-primary disabled:opacity-30"
+          >-</button>
+          <span className="text-xs text-mf-text-primary font-mono w-4 text-center">{inputCount}</span>
+          <button
+            onClick={() => updatePorts('inputs', inputCount + 1)}
+            disabled={inputCount >= 8}
+            className="w-5 h-5 flex items-center justify-center rounded bg-mf-input border border-mf-border text-xs text-mf-text-muted hover:text-mf-text-primary disabled:opacity-30"
+          >+</button>
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <label className="text-[11px] text-mf-text-secondary">Outputs</label>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => updatePorts('outputs', outputCount - 1)}
+            disabled={outputCount <= 0 || (outputCount === 1 && inputCount === 0)}
+            className="w-5 h-5 flex items-center justify-center rounded bg-mf-input border border-mf-border text-xs text-mf-text-muted hover:text-mf-text-primary disabled:opacity-30"
+          >-</button>
+          <span className="text-xs text-mf-text-primary font-mono w-4 text-center">{outputCount}</span>
+          <button
+            onClick={() => updatePorts('outputs', outputCount + 1)}
+            disabled={outputCount >= 8}
+            className="w-5 h-5 flex items-center justify-center rounded bg-mf-input border border-mf-border text-xs text-mf-text-muted hover:text-mf-text-primary disabled:opacity-30"
+          >+</button>
+        </div>
+      </div>
+      <p className="text-[10px] text-mf-text-muted">
+        Ephemeral ports connect to any type. At least 1 total port required.
+      </p>
+    </div>
+  )
+}
+
 // ─── Workspace image display ──────────────────────────────────────────────────
 
 function WorkspaceImage({ filename, nodeId }: { filename: string; nodeId: string }) {
   const [imageUrl, setImageUrl] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const [expanded, setExpanded] = React.useState(false)
   const runStatus = useRunOverlayStore((s) => s.nodeStatuses[nodeId])
 
   React.useEffect(() => {
@@ -284,8 +355,17 @@ function WorkspaceImage({ filename, nodeId }: { filename: string; nodeId: string
       <img
         src={imageUrl}
         alt={filename}
-        className="w-full rounded border border-mf-border"
+        onClick={() => setExpanded(true)}
+        className="w-full rounded border border-mf-border cursor-zoom-in hover:opacity-80 transition-opacity"
       />
+      {expanded && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center cursor-zoom-out"
+          onClick={() => setExpanded(false)}
+        >
+          <img src={imageUrl} alt={filename} className="max-w-[90vw] max-h-[90vh] object-contain" />
+        </div>
+      )}
     </div>
   )
 }
@@ -298,8 +378,16 @@ function PortList({ nodeId, direction }: { nodeId: string; direction: 'input' | 
   // For ephemeral nodes: derive from ports field (simpler {name, type} shape)
   let ports = direction === 'input' ? (node?.data.stream_inputs ?? []) : (node?.data.stream_outputs ?? [])
   if (ports.length === 0 && node?.data.ports) {
-    const raw = direction === 'input' ? (node.data.ports.inputs ?? []) : (node.data.ports.outputs ?? [])
-    ports = raw.map((p) => ({ name: p.name, display_name: p.name, category: p.type as never, detail: '' }))
+    const rawPorts = node.data.ports as Record<string, unknown>
+    const raw = direction === 'input' ? rawPorts.inputs : rawPorts.outputs
+    if (Array.isArray(raw)) {
+      ports = raw.map((p: { name: string; type: string }) => ({ name: p.name, display_name: p.name, category: p.type as never, detail: '' }))
+    } else if (typeof raw === 'number') {
+      const prefix = direction === 'input' ? 'I' : 'O'
+      ports = Array.from({ length: raw as number }, (_, i) => ({
+        name: `${prefix}${i + 1}`, display_name: `${prefix}${i + 1}`, category: 'software_data_package' as never, detail: '',
+      }))
+    }
   }
 
   if (ports.length === 0) return <p className="text-xs text-mf-text-muted px-3 py-1">None</p>
@@ -473,14 +561,25 @@ export function NodeInspector() {
         {/* Node header */}
         <div className="px-3 py-2 border-b border-mf-border">
           <div className="text-sm font-semibold text-mf-text-primary">{d.display_name}</div>
-          <div className="text-[11px] text-mf-text-muted font-mono mt-0.5">{d.name} v{d.version}</div>
-          <div className="text-xs text-mf-text-secondary mt-1 leading-relaxed">{d.description}</div>
+          {!isEphemeral && (
+            <>
+              <div className="text-[11px] text-mf-text-muted font-mono mt-0.5">{d.name} v{d.version}</div>
+              <div className="text-xs text-mf-text-secondary mt-1 leading-relaxed">{d.description}</div>
+            </>
+          )}
         </div>
 
         {/* Ephemeral description editor */}
         {isEphemeral && (
           <Section title="Script Description">
             <EphemeralDescriptionEditor nodeId={node.id} />
+          </Section>
+        )}
+
+        {/* Ephemeral I/O port editor */}
+        {isEphemeral && (
+          <Section title="I/O Ports">
+            <EphemeralPortEditor nodeId={node.id} />
           </Section>
         )}
 
@@ -531,9 +630,9 @@ export function NodeInspector() {
             <Section title="Parameters">
               <OnBoardParamForm key={node.id} nodeId={node.id} />
             </Section>
-            {/* Workspace image display for ephemeral nodes that produce plots */}
-            {(d.onboard_params?.image_output as string) && (
-              <WorkspaceImage filename={d.onboard_params.image_output as string} nodeId={node.id} />
+            {/* Ephemeral image display — driven by _mf_images output param */}
+            {isEphemeral && runStatus?.outputs?._mf_images && (
+              <WorkspaceImage filename={runStatus.outputs._mf_images.split('\n')[0].split('/').pop()!} nodeId={node.id} />
             )}
           </>
         ) : (

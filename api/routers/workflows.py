@@ -8,6 +8,7 @@ POST /api/v1/workflows/submit   — 校验 + 编译 + 提交到 Argo
 from __future__ import annotations
 
 import asyncio
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -113,7 +114,7 @@ async def submit_workflow(
     """
     # 1. 编译（含 LLM 调用，在线程池中运行以避免阻塞）
     try:
-        result = await asyncio.to_thread(svc.compile_yaml_str, req.yaml_content)
+        result = await asyncio.to_thread(svc.compile_yaml_str, req.yaml_content, req.project_id or "")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -127,7 +128,7 @@ async def submit_workflow(
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=f"Argo submission failed: {str(e)}")
 
-    # 3. 保存 MF YAML + Argo YAML 到项目作用域 runs/{name}/
+    # 3. 保存 MF YAML + Argo YAML + 临时节点 Agent 日志到项目作用域 runs/{name}/
     run_name = submit_result["workflow_name"]
     if not req.project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
@@ -135,5 +136,13 @@ async def submit_workflow(
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "mf-workflow.yaml").write_text(req.yaml_content, encoding="utf-8")
     (run_dir / "argo-workflow.yaml").write_text(result["argo_yaml"], encoding="utf-8")
+
+    # 保存临时节点的 Agent 会话日志（含完整的 prompt/response）
+    ephemeral_logs = result.get("ephemeral_logs", {})
+    if ephemeral_logs:
+        (run_dir / "ephemeral-agent-logs.json").write_text(
+            json.dumps(ephemeral_logs, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
 
     return WorkflowSubmitResponse(**submit_result)

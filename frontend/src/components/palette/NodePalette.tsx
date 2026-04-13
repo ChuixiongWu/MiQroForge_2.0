@@ -1,11 +1,42 @@
 import React, { useCallback } from 'react'
-import { Search, RefreshCw, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
+import { Search, RefreshCw, ChevronLeft, ChevronRight, ChevronDown, Zap } from 'lucide-react'
 import { useNodeCatalog } from '../../hooks/useNodeCatalog'
 import { useNodeCatalogStore, buildSemanticGroups } from '../../stores/node-catalog-store'
 import { useUIStore } from '../../stores/ui-store'
 import { semanticIcon } from '../../lib/semantic-labels'
 import type { PickerOption } from '../../lib/semantic-labels'
 import type { NodeSummaryResponse } from '../../types/index-types'
+
+// ─── Ephemeral type card (fixed, draggable) ──────────────────────────────────
+
+function EphemeralTypeCard() {
+  const onDragStart = useCallback((e: React.DragEvent) => {
+    e.dataTransfer.setData('application/mf-ephemeral', 'true')
+    e.dataTransfer.effectAllowed = 'copy'
+  }, [])
+
+  return (
+    <div className="mx-2 mb-2">
+      <div
+        draggable
+        onDragStart={onDragStart}
+        className="bg-mf-card border border-orange-700/40 rounded-lg shadow cursor-grab active:cursor-grabbing hover:border-orange-500/60 transition-colors select-none"
+      >
+        <div className="px-2.5 py-2 bg-orange-900/20 rounded-lg flex items-start gap-1.5">
+          <Zap size={14} className="text-orange-400 mt-0.5 flex-shrink-0" />
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-orange-200 truncate leading-tight">
+              Ephemeral Node
+            </div>
+            <div className="text-[10px] text-orange-500/80">
+              temporary · drag to create
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ─── Software row (secondary-menu item, draggable with node-name protocol) ────
 
@@ -171,6 +202,9 @@ export function NodePalette() {
 
       {/* Semantic node cards */}
       <div className="flex-1 overflow-y-auto mf-scroll py-2">
+        {/* Ephemeral node card — always shown */}
+        <EphemeralTypeCard />
+
         {isLoading && (
           <div className="px-3 py-4 text-xs text-mf-text-muted text-center">Loading nodes…</div>
         )}

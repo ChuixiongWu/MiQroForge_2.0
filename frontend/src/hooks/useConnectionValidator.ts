@@ -14,6 +14,8 @@ export function useConnectionValidator() {
           data: {
             stream_inputs: (n.data.stream_inputs ?? []) as StreamPort[],
             stream_outputs: (n.data.stream_outputs ?? []) as StreamPort[],
+            ephemeral: n.data.ephemeral,
+            ports: n.data.ports as { inputs?: Array<{ name: string; type: string }> | number; outputs?: Array<{ name: string; type: string }> | number } | undefined,
           },
         })),
       ),

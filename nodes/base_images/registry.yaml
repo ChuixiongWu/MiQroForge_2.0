@@ -19,6 +19,26 @@ images:
     entrypoint_convention: /mf/profile/run.sh
     license_type: GPL-2.0
 
+  - name: ephemeral-py
+    display_name: "Ephemeral Python"
+    description: >
+      Pre-built Python 3.11 image for ephemeral (Agent-generated) nodes.
+      Includes numpy, scipy, pandas, matplotlib, pyyaml, jinja2, requests.
+      Build: bash nodes/base_images/ephemeral-py/build.sh
+    image: harbor.era.local/library/mf-ephemeral-py
+    tag: "3.11"
+    source_type: user-built
+    software_name: python
+    software_version: "3.11"
+    additional_software:
+      numpy: "*"
+      scipy: "*"
+      pandas: "*"
+      matplotlib: "*"
+    workdir: /mf/workdir
+    entrypoint_convention: ""
+    license_type: PSF-2.0
+
   - name: orca-6.1
     display_name: "ORCA 6.1"
     description: >

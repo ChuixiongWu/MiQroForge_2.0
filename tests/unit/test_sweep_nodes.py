@@ -18,7 +18,6 @@ import pytest
 import yaml
 
 from workflows.pipeline.models import (
-    EphemeralPortDecl,
     EphemeralPorts,
     MFConnection,
     MFNodeInstance,
@@ -95,8 +94,7 @@ class TestMFNodeInstanceSweep:
             MFNodeInstance(
                 id="bad",
                 ephemeral=True,
-                ports={"inputs": [{"name": "I1", "type": "physical_quantity"}],
-                        "outputs": [{"name": "O1", "type": "physical_quantity"}]},
+                ports=EphemeralPorts(inputs=1, outputs=1),
                 parallel_sweep=ParallelSweep(values=[1, 2, 3]),
             )
 
@@ -894,10 +892,7 @@ def _make_sweep_fan_in_workflow():
                 id="collect",
                 ephemeral=True,
                 description="收集能量",
-                ports=EphemeralPorts(
-                    inputs=[EphemeralPortDecl(name="I1", type="physical_quantity")],
-                    outputs=[EphemeralPortDecl(name="O1", type="physical_quantity")],
-                ),
+                ports=EphemeralPorts(inputs=1, outputs=1),
             ),
         ],
         connections=[
@@ -914,9 +909,10 @@ class TestDetectFanInNodes:
         wf = _make_sweep_fan_in_workflow()
         auto_fan_out = {"sp-calc"}
         sweep_source = {"sp-calc": ("geom-input", [0.5, 0.74, 1.0])}
+        sweep_origin = {"sp-calc": ("geom-input", [0.5, 0.74, 1.0])}
 
         from workflows.pipeline.compiler import _detect_fan_in_nodes
-        fan_in_map = _detect_fan_in_nodes(wf, auto_fan_out, sweep_source)
+        fan_in_map = _detect_fan_in_nodes(wf, auto_fan_out, sweep_source, sweep_origin)
 
         assert "collect" in fan_in_map
         assert len(fan_in_map["collect"]) == 1
@@ -942,16 +938,17 @@ class TestDetectFanInNodes:
             ],
         )
         from workflows.pipeline.compiler import _detect_fan_in_nodes
-        fan_in_map = _detect_fan_in_nodes(wf, set(), {})
+        fan_in_map = _detect_fan_in_nodes(wf, set(), {}, {})
         assert fan_in_map == {}
 
     def test_explicit_sweep_node_not_fan_in(self):
         wf = _make_sweep_fan_in_workflow()
         auto_fan_out = {"sp-calc"}
         sweep_source = {"sp-calc": ("geom-input", [0.5, 0.74, 1.0])}
+        sweep_origin = {"sp-calc": ("geom-input", [0.5, 0.74, 1.0])}
 
         from workflows.pipeline.compiler import _detect_fan_in_nodes
-        fan_in_map = _detect_fan_in_nodes(wf, auto_fan_out, sweep_source)
+        fan_in_map = _detect_fan_in_nodes(wf, auto_fan_out, sweep_source, sweep_origin)
 
         assert "geom-input" not in fan_in_map
         assert "sp-calc" not in fan_in_map
@@ -984,9 +981,10 @@ class TestDetectFanInNodes:
         )
         auto_fan_out = {"auto-node"}
         sweep_source = {"auto-node": ("sweep-src", [1, 2, 3])}
+        sweep_origin = {"auto-node": ("sweep-src", [1, 2, 3])}
 
         from workflows.pipeline.compiler import _detect_fan_in_nodes
-        fan_in_map = _detect_fan_in_nodes(wf, auto_fan_out, sweep_source)
+        fan_in_map = _detect_fan_in_nodes(wf, auto_fan_out, sweep_source, sweep_origin)
 
         assert "explicit-fanin" not in fan_in_map
 
@@ -1025,28 +1023,14 @@ def _compile_sweep_with_ephemeral():
             id="collect",
             ephemeral=True,
             description="收集能量",
-            ports=EphemeralPorts(
-                inputs=[EphemeralPortDecl(name="I1", type="physical_quantity")],
-                outputs=[EphemeralPortDecl(name="O1", type="physical_quantity")],
-            ),
+            ports=EphemeralPorts(inputs=1, outputs=1),
         )
     )
     resolved = dict(src_report.resolved_nodes)
     resolved["collect"] = eph_spec
 
-    mock_script = (
-        "import os, json\n"
-        "energies = json.loads(open('/mf/input/I1').read())\n"
-        "keys = json.loads(os.environ['_sweep_keys'])\n"
-        "with open('/mf/output/O1', 'w') as f:\n"
-        "    f.write(json.dumps(list(zip(keys, energies))))\n"
-    )
-
-    with patch(
-        "workflows.pipeline.compiler._generate_ephemeral_script",
-        return_value=mock_script,
-    ):
-        argo = compile_to_argo(wf, resolved)
+    # wrapper 模式下编译器不再调用 Agent，无需 mock
+    argo = compile_to_argo(wf, resolved)
 
     return argo
 
@@ -1145,19 +1129,8 @@ class TestE2ESweepCompilation:
         wf = MFWorkflow(**wf_yaml)
         report = validate_workflow(wf, project_root=PROJECT_ROOT)
 
-        mock_script = (
-            "import os, json\n"
-            "energies = json.loads(open('/mf/input/I1').read())\n"
-            "keys = json.loads(os.environ['_sweep_keys'])\n"
-            "with open('/mf/output/O1', 'w') as f:\n"
-            "    f.write(json.dumps(list(zip(keys, energies))))\n"
-        )
-
-        with patch(
-            "workflows.pipeline.compiler._generate_ephemeral_script",
-            return_value=mock_script,
-        ):
-            argo = compile_to_argo(wf, report.resolved_nodes, project_root=PROJECT_ROOT)
+        # wrapper 模式下编译器不再调用 Agent，无需 mock
+        argo = compile_to_argo(wf, report.resolved_nodes, project_root=PROJECT_ROOT)
 
         dag_template = next(
             t for t in argo["spec"]["templates"]
@@ -1358,10 +1331,7 @@ class TestNestedDAGPipeline:
                     id="collect",
                     ephemeral=True,
                     description="收集能量",
-                    ports=EphemeralPorts(
-                        inputs=[EphemeralPortDecl(name="I1", type="physical_quantity")],
-                        outputs=[EphemeralPortDecl(name="O1", type="physical_quantity")],
-                    ),
+                    ports=EphemeralPorts(inputs=1, outputs=1),
                 ),
             ],
             connections=[
@@ -1379,12 +1349,8 @@ class TestNestedDAGPipeline:
             "collect": _build_ephemeral_nodespec(wf.nodes[2]),
         }
 
-        mock_script = "import json\npass\n"
-        with patch(
-            "workflows.pipeline.compiler._generate_ephemeral_script",
-            return_value=mock_script,
-        ):
-            argo = compile_to_argo(wf, resolved, project_root=PROJECT_ROOT)
+        # wrapper 模式下编译器不再调用 Agent，无需 mock
+        argo = compile_to_argo(wf, resolved, project_root=PROJECT_ROOT)
 
         pipeline_tmpl = next(
             t for t in argo["spec"]["templates"]

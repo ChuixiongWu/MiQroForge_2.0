@@ -1,14 +1,19 @@
 """agents/node_generator/graph.py — Node Generator Agent LangGraph 图。
 
-流程：
-  START → generate → evaluate → [passed? END : refine → evaluate → ...]
+双模式拓扑：
+
+Formal 模式（正式节点）：
+  START → generate → evaluate → [pass? END : refine → generate → ...]
   + finalize: 保存生成节点到 userdata/nodes/
+
+Ephemeral 模式（临时节点）：
+  START → generate → save → END
+  （生成+执行+评估的完整循环在 _generate_ephemeral_agent 内部完成，
+    API 端点负责外循环。）
 """
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
 from typing import Any
 
 from langgraph.graph import StateGraph, END
@@ -22,7 +27,15 @@ from agents.schemas import NodeGenResult, EvaluationResult
 MAX_ITERATIONS = 3
 
 
+def _is_ephemeral(state: NodeGenState) -> bool:
+    request = state.get("request")
+    return getattr(request, "node_mode", "formal") == "ephemeral" if request else False
+
+
+# ─── Formal 模式路由 ───────────────────────────────────────────────────────────
+
 def _route_after_evaluate(state: NodeGenState) -> str:
+    """Formal 模式：评估后的路由。"""
     evaluation: EvaluationResult | None = state.get("evaluation")
     iteration: int = state.get("iteration", 0)
     if evaluation and evaluation.passed:
@@ -32,15 +45,22 @@ def _route_after_evaluate(state: NodeGenState) -> str:
     return "refine"
 
 
+# ─── 节点函数 ──────────────────────────────────────────────────────────────────
+
 def _increment_iteration(state: NodeGenState) -> dict[str, Any]:
     return {"iteration": state.get("iteration", 0) + 1}
+
+
+def _generate_with_feedback(state: NodeGenState) -> dict[str, Any]:
+    """生成节点（带反馈上下文传递）。"""
+    return generate_node(state)
 
 
 def _save_to_userdata(state: NodeGenState) -> dict[str, Any]:
     """将生成的节点保存到 userdata/nodes/。"""
     request = state.get("request")
     nodespec_yaml = state.get("nodespec_yaml", "")
-    run_sh = state.get("run_sh", "")
+    run_sh = state.get("run_sh", "") or state.get("script", "")
     input_templates = state.get("input_templates") or {}
 
     if not request:
@@ -117,19 +137,41 @@ def _save_to_userdata(state: NodeGenState) -> dict[str, Any]:
     return {"result": result}
 
 
+# ─── 图构建 ────────────────────────────────────────────────────────────────────
+
 def build_node_generator_graph():
-    """构建并编译 Node Generator Agent LangGraph 图。"""
+    """构建并编译 Node Generator Agent LangGraph 图。
+
+    Formal 模式：generate → evaluate → refine 循环。
+    Ephemeral 模式：generate → save（Agent 内循环在 generate 内部完成）。
+    """
     graph = StateGraph(NodeGenState)
 
-    graph.add_node("generate", generate_node)
+    graph.add_node("generate", _generate_with_feedback)
     graph.add_node("evaluate", evaluate_node)
     graph.add_node("increment", _increment_iteration)
     graph.add_node("save", _save_to_userdata)
 
     graph.set_entry_point("generate")
 
-    graph.add_edge("generate", "evaluate")
+    # 根据模式分支
+    def _route_after_first_generate(state: NodeGenState) -> str:
+        if _is_ephemeral(state):
+            # ephemeral：Agent 已在内部完成完整循环，直接 save
+            return "save"
+        else:
+            return "evaluate"
 
+    graph.add_conditional_edges(
+        "generate",
+        _route_after_first_generate,
+        {
+            "evaluate": "evaluate",  # formal
+            "save": "save",  # ephemeral: 直接 save
+        },
+    )
+
+    # Formal: evaluate → [pass? save : refine → generate]
     graph.add_conditional_edges(
         "evaluate",
         _route_after_evaluate,

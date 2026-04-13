@@ -76,6 +76,8 @@ def compile_to_argo(
     *,
     project_root: Path | None = None,
     docker_hub_mirror: str = "",
+    ephemeral_logs: dict[str, Any] | None = None,
+    project_id: str = "",
 ) -> dict[str, Any]:
     """将 MFWorkflow 编译为 Argo Workflow YAML dict。
 
@@ -85,6 +87,8 @@ def compile_to_argo(
         project_root: 项目根目录，用于查找 base_images/registry.yaml 和 workspace/ 文件。
         docker_hub_mirror: Docker Hub 国内镜像加速站域名（如 docker.m.daocloud.io）。
             设置后，无 registry.yaml 条目的 Docker Hub 官方镜像将通过该镜像站拉取。
+        ephemeral_logs: 已废弃，不再使用（临时节点改为运行时调用 Agent API）。
+        project_id: 项目 ID，注入到临时节点环境变量中用于日志关联。
 
     Returns:
         Argo Workflow YAML 结构（可直接 yaml.dump）。
@@ -107,7 +111,7 @@ def compile_to_argo(
     auto_fan_out, sweep_source, sweep_origin = _propagate_sweep(workflow)
 
     # 检测 fan-in 节点（接收聚合 sweep 输出的节点）
-    fan_in_map = _detect_fan_in_nodes(workflow, auto_fan_out, sweep_source)
+    fan_in_map = _detect_fan_in_nodes(workflow, auto_fan_out, sweep_source, sweep_origin)
 
     # 构建 connection 信息：target (node_id, port_name) → (src_node_id, src_port_name)
     conn_map: dict[tuple[str, str], tuple[str, str]] = {}
@@ -175,17 +179,6 @@ def compile_to_argo(
     templates: list[dict[str, Any]] = []
     dag_tasks: list[dict[str, Any]] = []
 
-    # 预生成临时节点的脚本内容
-    ephemeral_scripts: dict[str, str] = {}
-    for node_inst in workflow.nodes:
-        if node_inst.ephemeral:
-            script = _generate_ephemeral_script(
-                node_inst, workflow, resolved_nodes,
-                auto_fan_out=auto_fan_out,
-                sweep_source=sweep_source,
-            )
-            ephemeral_scripts[node_inst.id] = script
-
     for node_inst in workflow.nodes:
         spec = resolved_nodes[node_inst.id]
         template_name = f"mf-{node_inst.id}"
@@ -201,8 +194,11 @@ def compile_to_argo(
             connected_outputs=connected_outputs,
             docker_hub_mirror=docker_hub_mirror,
             project_root=project_root,
-            ephemeral_scripts=ephemeral_scripts,
+            resolved_nodes=resolved_nodes,
+            auto_fan_out=auto_fan_out,
+            sweep_source=sweep_source,
             fan_in_map=fan_in_map,
+            project_id=project_id,
         )
         templates.append(template)
 
@@ -288,26 +284,20 @@ def compile_to_yaml_str(
     )
 
 
-def _generate_ephemeral_script(
+def _build_ephemeral_wrapper_script(
     node_inst: MFNodeInstance,
     workflow: MFWorkflow,
     resolved_nodes: dict[str, NodeSpec],
-    auto_fan_out: set[str] | None = None,
-    sweep_source: dict[str, tuple[str, str]] | None = None,
 ) -> str:
-    """为临时节点调用 Node Generator Agent 生成 Python 脚本。
+    """生成临时节点的 Pod wrapper 脚本（薄 API 调用层）。
 
-    如果 Agent 调用失败，抛出 ValueError 让编译流程中断。
+    运行时流程：
+    1. 读取 /mf/input/ 中的真实输入数据（含 _sweep_keys 文件）
+    2. POST /api/v1/agents/ephemeral（一次性调用，服务端完成完整循环）
+    3. 执行返回的脚本 + 写图片清单
     """
-    from agents.schemas import NodeGenRequest
-    from agents.node_generator.graph import run_node_generator
 
-    if auto_fan_out is None:
-        auto_fan_out = set()
-    if sweep_source is None:
-        sweep_source = {}
-
-    # 收集连接上下文：上游/下游节点信息
+    # 收集连接上下文
     upstream: list[dict[str, str]] = []
     downstream: list[dict[str, str]] = []
     for conn in workflow.connections:
@@ -326,27 +316,9 @@ def _generate_ephemeral_script(
                 "description": tgt_spec.metadata.name if tgt_spec else conn.target_node_id,
             })
 
-    # 检测是否为 fan-in 节点
-    node_map = {n.id: n for n in workflow.nodes}
-    sweep_info = None
-    for conn in workflow.connections:
-        if conn.target_node_id == node_inst.id:
-            src_id = conn.source_node_id
-            # 追溯到原始 sweep 源
-            if src_id in auto_fan_out:
-                orig_src_id, _ = sweep_source[src_id]
-                src_id = orig_src_id
-            src_node = node_map.get(src_id)
-            if src_node and src_node.parallel_sweep is not None:
-                sweep_info = {
-                    "sweep_param": _find_sweep_param(src_node),
-                    "sweep_values": src_node.parallel_sweep.values,
-                }
-                break
-
     ports_dict: dict[str, Any] = {}
     if node_inst.ports:
-        ports_dict = node_inst.ports.model_dump()
+        ports_dict = {"inputs": node_inst.ports.inputs, "outputs": node_inst.ports.outputs}
 
     context: dict[str, Any] = {
         "node_id": node_inst.id,
@@ -354,32 +326,109 @@ def _generate_ephemeral_script(
         "downstream": downstream,
         "onboard_params": node_inst.onboard_params,
     }
-    if sweep_info:
-        context["sweep_context"] = sweep_info
+    # sweep 上下文由 generator 端从 input_data 中的 _sweep_keys 文件自动推断，无需 wrapper 传递
 
-    request = NodeGenRequest(
-        semantic_type="ephemeral",
-        description=node_inst.get_generation_description(),
-        node_mode="ephemeral",
-        ports=ports_dict,
-        context=context,
-    )
+    description = node_inst.get_generation_description()
 
-    result_state = run_node_generator(request)
+    # 用 json.dumps 生成 Python dict 字面量（安全转义引号）
+    _jd = json.dumps
 
-    result = result_state.get("result")
-    if result and result.script_content:
-        return result.script_content
+    return f'''#!/usr/bin/env python3
+# MF Ephemeral Node Runtime Wrapper (thin API call layer)
+# 服务端 API 完成完整的 generate→execute→evaluate 循环
 
-    # 降级：从 run_sh 取
-    run_sh = result_state.get("run_sh", "")
-    if run_sh:
-        return run_sh
+import os, sys, json, subprocess
+import requests
 
-    error = result_state.get("error", "未知错误")
-    raise ValueError(
-        f"临时节点 '{node_inst.id}' 的脚本生成失败: {error}"
-    )
+MF_API_URL = os.environ.get("MF_API_URL", "http://10.36.160.16:8100")
+
+DESCRIPTION = {_jd(description)}
+PORTS = {_jd(ports_dict)}
+CONTEXT = {_jd(context)}
+
+def main():
+    # 1. 读取真实输入数据
+    input_data = {{}}
+    input_dir = "/mf/input"
+    if os.path.isdir(input_dir):
+        for fname in sorted(os.listdir(input_dir)):
+            fpath = os.path.join(input_dir, fname)
+            if os.path.isfile(fpath):
+                with open(fpath, "r", errors="replace") as f:
+                    input_data[fname] = f.read()
+
+    # 2. 调用 Agent API（服务端完成 generate→sandbox→evaluate 完整循环）
+    try:
+        resp = requests.post(f"{{MF_API_URL}}/api/v1/agents/ephemeral", json={{
+            "description": DESCRIPTION,
+            "ports": PORTS,
+            "context": CONTEXT,
+            "input_data": input_data,
+            "run_name": os.environ.get("MF_RUN_NAME", ""),
+            "project_id": os.environ.get("MF_PROJECT_ID", ""),
+        }}, timeout=600)
+        resp.raise_for_status()
+        result = resp.json()
+    except Exception as e:
+        print(f"[MF Wrapper] Agent API 调用失败: {{e}}", file=sys.stderr)
+        sys.exit(1)
+
+    # 检查 Agent API 报告的成功状态
+    api_success = result.get("success", True)
+    api_rc = result.get("return_code", 0)
+    if not api_success or api_rc != 0:
+        api_stderr = result.get("stderr", "")[:2000]
+        print(f"[MF Wrapper] Agent 报告失败: success={{api_success}}, return_code={{api_rc}}", file=sys.stderr)
+        if api_stderr:
+            print(f"[MF Wrapper] stderr: {{api_stderr}}", file=sys.stderr)
+        sys.exit(1)
+
+    script = result.get("script", "")
+    if not script:
+        print("[MF Wrapper] Agent API 未返回脚本", file=sys.stderr)
+        sys.exit(1)
+
+    # 3. 执行最终脚本
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="mf_exec_") as tmpdir:
+        script_path = os.path.join(tmpdir, "script.py")
+        with open(script_path, "w") as f:
+            f.write(script)
+
+        env = os.environ.copy()
+        env.setdefault("MF_INPUT_DIR", "/mf/input")
+        env.setdefault("MF_OUTPUT_DIR", "/mf/output")
+        env.setdefault("MF_WORKSPACE_DIR", "/mf/workspace")
+
+        try:
+            proc = subprocess.run(
+                [sys.executable, script_path],
+                capture_output=True, text=True,
+                timeout=120, cwd=tmpdir, env=env,
+            )
+            if proc.stdout:
+                print(proc.stdout)
+            if proc.stderr:
+                print(proc.stderr, file=sys.stderr)
+        except subprocess.TimeoutExpired:
+            print("[MF Wrapper] 脚本执行超时", file=sys.stderr)
+            sys.exit(1)
+
+    # 4. 写图片清单到 output 供前端 inspector 使用（仅使用 Agent API 实际产出的图片）
+    import pathlib as _pl
+    api_image_files = result.get("image_files", [])
+    if api_image_files:
+        try:
+            _pl.Path("/mf/output/_mf_images").write_text("\\n".join(sorted(set(api_image_files))))
+        except Exception:
+            pass
+
+    print("[MF Wrapper] Done.")
+
+
+if __name__ == "__main__":
+    main()
+'''
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -575,6 +624,7 @@ def _detect_fan_in_nodes(
     workflow: MFWorkflow,
     auto_fan_out: set[str],
     sweep_source: dict[str, tuple[str, str]],
+    sweep_origin: dict[str, tuple[str, str]],
 ) -> dict[str, list[tuple[str, list[Any]]]]:
     """检测接收聚合 sweep 输出的 fan-in 节点。
 
@@ -610,7 +660,7 @@ def _detect_fan_in_nodes(
             # 追溯到原始 sweep 源
             orig_src_id = src_id
             if src_id in auto_fan_out:
-                orig_src_id, _ = sweep_source[src_id]
+                orig_src_id, _ = sweep_origin[src_id]
             src_node = node_map.get(orig_src_id)
             if src_node and src_node.parallel_sweep is not None:
                 fan_in_map.setdefault(nid, []).append(
@@ -968,8 +1018,11 @@ def _build_template(
     connected_outputs: set[tuple[str, str]],
     docker_hub_mirror: str = "",
     project_root: Path | None = None,
-    ephemeral_scripts: dict[str, str] | None = None,
+    resolved_nodes: dict[str, NodeSpec] | None = None,
+    auto_fan_out: set[str] | None = None,
+    sweep_source: dict[str, tuple[str, str]] | None = None,
     fan_in_map: dict[str, list[tuple[str, list[Any]]]] | None = None,
+    project_id: str = "",
 ) -> dict[str, Any]:
     """为单个节点构建 Argo template。
 
@@ -1016,17 +1069,29 @@ def _build_template(
     # 解析 resource_bindings（用实例的 onboard_params 覆盖静态资源值）
     resource_overrides = _resolve_resources(spec, node_inst.onboard_params)
 
-    # ── 临时节点：使用 Agent 生成的脚本，构建 lightweight script template ───
-    if node_inst.ephemeral and ephemeral_scripts:
-        script_source = ephemeral_scripts.get(node_inst_id, "")
+    # ── 临时节点：生成 wrapper 脚本，运行时调用 Agent API ───
+    if node_inst.ephemeral:
+        # 注入隐藏的 _mf_images output param，wrapper 会把生成的图片清单写到这里
+        output_params.append({
+            "name": "_mf_images",
+            "default": "",
+            "valueFrom": {"path": "/mf/output/_mf_images"},
+        })
+        wrapper_source = _build_ephemeral_wrapper_script(
+            node_inst=node_inst,
+            workflow=workflow,
+            resolved_nodes=resolved_nodes or {},
+        )
         return _build_ephemeral_template(
             template_name=template_name,
             spec=spec,
-            script_source=script_source,
+            script_source=wrapper_source,
+            registry=registry,
             docker_hub_mirror=docker_hub_mirror,
             input_params=input_params,
             output_params=output_params,
             onboard_params=node_inst.onboard_params,
+            project_id=project_id,
         )
 
     if isinstance(spec.execution, ComputeExecutionConfig):
@@ -1275,38 +1340,64 @@ def _build_ephemeral_template(
     template_name: str,
     spec: NodeSpec,
     script_source: str,
+    registry: BaseImageRegistry,
     docker_hub_mirror: str = "",
     input_params: list[dict[str, str]],
     output_params: list[dict[str, Any]],
     onboard_params: dict[str, Any] | None = None,
+    project_id: str = "",
 ) -> dict[str, Any]:
-    """构建临时节点的 Argo script template。
+    """构建临时节点的 Argo script template（运行时 wrapper 模式）。
 
-    与 lightweight inline_script 模式结构一致：python:3.11-slim + 内联脚本。
-    所有 input 参数通过环境变量注入（与 lightweight 约定一致）。
+    使用 ephemeral-py 预装镜像（含 requests 库，可调用 Agent API）。
+    脚本是 wrapper 脚本，负责在运行时调用 Agent API 生成并执行实际逻辑。
+    Wrapper 自带 preamble 逻辑（创建目录、读取输入），不需要额外 preamble。
     """
-    # ── Python 镜像解析 ──
-    if docker_hub_mirror:
+    # ── Python 镜像解析：优先 ephemeral-py 专用镜像 ──
+    reg_entry = next((img for img in registry.images if img.name == "ephemeral-py"), None)
+    if reg_entry:
+        python_image = f"{reg_entry.image}:{reg_entry.tag}"
+    elif docker_hub_mirror:
         python_image = f"{docker_hub_mirror}/library/python:{_EPHEMERAL_PYTHON_VERSION}-slim"
     else:
         python_image = f"python:{_EPHEMERAL_PYTHON_VERSION}-slim"
 
     # ── 环境变量注入 ──
+    # MF_API_URL：优先从环境变量读取（生产 K8s 部署），否则回退到宿主机 IP
+    import os as _os
+    mf_api_url = _os.environ.get("MF_API_URL", "http://10.36.160.16:8100")
     env_vars: list[dict[str, str]] = [
         {"name": "MF_OUTPUT_DIR", "value": "/mf/output"},
         {"name": "MF_WORKSPACE_DIR", "value": "/mf/workspace"},
+        {"name": "MF_API_URL", "value": mf_api_url},
     ]
+    if project_id:
+        env_vars.append({"name": "MF_PROJECT_ID", "value": project_id})
+    # MF_RUN_NAME：使用 Argo 的 workflow name 作为 run 标识
+    env_vars.append({"name": "MF_RUN_NAME", "value": "{{workflow.name}}"})
     for param in input_params:
         env_vars.append({
             "name": param["name"],
             "value": f"{{{{inputs.parameters.{param['name']}}}}}",
         })
-    # 注入 IMAGE_OUTPUT（如果 onboard_params 中声明了 image_output）
-    if onboard_params and onboard_params.get("image_output"):
-        env_vars.append({
-            "name": "IMAGE_OUTPUT",
-            "value": str(onboard_params["image_output"]),
-        })
+
+    # ── Wrapper 脚本自带 preamble，不需要额外拼接 ──
+    # wrapper 脚本中已包含创建目录、读取输入、执行脚本、评估等完整逻辑
+
+    # ── Preamble：将环境变量写入 /mf/input/ 文件（wrapper 也需要）──
+    preamble_lines = [
+        "import os, pathlib as _pl",
+        "_pl.Path('/mf/input').mkdir(parents=True, exist_ok=True)",
+        "_pl.Path('/mf/output').mkdir(parents=True, exist_ok=True)",
+    ]
+    for param in input_params:
+        name = param["name"]
+        preamble_lines.append(
+            f"if '{name}' in os.environ: "
+            f"_pl.Path('/mf/input/{name}').write_text(os.environ['{name}'])"
+        )
+    preamble = "\n".join(preamble_lines) + "\n"
+    full_source = preamble + script_source
 
     template: dict[str, Any] = {
         "name": template_name,
@@ -1316,7 +1407,7 @@ def _build_ephemeral_template(
             "image": python_image,
             "command": ["python"],
             "env": env_vars,
-            "source": script_source,
+            "source": full_source,
             "resources": {
                 "requests": {
                     "cpu": str(spec.resources.cpu_cores),

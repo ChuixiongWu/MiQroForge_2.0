@@ -33,14 +33,9 @@ nodes:
       description: >-
         收集所有 H-H 距离扫描点的单点能量，绘制势能曲线（PES），
         输出 PNG 图片到 workspace/pes_plot.png，同时将距离-能量数据写入 O1（CSV）。
-      image_output: pes_plot.png
     ports:
-      inputs:
-        - name: I1
-          type: physical_quantity
-      outputs:
-        - name: O1
-          type: software_data_package
+      inputs: 1
+      outputs: 1
 
 connections:
   - from: geom-input.xyz_geometry

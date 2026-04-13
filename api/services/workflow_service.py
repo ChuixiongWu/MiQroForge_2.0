@@ -38,8 +38,8 @@ class WorkflowService:
             except OSError:
                 pass
 
-    def compile_yaml_str(self, yaml_content: str) -> dict:
-        """从 YAML 字符串编译工作流，返回 Argo YAML + ConfigMaps。"""
+    def compile_yaml_str(self, yaml_content: str, project_id: str = "") -> dict:
+        """从 YAML 字符串编译工作流，返回 Argo YAML + ConfigMaps + 临时节点日志。"""
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", delete=False, prefix="mf-compile-"
         ) as f:
@@ -56,10 +56,13 @@ class WorkflowService:
                     + "; ".join(i.message for i in report.errors)
                 )
 
+            ephemeral_logs: dict = {}
             argo_dict = compile_to_argo(
                 workflow, report.resolved_nodes,
                 project_root=self.project_root,
                 docker_hub_mirror=self.docker_hub_mirror,
+                ephemeral_logs=ephemeral_logs,
+                project_id=project_id,
             )
             configmaps = generate_configmaps(
                 workflow, report.resolved_nodes, project_root=self.project_root
@@ -69,6 +72,7 @@ class WorkflowService:
                 "workflow": argo_dict,
                 "configmaps": configmaps,
                 "argo_yaml": yaml.dump(argo_dict, default_flow_style=False, allow_unicode=True),
+                "ephemeral_logs": ephemeral_logs,
             }
         finally:
             import os

@@ -26,10 +26,7 @@ from nodes.schemas import (
 )
 from nodes.schemas.base import NodeMetadata, NodeType, NodeCategory, NodeTags
 from nodes.schemas.io import (
-    PhysicalQuantityType,
     SoftwareDataPackageType,
-    LogicValueType,
-    ReportObjectType,
     StreamIOCategory,
 )
 from nodes.schemas.resources import LightweightResources
@@ -83,27 +80,9 @@ class ValidationReport(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _make_stream_io_type(type_str: str):
-    """根据 category 字符串创建默认的 StreamIOType 实例。
-
-    临时节点声明端口时只提供 category 字符串（如 "physical_quantity"），
-    不提供具体的 unit/ecosystem/format 等字段。这里生成合理的默认值，
-    使得连接校验可以基本通过（不做语义深度检查）。
-    """
-    cat = StreamIOCategory(type_str)
-    if cat == StreamIOCategory.PHYSICAL_QUANTITY:
-        # 使用通用能量单位，shape=scalar
-        return PhysicalQuantityType(category=cat, unit="eV", shape="scalar")
-    elif cat == StreamIOCategory.SOFTWARE_DATA_PACKAGE:
-        return SoftwareDataPackageType(category=cat, ecosystem="generic", data_type="text")
-    elif cat == StreamIOCategory.LOGIC_VALUE:
-        from nodes.schemas.io import LogicValueKind
-        return LogicValueType(category=cat, kind=LogicValueKind.BOOLEAN)
-    elif cat == StreamIOCategory.REPORT_OBJECT:
-        from nodes.schemas.io import ReportFormat
-        return ReportObjectType(category=cat, format=ReportFormat.JSON)
-    else:
-        raise ValueError(f"未知的 StreamIOCategory: {type_str!r}")
+def _gen_port_names(prefix: str, count: int) -> list[str]:
+    """生成端口名称列表，如 _gen_port_names('I', 2) → ['I1', 'I2']。"""
+    return [f"{prefix}{i+1}" for i in range(count)]
 
 
 def _build_ephemeral_nodespec(node_inst: MFNodeInstance) -> NodeSpec:
@@ -112,26 +91,35 @@ def _build_ephemeral_nodespec(node_inst: MFNodeInstance) -> NodeSpec:
     临时节点没有真实的 nodespec.yaml，但需要一个 NodeSpec 来让
     连接校验和编译器能够统一处理。虚拟 NodeSpec 使用 lightweight
     执行配置（inline_script 模式，脚本内容为占位符）。
+
+    端口类型统一使用 software_data_package（临时节点不做语义类型检查）。
     """
     ports = node_inst.ports
     assert ports is not None  # 已由 model_validator 保证
 
-    # 构造 StreamInputPort / StreamOutputPort
+    # 统一使用 software_data_package 作为默认类型
+    default_io_type = SoftwareDataPackageType(
+        category=StreamIOCategory.SOFTWARE_DATA_PACKAGE,
+        ecosystem="generic",
+        data_type="text",
+    )
+
+    # 从整数计数生成端口名
     stream_inputs: list[StreamInputPort] = []
-    for p in ports.inputs:
+    for name in _gen_port_names("I", ports.inputs):
         stream_inputs.append(StreamInputPort(
-            name=p.name,
-            display_name=p.name,
-            io_type=_make_stream_io_type(p.type),
+            name=name,
+            display_name=name,
+            io_type=default_io_type,
             required=True,
         ))
 
     stream_outputs: list[StreamOutputPort] = []
-    for p in ports.outputs:
+    for name in _gen_port_names("O", ports.outputs):
         stream_outputs.append(StreamOutputPort(
-            name=p.name,
-            display_name=p.name,
-            io_type=_make_stream_io_type(p.type),
+            name=name,
+            display_name=name,
+            io_type=default_io_type,
         ))
 
     # 构造 OnBoardInput 列表
@@ -211,7 +199,7 @@ def validate_workflow(
             issues.append(ValidationIssue(
                 severity="info",
                 location=f"node: {node_inst.id}",
-                message=f"临时节点 (ephemeral): {node_inst.description}",
+                message=f"临时节点 (ephemeral): {node_inst.get_generation_description()}",
             ))
         else:
             try:
@@ -242,6 +230,9 @@ def validate_workflow(
     # 记录哪些 stream input 已被连接
     connected_inputs: set[tuple[str, str]] = set()  # (node_id, port_name)
     connected_outputs: set[tuple[str, str]] = set()
+
+    # 临时节点集合：跳过连接类型校验（端口统一 software_data_package，类型检查无意义）
+    ephemeral_ids = {n.id for n in workflow.nodes if n.ephemeral}
 
     for conn in workflow.connections:
         loc = f"connection: {conn.from_} → {conn.to}"
@@ -290,20 +281,21 @@ def validate_workflow(
             ))
             continue
 
-        # 调用 validate_connection
-        result = validate_connection(src_port, tgt_port)
-        if not result.valid:
-            issues.append(ValidationIssue(
-                severity="error",
-                location=loc,
-                message=f"连接类型不匹配: {result.message}",
-            ))
-        for warn in result.warnings:
-            issues.append(ValidationIssue(
-                severity="warning",
-                location=loc,
-                message=warn,
-            ))
+        # 调用 validate_connection（临时节点间或与临时节点的连接跳过类型检查）
+        if src_node_id not in ephemeral_ids and tgt_node_id not in ephemeral_ids:
+            result = validate_connection(src_port, tgt_port)
+            if not result.valid:
+                issues.append(ValidationIssue(
+                    severity="error",
+                    location=loc,
+                    message=f"连接类型不匹配: {result.message}",
+                ))
+            for warn in result.warnings:
+                issues.append(ValidationIssue(
+                    severity="warning",
+                    location=loc,
+                    message=warn,
+                ))
 
         connected_inputs.add((tgt_node_id, tgt_port_name))
         connected_outputs.add((src_node_id, src_port_name))

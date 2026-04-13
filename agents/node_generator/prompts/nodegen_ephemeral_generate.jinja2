@@ -2,35 +2,27 @@
 
 **Description**: {{ request.description }}
 
-### Port Declarations:
 {% if request.ports %}
-**Inputs**:
-{% for p in request.ports.get('inputs', []) %}
-- `{{ p.name }}` ({{ p.type }})
-{% endfor %}
-
-**Outputs**:
-{% for p in request.ports.get('outputs', []) %}
-- `{{ p.name }}` ({{ p.type }})
-{% endfor %}
+### Port Declarations:
+- **Input ports**: {{ request.ports.get('inputs', 0) }} (auto-named I1, I2, ...)
+- **Output ports**: {{ request.ports.get('outputs', 0) }} (auto-named O1, O2, ...)
 {% endif %}
 
 {% if request.context %}
-### Workflow Context:
 {% if request.context.get('upstream') %}
-**Upstream connections** (what data flows into this node):
+### Upstream connections:
 {% for conn in request.context.upstream %}
 - `{{ conn.port }}` ← `{{ conn.source }}` ({{ conn.description }})
 {% endfor %}
 {% endif %}
 {% if request.context.get('downstream') %}
-**Downstream connections** (what data flows out of this node):
+### Downstream connections:
 {% for conn in request.context.downstream %}
 - `{{ conn.port }}` → `{{ conn.target }}` ({{ conn.description }})
 {% endfor %}
 {% endif %}
 {% if request.context.get('onboard_params') %}
-**User-provided parameters**:
+### User-provided parameters:
 {% for k, v in request.context.onboard_params.items() %}
 - `{{ k }}`: {{ v }}
 {% endfor %}
@@ -40,25 +32,40 @@
 This node receives aggregated output from a sweep node.
 - Sweep parameter: `{{ request.context.sweep_context.sweep_param }}`
 - Sweep values: {{ request.context.sweep_context.sweep_values }}
-- Input I1 will be a JSON array (one element per sweep iteration).
-- Environment variable `_sweep_keys` contains the original sweep values.
-- Use `json.loads()` to parse both.
+- Input I1 is a JSON array (one element per sweep iteration).
+- `_sweep_keys` env var contains the original sweep values as a JSON array.
+- Use `json.loads()` to parse both. **Always convert with `float()` before math/plotting.**
 {% endif %}
 {% endif %}
 
-{% if iteration > 0 and prev_nodespec %}
-### Previous Attempt (failed evaluation):
-```python
-{{ prev_nodespec }}
+{% if input_data %}
+### Real Input Data Preview (first 500 chars of each port):
+{% for port_name, content in input_data.items() %}
+**{{ port_name }}**:
 ```
-
-### Issues to Fix:
-{% for issue in eval_issues %}
-- {{ issue }}
+{{ content[:500] }}{% if content|length > 500 %}
+... (truncated){% endif %}
+```
 {% endfor %}
 {% endif %}
 
-Generate the Python script now. Output ONLY the script content using this marker:
+{% if has_execution_history %}
+### Previous Attempt (iteration {{ iteration }}):
+**Script**:
+```python
+{{ prev_script }}
+```
+**Stderr**:
+```
+{{ prev_stderr[:2000] }}
+```
+{% endif %}
 
-=== RUN_SH ===
-<scriptle content here>
+{% if vision_feedback %}
+### Vision Evaluator Feedback:
+{% for fb in vision_feedback %}
+- {{ fb }}
+{% endfor %}
+{% endif %}
+
+Write the script and call `sandbox_execute` to test it. When it runs successfully (return_code=0), stop.

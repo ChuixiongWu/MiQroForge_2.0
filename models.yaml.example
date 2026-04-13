@@ -49,5 +49,6 @@ default_model: gpt4o
 agents:
   planner: sonnet           # 语义工作流规划（推理能力优先）
   evaluator: gpt4o-mini     # 评判器（速度/成本优先）
+  evaluator_vision: gpt4o   # 视觉评判器（多模态，需 GPT-4o）
   yaml_coder: sonnet        # MF YAML 生成（代码质量优先）
   node_generator: deepseek  # 节点生成（代码能力优先）

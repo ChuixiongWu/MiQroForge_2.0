@@ -192,11 +192,25 @@ export const useWorkflowStore = create<WorkflowState>()(
         set((s) => {
           // Look up source port info for edge coloring
           const sourceNode = s.nodes.find((n) => n.id === connection.source)
-          const sourcePort = connection.sourceHandle
-            ? (sourceNode?.data as MFNodeData | undefined)?.stream_outputs?.find(
-                (p) => p.name === connection.sourceHandle,
-              )
-            : undefined
+          const sourceData = sourceNode?.data as MFNodeData | undefined
+          let sourcePort: { name: string; category: string } | undefined
+          if (connection.sourceHandle) {
+            // Try formal stream_outputs first
+            const formalPort = sourceData?.stream_outputs?.find(
+              (p) => p.name === connection.sourceHandle,
+            )
+            if (formalPort) {
+              sourcePort = { name: formalPort.name, category: formalPort.category }
+            } else if (sourceData?.ephemeral && sourceData.ports) {
+              // Ephemeral nodes: derive from data.ports
+              const rawPorts = sourceData.ports as Record<string, unknown>
+              const rawOutputs = rawPorts.outputs
+              if (Array.isArray(rawOutputs)) {
+                const found = rawOutputs.find((p: { name: string }) => p.name === connection.sourceHandle)
+                if (found) sourcePort = { name: found.name, category: 'software_data_package' }
+              }
+            }
+          }
           const edgeData = sourcePort
             ? { sourcePort: { name: sourcePort.name, category: sourcePort.category } }
             : undefined
@@ -329,8 +343,24 @@ export const useWorkflowStore = create<WorkflowState>()(
       clearCompilingNodeIds: () => set({ compilingNodeIds: [] }),
 
       loadFromNodes: (nodes, edges) => {
+        // Normalize: ensure ports are always arrays (may be int-count from old YAML import)
+        const normalized = nodes.map((n) => {
+          const data = n.data as Record<string, unknown>
+          if (data.ports && typeof data.ports === 'object') {
+            const ports = data.ports as Record<string, unknown>
+            if (!Array.isArray(ports.inputs) || !Array.isArray(ports.outputs)) {
+              const numIn = (ports.inputs as number) ?? 0
+              const numOut = (ports.outputs as number) ?? 0
+              data.ports = {
+                inputs: Array.from({ length: numIn }, (_, i) => ({ name: `I${i + 1}`, type: 'software_data_package' })),
+                outputs: Array.from({ length: numOut }, (_, i) => ({ name: `O${i + 1}`, type: 'software_data_package' })),
+              }
+            }
+          }
+          return n
+        })
         _debouncedBackendSync()
-        set({ nodes, edges, nodeHistory: {}, validationResult: null })
+        set({ nodes: normalized, edges, nodeHistory: {}, validationResult: null })
       },
 
       clearCanvas: () => {
@@ -354,6 +384,28 @@ export const useWorkflowStore = create<WorkflowState>()(
         nodes: state.nodes.map(_stripCallbacks),
         edges: state.edges,
       }),
+      // Normalize on rehydrate: ensure ports are always arrays
+      merge: (persisted, current) => {
+        const merged = { ...current, ...(persisted as Partial<WorkflowState>) }
+        if (Array.isArray(merged.nodes)) {
+          merged.nodes = merged.nodes.map((n: Record<string, unknown>) => {
+            const data = n.data as Record<string, unknown> | undefined
+            if (data?.ports && typeof data.ports === 'object') {
+              const ports = data.ports as Record<string, unknown>
+              if (!Array.isArray(ports.inputs) || !Array.isArray(ports.outputs)) {
+                const numIn = (ports.inputs as number) ?? 0
+                const numOut = (ports.outputs as number) ?? 0
+                data.ports = {
+                  inputs: Array.from({ length: numIn }, (_, i) => ({ name: `I${i + 1}`, type: 'software_data_package' })),
+                  outputs: Array.from({ length: numOut }, (_, i) => ({ name: `O${i + 1}`, type: 'software_data_package' })),
+                }
+              }
+            }
+            return n
+          })
+        }
+        return merged
+      },
     },
   ),
 )

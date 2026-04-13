@@ -64,6 +64,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         conversations,
         currentConversationId: conversations[0]?.id ?? null,
       })
+    } catch (err) {
+      console.error(`Failed to load project ${id}:`, err)
+      set({
+        currentProjectId: id,
+        currentProjectMeta: null,
+        conversations: [],
+        currentConversationId: null,
+      })
     } finally {
       set({ isLoading: false })
     }

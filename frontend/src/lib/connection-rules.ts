@@ -10,6 +10,7 @@ import type { PortCategory, StreamPort } from '../types/nodespec'
 //    e.g. "orca/gbw-file" and "gaussian/chk-file" are NOT compatible
 // 3. For physical_quantity: unit compatibility is checked where possible (same or unitless)
 // 4. logic_value and report_object: any subtype is compatible with same category
+// 5. Ephemeral node ports: compatible with ANY category (wildcard)
 
 export type ConnectionError =
   | 'category_mismatch'
@@ -37,6 +38,11 @@ export function checkPortCompatibility(
   sourcePort: StreamPort,
   targetPort: StreamPort,
 ): ConnectionCheckResult {
+  // Ephemeral wildcard: if either port is from an ephemeral node, always compatible
+  if (sourcePort.detail === '__ephemeral__' || targetPort.detail === '__ephemeral__') {
+    return { compatible: true }
+  }
+
   // Category must match
   if (sourcePort.category !== targetPort.category) {
     return { compatible: false, error: 'category_mismatch' }
@@ -77,10 +83,23 @@ export interface PortLookup {
   inputs: Map<string, Map<string, StreamPort>>
 }
 
+/** Ephemeral wildcard port — compatible with any category. */
+const EPHEMERAL_WILDCARD_PORT: StreamPort = {
+  name: '',
+  display_name: '',
+  category: 'software_data_package' as PortCategory,
+  detail: '__ephemeral__',
+}
+
 export function buildPortLookup(
   rfNodes: Array<{
     id: string
-    data: { stream_inputs: StreamPort[]; stream_outputs: StreamPort[] }
+    data: {
+      stream_inputs?: StreamPort[]
+      stream_outputs?: StreamPort[]
+      ephemeral?: boolean
+      ports?: { inputs?: Array<{ name: string; type: string }> | number; outputs?: Array<{ name: string; type: string }> | number }
+    }
   }>,
 ): PortLookup {
   const outputs = new Map<string, Map<string, StreamPort>>()
@@ -89,8 +108,50 @@ export function buildPortLookup(
   for (const node of rfNodes) {
     const outMap = new Map<string, StreamPort>()
     const inMap = new Map<string, StreamPort>()
+
+    // Formal nodes: use stream_inputs/stream_outputs directly
     for (const p of node.data.stream_outputs ?? []) outMap.set(p.name, p)
     for (const p of node.data.stream_inputs ?? []) inMap.set(p.name, p)
+
+    // Ephemeral nodes: derive from data.ports (same logic as MFNode.tsx)
+    if (outMap.size === 0 && inMap.size === 0 && node.data.ports) {
+      const rawPorts = node.data.ports
+      const rawInputs = rawPorts.inputs
+      const rawOutputs = rawPorts.outputs
+
+      if (Array.isArray(rawInputs)) {
+        for (const p of rawInputs) {
+          inMap.set(p.name, {
+            ...EPHEMERAL_WILDCARD_PORT,
+            name: p.name,
+            display_name: p.name,
+            category: (node.data.ephemeral ? 'software_data_package' : p.type) as PortCategory,
+          })
+        }
+      } else if (typeof rawInputs === 'number') {
+        for (let i = 0; i < (rawInputs as number); i++) {
+          const name = `I${i + 1}`
+          inMap.set(name, { ...EPHEMERAL_WILDCARD_PORT, name, display_name: name })
+        }
+      }
+
+      if (Array.isArray(rawOutputs)) {
+        for (const p of rawOutputs) {
+          outMap.set(p.name, {
+            ...EPHEMERAL_WILDCARD_PORT,
+            name: p.name,
+            display_name: p.name,
+            category: (node.data.ephemeral ? 'software_data_package' : p.type) as PortCategory,
+          })
+        }
+      } else if (typeof rawOutputs === 'number') {
+        for (let i = 0; i < (rawOutputs as number); i++) {
+          const name = `O${i + 1}`
+          outMap.set(name, { ...EPHEMERAL_WILDCARD_PORT, name, display_name: name })
+        }
+      }
+    }
+
     outputs.set(node.id, outMap)
     inputs.set(node.id, inMap)
   }

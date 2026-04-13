@@ -86,6 +86,52 @@ class NodeGenAPIResponse(BaseModel):
     error: Optional[str] = None
 
 
+# ─── Ephemeral Node Agent (Runtime) ────────────────────────────────────────────
+
+class EphemeralGenRequest(BaseModel):
+    """POST /api/v1/agents/ephemeral 请求体。"""
+    description: str = Field(..., description="临时节点功能描述")
+    ports: dict[str, Any] = Field(default_factory=dict, description="端口声明 {'inputs': N, 'outputs': M}")
+    context: dict[str, Any] = Field(default_factory=dict, description="上下文（upstream/downstream/sweep/onboard）")
+    input_data: dict[str, str] = Field(default_factory=dict, description="真实输入数据 {port_name: content}")
+    iteration: int = Field(default=0, description="第几轮（0 = 首次）")
+    prev_script: str = Field(default="", description="上一轮的脚本")
+    prev_stderr: str = Field(default="", description="上一轮的执行错误")
+    vision_feedback: list[str] = Field(default_factory=list, description="视觉评估器的反馈")
+    run_name: str = Field(default="", description="Argo workflow run 名称（用于日志关联）")
+    project_id: str = Field(default="", description="项目 ID（用于日志关联）")
+
+
+class EphemeralGenResponse(BaseModel):
+    """POST /api/v1/agents/ephemeral 响应体。"""
+    script: str = Field(..., description="生成的 Python 脚本")
+    stdout: str = Field(default="", description="执行 stdout")
+    stderr: str = Field(default="", description="执行 stderr")
+    return_code: int = Field(default=-1, description="执行返回码")
+    success: bool = Field(default=False, description="是否执行成功")
+    generated_files: list[str] = Field(default_factory=list, description="生成的文件列表")
+    image_files: list[str] = Field(default_factory=list, description="图片文件路径列表")
+
+
+class EphemeralEvalRequest(BaseModel):
+    """POST /api/v1/agents/ephemeral/evaluate 请求体。"""
+    description: str = Field(..., description="临时节点功能描述")
+    ports: dict[str, Any] = Field(default_factory=dict, description="端口声明")
+    script: str = Field(default="", description="执行的 Python 脚本")
+    stdout: str = Field(default="", description="执行 stdout")
+    stderr: str = Field(default="", description="执行 stderr")
+    image_base64_list: list[str] = Field(default_factory=list, description="base64 编码的图片列表")
+    run_name: str = Field(default="", description="Argo workflow run 名称（用于日志关联）")
+    project_id: str = Field(default="", description="项目 ID（用于日志关联）")
+
+
+class EphemeralEvalResponse(BaseModel):
+    """POST /api/v1/agents/ephemeral/evaluate 响应体。"""
+    passed: bool = Field(default=False, description="是否通过评估")
+    issues: list[str] = Field(default_factory=list, description="发现的问题")
+    suggestions: list[str] = Field(default_factory=list, description="改进建议")
+
+
 # ─── Save Session ─────────────────────────────────────────────────────────────
 
 class SaveSessionRequest(BaseModel):

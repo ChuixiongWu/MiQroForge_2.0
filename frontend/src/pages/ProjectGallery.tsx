@@ -83,8 +83,10 @@ export function ProjectGallery() {
 
   useEffect(() => {
     ;(async () => {
-      const didMigrate = await tryMigrateOldData()
-      if (didMigrate) setMigrated(true)
+      try {
+        const didMigrate = await tryMigrateOldData()
+        if (didMigrate) setMigrated(true)
+      } catch { /* migration is best-effort */ }
       await fetchProjects()
     })()
   }, [fetchProjects])

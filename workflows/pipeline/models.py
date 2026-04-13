@@ -18,46 +18,16 @@ from nodes.schemas.io import GateDefault
 
 # ── 临时节点辅助模型 ──────────────────────────────────────────────────────────
 
-# Stream I/O 类型的合法 category 值
-_STREAM_IO_CATEGORIES = {
-    "physical_quantity",
-    "software_data_package",
-    "logic_value",
-    "report_object",
-}
-
-
-class EphemeralPortDecl(BaseModel):
-    """临时节点的端口声明。"""
-
-    name: str = Field(
-        ...,
-        pattern=r"^[A-Z][0-9]*$",
-        description="端口名称，格式 I1/I2/... 或 O1/O2/...",
-    )
-    type: str = Field(
-        ...,
-        description=(
-            "Stream IO category: physical_quantity / software_data_package "
-            "/ logic_value / report_object"
-        ),
-    )
-
-    @model_validator(mode="after")
-    def _validate_type(self) -> "EphemeralPortDecl":
-        if self.type not in _STREAM_IO_CATEGORIES:
-            raise ValueError(
-                f"无效的端口类型 {self.type!r}，"
-                f"合法值: {sorted(_STREAM_IO_CATEGORIES)}"
-            )
-        return self
-
 
 class EphemeralPorts(BaseModel):
-    """临时节点的端口声明集合。"""
+    """临时节点的端口声明集合。
 
-    inputs: list[EphemeralPortDecl] = Field(default_factory=list)
-    outputs: list[EphemeralPortDecl] = Field(default_factory=list)
+    使用整数计数声明端口数量，端口自动命名为 I1, I2, ... / O1, O2, ...。
+    不再需要手动指定 type category（统一使用 software_data_package）。
+    """
+
+    inputs: int = Field(default=0, ge=0, description="输入端口数量，自动命名为 I1, I2, ...")
+    outputs: int = Field(default=0, ge=0, description="输出端口数量，自动命名为 O1, O2, ...")
 
 
 class EphemeralOnboardInput(BaseModel):

@@ -89,25 +89,26 @@ export function workflowDocToYaml(doc: WorkflowDocument): string {
       }
       if (isEphemeral) {
         nodeObj.ephemeral = true
-        // Derive ports from stream_inputs/stream_outputs if no explicit ports
-        if (extra.ports) {
-          nodeObj.ports = extra.ports
+        // Derive ports: export as int-count format {inputs: N, outputs: N}
+        const rawPorts = extra.ports as Record<string, unknown> | undefined
+        if (rawPorts && Array.isArray(rawPorts.inputs)) {
+          nodeObj.ports = {
+            inputs: (rawPorts.inputs as unknown[]).length,
+            outputs: (rawPorts.outputs as unknown[]).length,
+          }
+        } else if (rawPorts && typeof rawPorts.inputs === 'number') {
+          nodeObj.ports = rawPorts
         } else {
-          const toPort = (p: { name: string; category?: string; detail?: string }) => ({
-            name: p.name,
-            type: p.category ?? 'physical_quantity',
-          })
-          const inputs = ((extra.stream_inputs as Array<{ name: string; category?: string }>) ?? []).map(toPort)
-          const outputs = ((extra.stream_outputs as Array<{ name: string; category?: string }>) ?? []).map(toPort)
-          if (inputs.length || outputs.length) {
-            nodeObj.ports = { inputs, outputs }
+          const nIn = ((extra.stream_inputs as unknown[]) ?? []).length
+          const nOut = ((extra.stream_outputs as unknown[]) ?? []).length
+          if (nIn || nOut) {
+            nodeObj.ports = { inputs: nIn, outputs: nOut }
           }
         }
-        // Write ephemeral_description into both description and onboard_params.description
+        // Write ephemeral_description only into onboard_params.description
+        // (not top-level description, to avoid duplication)
         const desc = (extra.ephemeral_description as string) || (extra.description as string) || ''
         if (desc) {
-          nodeObj.description = desc
-          // Ensure onboard_params exists and has description
           const params = (nodeObj.onboard_params as Record<string, unknown>) ?? {}
           params.description = desc
           nodeObj.onboard_params = params
@@ -185,7 +186,21 @@ export function parseWorkflowYaml(yamlStr: string): ParsedWorkflow {
       // Prefer onboard_params.description over top-level description
       wfNode.description = (n.onboard_params?.description as string) ?? n.description ?? ''
     }
-    if (n.ports) wfNode.ports = n.ports
+    if (n.ports) {
+      // Normalize: new int-count format {inputs: N, outputs: N} → generate port name lists
+      // for the frontend (MFNode expects arrays of {name, type})
+      const rawPorts = n.ports as Record<string, unknown>
+      if (typeof rawPorts.inputs === 'number' || typeof rawPorts.outputs === 'number') {
+        const numIn = (rawPorts.inputs as number) ?? 0
+        const numOut = (rawPorts.outputs as number) ?? 0
+        wfNode.ports = {
+          inputs: Array.from({ length: numIn }, (_, i) => ({ name: `I${i + 1}`, type: 'software_data_package' })),
+          outputs: Array.from({ length: numOut }, (_, i) => ({ name: `O${i + 1}`, type: 'software_data_package' })),
+        }
+      } else {
+        wfNode.ports = n.ports
+      }
+    }
     if (n.node) wfNode.node = n.node
     if (n.parallel_sweep) wfNode.parallel_sweep = n.parallel_sweep
     if (n.stream_inputs) wfNode.stream_inputs = n.stream_inputs

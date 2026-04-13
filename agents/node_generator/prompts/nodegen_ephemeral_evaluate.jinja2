@@ -4,8 +4,8 @@ Check whether the generated script correctly implements the requested functional
 ## Generation Request:
 - Description: {{ request.description }}
 {% if request.ports %}
-- Input ports: {% for p in request.ports.get('inputs', []) %}{{ p.name }}({{ p.type }}){% if not loop.last %}, {% endif %}{% endfor %}
-- Output ports: {% for p in request.ports.get('outputs', []) %}{{ p.name }}({{ p.type }}){% if not loop.last %}, {% endif %}{% endfor %}
+- Input ports: {{ request.ports.get('inputs', 0) }} (auto-named I1, I2, ...)
+- Output ports: {{ request.ports.get('outputs', 0) }} (auto-named O1, O2, ...)
 {% endif %}
 
 ## Generated Python Script:
@@ -35,6 +35,10 @@ Check whether the generated script correctly implements the requested functional
 10. Does the script parse input as JSON array (json.loads)?
 11. Does the script read and use `_sweep_keys` env var?
 12. Does the script correctly correlate sweep keys with values?
+13. **Does the script convert string values to float before math/plotting?**
+    Argo output parameters are ALWAYS strings. After json.loads(), elements are strings like "-1.167",
+    NOT numbers. Failing to convert with float() causes wrong plots (string sorting vs numeric sorting).
+    Check for: `[float(v) for v in ...]` or equivalent conversion.
 {% endif %}
 
 Output ONLY this JSON (no prose):

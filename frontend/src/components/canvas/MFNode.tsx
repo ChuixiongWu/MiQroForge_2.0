@@ -3,7 +3,7 @@ import { Handle, Position } from '@xyflow/react'
 import type { Node, NodeProps } from '@xyflow/react'
 import type { MFNodeData } from '../../stores/workflow-store'
 import { useWorkflowStore } from '../../stores/workflow-store'
-import type { OnBoardOutput } from '../../types/nodespec'
+import type { OnBoardOutput, PortCategory } from '../../types/nodespec'
 import { PORT_COLORS, nodeTypeEmoji } from '../../lib/port-type-utils'
 import type { PickerOption } from '../../lib/semantic-labels'
 import { useRunOverlayStore } from '../../stores/run-overlay-store'
@@ -22,11 +22,15 @@ interface PortRowProps {
   category: string
   required?: boolean
   direction: 'input' | 'output'
+  ephemeral?: boolean
 }
 
-const PortRow = memo(({ name, displayName, category, required, direction }: PortRowProps) => {
+const PortRow = memo(({ name, displayName, category, required, direction, ephemeral }: PortRowProps) => {
   const color = PORT_COLORS[category as keyof typeof PORT_COLORS] ?? '#6b7280'
   const isInput = direction === 'input'
+
+  // Ephemeral ports get a vivid orange handle (wildcard — connects to anything)
+  const labelColor = ephemeral ? '#fb923c' : color
 
   return (
     <div
@@ -36,7 +40,12 @@ const PortRow = memo(({ name, displayName, category, required, direction }: Port
         type={isInput ? 'target' : 'source'}
         position={isInput ? Position.Left : Position.Right}
         id={name}
-        style={{
+        style={ephemeral ? {
+          background: 'linear-gradient(135deg, #f97316, #22c55e, #3b82f6)',
+          width: 12,
+          height: 12,
+          border: '2px solid rgb(var(--mf-bg-base))',
+        } : {
           background: color,
           width: 10,
           height: 10,
@@ -47,7 +56,7 @@ const PortRow = memo(({ name, displayName, category, required, direction }: Port
 
       <span
         className="font-mono truncate max-w-[80px]"
-        style={{ color }}
+        style={{ color: labelColor }}
         title={displayName}
       >
         {displayName}
@@ -102,9 +111,9 @@ function GateBadge({ gate, runValue }: GateBadgeProps) {
 function RunOverlaySection({ status }: { status: NodeRunStatus }) {
   const elapsed = formatElapsed(status.startedAt, status.finishedAt)
 
-  // Exclude quality-gate keys (_qg_*) — shown integrated in the gate badges above
+  // Exclude quality-gate keys (_qg_*) and internal mf keys (_mf_*) — shown integrated in the gate badges above
   const outputEntries = Object.entries(status.outputs).filter(
-    ([k]) => !k.startsWith('_internal_') && !k.startsWith('_qg_'),
+    ([k]) => !k.startsWith('_internal_') && !k.startsWith('_qg_') && !k.startsWith('_mf_'),
   )
 
   return (
@@ -242,14 +251,29 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
   let inputPorts  = data.stream_inputs  ?? []
   let outputPorts = data.stream_outputs ?? []
   if (inputPorts.length === 0 && outputPorts.length === 0 && data.ports) {
-    const toStreamPort = (p: { name: string; type: string }) => ({
-      name: p.name,
-      display_name: p.name,
-      category: p.type,
-      detail: '',
-    })
-    inputPorts = (data.ports.inputs ?? []).map(toStreamPort)
-    outputPorts = (data.ports.outputs ?? []).map(toStreamPort)
+    const rawPorts = data.ports as Record<string, unknown>
+    const rawInputs = rawPorts.inputs
+    const rawOutputs = rawPorts.outputs
+    // Handle both array format [{name, type}, ...] and int-count format (legacy/stale)
+    if (Array.isArray(rawInputs) && Array.isArray(rawOutputs)) {
+      const toStreamPort = (p: { name: string; type: string }) => ({
+        name: p.name,
+        display_name: p.name,
+        category: p.type as PortCategory,
+        detail: '',
+      })
+      inputPorts = rawInputs.map(toStreamPort)
+      outputPorts = rawOutputs.map(toStreamPort)
+    } else if (typeof rawInputs === 'number' || typeof rawOutputs === 'number') {
+      const numIn = (rawInputs as number) ?? 0
+      const numOut = (rawOutputs as number) ?? 0
+      inputPorts = Array.from({ length: numIn }, (_, i) => ({
+        name: `I${i + 1}`, display_name: `I${i + 1}`, category: 'software_data_package', detail: '',
+      }))
+      outputPorts = Array.from({ length: numOut }, (_, i) => ({
+        name: `O${i + 1}`, display_name: `O${i + 1}`, category: 'software_data_package', detail: '',
+      }))
+    }
   }
   const paramCount  = data.onboard_inputs?.length ?? 0
   const cpu = data.resources?.cpu
@@ -282,9 +306,13 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
             <div className="text-xs font-semibold text-mf-text-primary truncate leading-tight">
               {data.display_name}
             </div>
-            <div className="text-[10px] text-mf-text-muted truncate font-mono">
-              {data.name} v{data.version}
-            </div>
+            {data.ephemeral ? (
+              <div className="text-[10px] text-orange-400 font-mono">ephemeral</div>
+            ) : (
+              <div className="text-[10px] text-mf-text-muted truncate font-mono">
+                {data.name} v{data.version}
+              </div>
+            )}
           </div>
           {/* Sweep badge */}
           {data.parallel_sweep && (
@@ -321,6 +349,7 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
                   category={port.category}
                   required={port.required}
                   direction="input"
+                  ephemeral={!!data.ephemeral}
                 />
               ))}
             </div>
@@ -334,6 +363,7 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
                   displayName={port.display_name}
                   category={port.category}
                   direction="output"
+                  ephemeral={!!data.ephemeral}
                 />
               ))}
             </div>

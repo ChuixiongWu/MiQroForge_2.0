@@ -47,16 +47,13 @@ nodes:
   # 临时节点：从 geo-opt 输出中提取优化后的总能量
   - id: extract-energy
     ephemeral: true
-    description: >
-      从 ORCA 几何优化输出的 optimized_xyz 中读取能量注释行，
-      提取最终总能量（Ha），输出为纯数值文本。
+    onboard_params:
+      description: >-
+        从 ORCA 几何优化输出的 optimized_xyz 中读取能量注释行，
+        提取最终总能量（Ha），输出为纯数值文本。
     ports:
-      inputs:
-        - name: I1
-          type: software_data_package
-      outputs:
-        - name: O1
-          type: physical_quantity
+      inputs: 1
+      outputs: 1
 
   - id: thermo-extract
     nodespec_path: nodes/chemistry/orca/orca-thermo-extractor/nodespec.yaml

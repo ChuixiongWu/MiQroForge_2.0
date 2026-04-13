@@ -223,6 +223,39 @@ export function WorkflowCanvas() {
         return
       }
 
+      // Protocol 3: ephemeral node drag
+      const isEphemeral = event.dataTransfer.getData('application/mf-ephemeral')
+      if (isEphemeral) {
+        const ephemeralNode: RFNode<MFNodeData> = {
+          id: `ephemeral-${Date.now()}`,
+          type: 'mfNode',
+          position: dropPosition,
+          data: {
+            name: 'ephemeral-node',
+            version: '\u2014',
+            display_name: 'Ephemeral Node',
+            description: '',
+            node_type: 'lightweight',
+            category: 'ephemeral',
+            nodespec_path: '',
+            stream_inputs: [],
+            stream_outputs: [],
+            onboard_inputs: [],
+            onboard_outputs: [],
+            onboard_params: {},
+            ephemeral: true,
+            ephemeral_description: '',
+            ports: {
+              inputs: [{ name: 'I1', type: 'software_data_package' }],
+              outputs: [{ name: 'O1', type: 'software_data_package' }],
+            },
+          } as unknown as MFNodeData,
+        }
+        addNode(ephemeralNode)
+        selectNode(ephemeralNode.id)
+        return
+      }
+
       // Protocol 2: semantic type card drag
       const semanticType = event.dataTransfer.getData('application/mf-semantic-type')
       const implJson = event.dataTransfer.getData('application/mf-node-implementations')
