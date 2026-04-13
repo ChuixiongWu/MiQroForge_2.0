@@ -770,15 +770,118 @@ async def plan_workflow(request: PlanRequest):
 
 ---
 
+## Ephemeral Agent Technical Details (M2)
+
+### ReAct Agent Inner Loop (`node_generator/generator.py::_generate_ephemeral_agent`)
+
+The ephemeral mode uses a fundamentally different architecture from the formal Generator-Evaluator pattern. Instead of generate → evaluate → refine, it runs a **ReAct (Reasoning + Acting) loop**:
+
+```python
+llm_with_tools = llm.bind_tools([sandbox_execute, pip_install])
+messages = [SystemMessage(...), HumanMessage(...)]
+
+for _ in range(max_tool_calls):
+    response = llm_with_tools.invoke(messages)
+
+    if not response.tool_calls:
+        # LLM decided it's done — extract final script
+        break
+
+    messages.append(response)
+
+    for tool_call in response.tool_calls:
+        if tool_call.name == "sandbox_execute":
+            result = sandbox_tool.invoke(tool_call.args)
+            # Capture stdout, stderr, return_code, image_files
+        elif tool_call.name == "pip_install":
+            result = pip_tool.invoke(tool_call.args)
+
+        messages.append(ToolMessage(content=result, tool_call_id=...))
+```
+
+**Key parameters** (from `userdata/settings.yaml`):
+- `max_inner_rounds` (default 3): max sandbox_execute calls per generation
+- `max_tool_calls` = `max_inner_rounds * 2` (includes pip_install calls)
+
+### Sandbox Execution (`node_generator/sandbox.py`)
+
+#### Mode Selection
+```python
+def _resolve_sandbox_mode() -> str:
+    # auto → docker if available, else subprocess
+    # Can override via MF_SANDBOX_MODE env var
+```
+
+#### Docker Mode (preferred)
+- Image: `ephemeral-py:3.11` (pre-installed: numpy, matplotlib, scipy, pandas, pyyaml, jinja2, requests)
+- Mounts: `-v {sandbox_dir}:/sandbox`
+- Environment: `MF_INPUT_DIR`, `MF_OUTPUT_DIR`, `MF_WORKSPACE_DIR` + custom overrides
+- Timeout: 60 seconds per execution
+
+#### Subprocess Mode (fallback)
+- Runs on host Python (`sys.executable`)
+- Path handling: symlink `/mf/input → tmpdir/input` (if permissions allow)
+- Fallback: rewrite `/mf/` paths in script to temp directory paths
+
+#### Tool Factories
+```python
+# sandbox_execute: bound to specific input_data and sandbox_dir
+sandbox_tool = make_sandbox_tool(input_data, env_overrides, sandbox_dir)
+
+# pip_install: tracks installation history
+pip_tool, pip_history = make_pip_install_tool()
+```
+
+### Visual Evaluation (`node_generator/evaluator.py::evaluate_node_vision`)
+
+For ephemeral nodes that generate images:
+
+1. Load images as base64 from file paths
+2. Build multimodal message: text prompt + up to 4 images
+3. Send to GPT-4o (or configured vision model) via `purpose="evaluator_vision"`
+4. Parse structured JSON response: `{passed, issues, suggestions}`
+
+**Fail-open design**: If visual evaluation fails (API error, parsing error), the node passes automatically with a warning. This prevents deadlocks in the generation loop.
+
+### API-Level Outer Loop (`api/routers/agents.py::ephemeral_generate`)
+
+The API endpoint manages the outer generate → evaluate → retry loop:
+
+```python
+for outer_round in range(max_outer_rounds):
+    # Generate (inner ReAct loop + sandbox execution)
+    state = run_node_generator(gen_request, ...)
+
+    if exec_return_code != 0:
+        continue  # Retry with stderr feedback
+
+    # Evaluate (programmatic + visual)
+    eval_result = evaluate_node(eval_state)
+
+    if evaluation.passed:
+        break  # Success
+
+    # Feed vision_feedback into next round
+    vision_feedback = evaluation.issues + evaluation.suggestions
+```
+
+**Log persistence**: Each round generates separate log files in the project's runs directory:
+- `{agent_type}_gen_r{round}_{time}.json` — Generation log
+- `ephemeral_eval_r{round}_{time}.json` — Evaluation log
+
+---
+
 ## Conclusion
 
 The agents layer is built on:
 
 1. **Clean separation** — Semantic (Planner) → Concrete (YAML Coder) → Implementation (Node Generator)
-2. **Iterative refinement** — Generator-Evaluator loops with max 3 iterations
-3. **Decoupled retrieval** — RAG vectorstore hides node internals
-4. **Flexible configuration** — LLM provider resolution from YAML
-5. **Tool-ready** — All tools available but not (yet) invoked via agent patterns
+2. **Iterative refinement** — Generator-Evaluator loops with max 3 iterations (formal mode)
+3. **ReAct Agent loop** — Ephemeral mode uses tool-calling Agent with sandbox + pip tools
+4. **Decoupled retrieval** — RAG vectorstore hides node internals
+5. **Flexible configuration** — LLM provider resolution from YAML
+6. **Visual evaluation** — Multimodal quality check for ephemeral node outputs
+7. **Tool-ready** — Tools available for Phase 3 agent patterns
 
 This foundation supports Phase 3's Main Agent, Debug Agent, Review Agent without restructuring.
 

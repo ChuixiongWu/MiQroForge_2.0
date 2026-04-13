@@ -57,7 +57,7 @@ User Intent (natural language)
 ✅ **Max 3 iterations per agent** — Prevents infinite loops, always returns result
 ✅ **LLM-agnostic** — Configuration from `userdata/models.yaml`
 ✅ **RAG-powered** — Node discovery via vector store, no direct coupling to node internals
-✅ **Tool-ready** — 8 tools available for Phase 3 agent patterns
+✅ **Tool-ready** — Tools available for Phase 3 agent patterns
 ✅ **Well-tested** — Shared patterns across all three agents
 
 ---
@@ -118,18 +118,32 @@ User Intent (natural language)
 
 ### 3. Node Generator Agent
 
-**What it does**: Generates new computational nodes (nodespec.yaml + run.sh)
+**What it does**: Generates new computational nodes (dual mode: Formal + Ephemeral)
 
-**Input**: `NodeGenRequest`
+**Formal Mode Input**: `NodeGenRequest`
 - `semantic_type` — What kind of computation ("geometry-optimization")
 - `description` — Detailed requirements
 - `target_software` — Optional ("ORCA", "GROMACS", etc.)
+- `node_mode: "formal"` (default)
 
-**Output**: `NodeGenResult`
+**Formal Mode Output**: `NodeGenResult`
 - Generated nodespec.yaml
 - Generated run.sh
 - Input templates
 - Saved to `userdata/nodes/` and reindexed
+
+**Ephemeral Mode Input**: `NodeGenRequest` + `input_data` + context
+- `node_mode: "ephemeral"`
+- `description` — Task description (from `onboard_params.description`)
+- `ports` — Port declarations `{'inputs': N, 'outputs': M}`
+- `context` — Upstream/downstream node info, sweep context
+
+**Ephemeral Mode Architecture**:
+- ReAct Agent inner loop: LLM bound with `sandbox_execute` + `pip_install` tools
+- Docker sandbox execution (`ephemeral-py:3.11` image) with subprocess fallback
+- Visual evaluation for generated images (GPT-4o multimodal)
+- Outer loop: generate → evaluate → retry (max 2 rounds)
+- API endpoint: `POST /api/v1/agents/ephemeral`
 
 **Location**: `agents/node_generator/`
 
@@ -184,7 +198,7 @@ LangGraph Flow
 - Generation messages (task + context)
 - Evaluation messages (criteria + checklist)
 
-**Tools** — 8 LangChain tools (not yet used in agent loops):
+**Tools** — LangChain tools (not yet used in agent loops):
 - Node search (RAG)
 - Node details (Level 3)
 - Semantic type queries
@@ -210,9 +224,12 @@ Auto-selects backend:
 ### API Endpoints (`api/routers/agents.py`)
 
 ```
-POST /api/v1/agents/plan
-POST /api/v1/agents/yaml
-POST /api/v1/agents/node
+POST /api/v1/agents/plan              — Planner Agent
+POST /api/v1/agents/yaml              — YAML Coder Agent
+POST /api/v1/agents/node              — Node Generator Agent (Formal)
+POST /api/v1/agents/ephemeral         — Ephemeral Agent（运行时生成 + 沙箱执行 + 评估）
+POST /api/v1/agents/ephemeral/evaluate — Ephemeral Visual Evaluator（多模态图片评估）
+POST /api/v1/agents/save-session      — 保存对话会话到磁盘
 ```
 
 All endpoints:
@@ -393,11 +410,15 @@ agents/
 ├── llm_config.py           # LLM provider config
 ├── common/
 │   ├── prompt_loader.py    # Jinja2 template rendering
-│   └── eval_loop.py        # Generator-Evaluator factory
-├── tools/                  # 8 LangChain tools
+│   ├── eval_loop.py        # Generator-Evaluator factory
+│   └── session_logger.py   # Thread-safe session logging
+├── tools/                  # LangChain tools (node_search, validate, workspace, etc.)
 ├── planner/                # Planner Agent
 ├── yaml_coder/             # YAML Coder Agent
-└── node_generator/         # Node Generator Agent
+└── node_generator/         # Node Generator Agent (Formal + Ephemeral)
+    ├── sandbox.py          #   Docker/subprocess sandbox execution
+    ├── state.py            #   NodeGenState (incl. ephemeral execution state)
+    └── prompts/            #   .jinja2 (incl. ephemeral-specific prompts)
 
 api/
 ├── models/agents.py        # Pydantic request/response models
@@ -441,5 +462,5 @@ The MiQroForge agents layer is a **production-ready Phase 2 implementation** pro
 
 ---
 
-Generated: 2026-04-01
-Documentation Version: 1.0
+Generated: 2026-04-13
+Documentation Version: 2.0 (post-M2 update)

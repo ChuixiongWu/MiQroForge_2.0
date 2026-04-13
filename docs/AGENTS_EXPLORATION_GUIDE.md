@@ -22,7 +22,8 @@ agents/
 ├── common/
 │   ├── __init__.py
 │   ├── prompt_loader.py          # Jinja2 template rendering
-│   └── eval_loop.py              # Generator-Evaluator loop builder
+│   ├── eval_loop.py              # Generator-Evaluator loop builder
+│   └── session_logger.py         # Thread-safe session logging (contextvars)
 ├── tools/                         # LangChain tools for all agents
 │   ├── __init__.py
 │   ├── node_search.py            # RAG node retrieval
@@ -50,17 +51,22 @@ agents/
 │       ├── yaml_system.jinja2    # System message (MF YAML format + available nodes)
 │       ├── yaml_generate.jinja2  # User message (workflow + resolutions)
 │       └── yaml_evaluate.jinja2  # Evaluation prompt
-└── node_generator/                # Node Generator Agent (Generate new nodes)
+└── node_generator/                # Node Generator Agent (Formal + Ephemeral modes)
     ├── __init__.py
-    ├── state.py                  # NodeGenState TypedDict
-    ├── generator.py              # LLM generation node
-    ├── evaluator.py              # YAML validation + intent checking
-    ├── graph.py                  # LangGraph assembly + run_node_generator()
+    ├── state.py                  # NodeGenState TypedDict (incl. ephemeral fields)
+    ├── generator.py              # Dual-mode generator (formal: LLM; ephemeral: ReAct Agent)
+    ├── evaluator.py              # Dual-mode evaluator (formal: Schema; ephemeral: exec + vision)
+    ├── graph.py                  # LangGraph assembly with mode routing
     ├── knowledge.py              # Load reference nodes + available images
+    ├── sandbox.py                # Sandbox execution (Docker-first / subprocess fallback)
     └── prompts/
-        ├── nodegen_system.jinja2    # System message (nodespec structure + rules)
-        ├── nodegen_generate.jinja2  # User message (request + reference nodes)
-        └── nodegen_evaluate.jinja2  # Evaluation prompt
+        ├── nodegen_system.jinja2              # Formal: System message
+        ├── nodegen_generate.jinja2            # Formal: Generation prompt
+        ├── nodegen_evaluate.jinja2            # Formal: Evaluation prompt
+        ├── nodegen_ephemeral_system.jinja2    # Ephemeral: System message
+        ├── nodegen_ephemeral_generate.jinja2  # Ephemeral: Generation prompt
+        ├── nodegen_ephemeral_evaluate.jinja2  # Ephemeral: Evaluation prompt
+        └── nodegen_ephemeral_evaluate_vision.jinja2  # Ephemeral: Vision evaluation
 ```
 
 ---
@@ -127,7 +133,12 @@ class NodeGenRequest(BaseModel):
     description: str
     target_software: Optional[str]
     target_method: Optional[str]
-    category: str
+    category: str = "chemistry"
+    node_mode: str = "formal"        # "formal" or "ephemeral"
+    # Ephemeral-specific fields:
+    ports: Optional[dict]             # {'inputs': N, 'outputs': M}
+    context: Optional[dict]           # upstream/downstream/sweep context
+    reference_nodes: list[str] = []
 
 class NodeGenResult(BaseModel):
     """Node Generator output — saved node."""
@@ -137,6 +148,7 @@ class NodeGenResult(BaseModel):
     input_templates: dict[str, str]
     saved_path: Optional[str]
     evaluation: Optional[EvaluationResult]
+    script_content: Optional[str]     # Ephemeral mode: generated Python script
 ```
 
 #### Evaluation Result (All Agents)
@@ -477,9 +489,9 @@ START → generate (LLM synthesis)
 
 ### Agent 3: Node Generator Agent
 
-**Purpose**: Generate new computational nodes (nodespec.yaml + run.sh + templates)
+**Purpose**: Generate new computational nodes (dual mode: Formal + Ephemeral)
 
-**Input**:
+**Formal Mode Input**:
 ```python
 class NodeGenRequest:
     semantic_type: str          # "geometry-optimization"
@@ -487,74 +499,88 @@ class NodeGenRequest:
     target_software: Optional[str]  # "ORCA", "GROMACS", etc.
     target_method: Optional[str]    # "B3LYP", etc.
     category: str              # "chemistry", "quantum", etc.
+    node_mode: str = "formal"  # "formal" or "ephemeral"
 ```
 
-**Output**: `NodeGenResult` (with `nodespec_yaml`, `run_sh`, templates saved to `userdata/nodes/`)
+**Ephemeral Mode Additional Fields**:
+```python
+    ports: Optional[dict]       # {'inputs': N, 'outputs': M}
+    context: Optional[dict]     # upstream/downstream/sweep context
+```
+
+**Output**: `NodeGenResult` (formal: saved to `userdata/nodes/`; ephemeral: script content + execution results)
 
 #### State Definition (`node_generator/state.py`)
 ```python
 class NodeGenState(TypedDict, total=False):
     # Input
     request: NodeGenRequest
-    
-    # Intermediate knowledge
+
+    # Intermediate knowledge (formal mode)
     reference_nodes: list[dict]        # Few-shot examples (same software)
     available_images: list[dict]       # From base_images/registry.yaml
     semantic_types: dict[str, Any]
-    
-    # Generation
+
+    # Generation (formal mode)
     nodespec_yaml: str
     run_sh: str
     input_templates: dict[str, str]    # filename → content
-    
+
+    # Generation (ephemeral mode)
+    _input_data: dict[str, str]        # Real input data {port_name: content}
+    script: str                        # Generated Python script
+    exec_stdout: str                   # Sandbox execution stdout
+    exec_stderr: str                   # Sandbox execution stderr
+    exec_return_code: int              # Sandbox execution return code
+    generated_files: list[str]         # Files produced by sandbox
+    image_files: list[str]             # Image files detected in output
+    vision_feedback: list[str]         # Visual evaluation feedback
+    _sandbox_dir: str                  # Persistent sandbox directory path
+
     # Generator-Evaluator
     evaluation: Optional[EvaluationResult]
     iteration: int
-    
+
     # Output
     result: Optional[NodeGenResult]
-    
+
     # Error
     error: Optional[str]
 ```
 
-#### Generation Node (`node_generator/generator.py`)
+#### Generation Node (`node_generator/generator.py`) — Dual Mode
 
-**Function**: `generate_node(state: NodeGenState) -> dict`
-
-**Flow**:
-1. **Load knowledge**:
-   - Available base images (from `base_images/registry.yaml`)
-   - Semantic types (from `semantic_registry.yaml`)
-   - Reference nodes (few-shot examples with same software)
-2. **Construct LLM prompts**:
-   - **System**: NodeSpec structure + rules + available images + semantic types
-   - **User**: Request + reference nodes + previous attempt (if refining)
-3. **Generate output sections** (marked by separators):
-   - `=== NODESPEC_YAML ===`
-   - `=== RUN_SH ===`
-   - `=== INPUT_TEMPLATE ===` (if needed)
+**Formal Mode Flow**:
+1. **Load knowledge**: available images, semantic types, reference nodes (few-shot)
+2. **Construct LLM prompts**: NodeSpec structure + rules + available images + reference nodes
+3. **Generate output sections** (marked by separators): `=== NODESPEC_YAML ===`, `=== RUN_SH ===`, `=== INPUT_TEMPLATE ===`
 4. Parse sections from LLM response
 
+**Ephemeral Mode Flow** (ReAct Agent inner loop):
+1. **Load input data** and config from `userdata/settings.yaml`
+2. **Create sandbox tools**: `sandbox_execute` (bound to input data + env overrides) + `pip_install`
+3. **LLM with tool calling**: LLM decides when to execute scripts, install packages, or finish
+4. **Inner loop**: LLM → tool call → sandbox result → LLM reads result → self-corrects or finishes
+5. **Extract final script** from last `sandbox_execute` tool call in conversation history
+
 **Key Helper Functions**:
-- `_parse_generated_output(text)` — Extract marked sections
-- `_load_semantic_types()` — From YAML
+- `_parse_generated_output(text)` — Extract marked sections (formal mode)
+- `_extract_script(text)` — Extract Python script from LLM text response (ephemeral fallback)
+- `_load_ephemeral_settings()` — Load runtime config from `userdata/settings.yaml`
 - `load_reference_nodes()` — Find similar nodes (few-shot examples)
 - `load_available_images()` — From registry
 
-#### Evaluation Node (`node_generator/evaluator.py`)
+#### Evaluation Node (`node_generator/evaluator.py`) — Dual Mode
 
 **Function**: `evaluate_node(state: NodeGenState) -> dict`
 
-**Checks**:
+**Formal Mode Checks**:
 1. **Programmatic** (no LLM):
    - YAML parseable
    - Pydantic NodeSpec validation
    - Semantic type in registry
    - Port names snake_case
    - Compute nodes have run.sh with `# MF2 init` marker
-   - run.sh uses `/mf/input/` and `/mf/output/` paths
-   - Templates use string.Template syntax ($var)
 
 2. **LLM-based**:
    - Implementation correctness (semantic type behavior)
@@ -562,32 +588,33 @@ class NodeGenState(TypedDict, total=False):
    - run.sh logic
    - Parameter completeness
 
+**Ephemeral Mode Checks** (`_evaluate_ephemeral`):
+1. **Programmatic**: Python syntax check, I/O path conventions, sweep type conversion
+2. **Execution result**: return_code check
+3. **Output detection**: verify files were generated
+4. **Visual evaluation** (`evaluate_node_vision`): send images to GPT-4o for multimodal quality check
+
 **Output**: `EvaluationResult`
 
 #### LangGraph Assembly (`node_generator/graph.py`)
 
+**Dual-mode topology**:
+
 ```
-START → generate (LLM synthesis)
-  ↓
-  evaluate (validation)
-  ↓
-  [passed? → save : iterate < 3? → increment → generate → ...]
-  ↓
-  save (write to userdata/nodes/, reindex)
-  ↓
-  END
+Formal mode:
+  START → generate → evaluate → [pass? save : refine → generate → ...]
+  save: write to userdata/nodes/ + trigger reindex
+
+Ephemeral mode:
+  START → generate → save → END
+  (Inner ReAct Agent loop runs inside generate; outer loop runs in API endpoint)
 ```
 
 **Save Logic** (`_save_to_userdata`):
-1. Extract node name from generated nodespec.yaml
-2. Create `userdata/nodes/<category>/<node-name>/` directory
-3. Write:
-   - `nodespec.yaml`
-   - `profile/run.sh` (executable bit)
-   - `profile/<software>.inp.template` (if applicable)
-4. Trigger node reindexing (`vectorstore.indexer.build_index()`)
+- Formal: Create `userdata/nodes/<category>/<node-name>/`, write nodespec.yaml + run.sh + templates, trigger reindex
+- Ephemeral: Skip file persistence, return script content directly
 
-**Public Interface**: `run_node_generator(request: NodeGenRequest) -> NodeGenState`
+**Public Interface**: `run_node_generator(request: NodeGenRequest, **extra_state) -> NodeGenState`
 
 #### Knowledge Loading (`node_generator/knowledge.py`)
 
@@ -664,6 +691,30 @@ async def generate_yaml(request: YAMLRequest) -> YAMLResponse:
 async def generate_node(request: NodeGenAPIRequest) -> NodeGenAPIResponse:
     # request: semantic_type, description, target_software, target_method, category
     # response: node_name, nodespec_yaml, run_sh, input_templates, saved_path, evaluation, error
+```
+
+#### `POST /api/v1/agents/ephemeral`
+```python
+@router.post("/ephemeral", response_model=EphemeralGenResponse)
+async def ephemeral_generate(request: EphemeralGenRequest) -> EphemeralGenResponse:
+    # request: description, ports, context, input_data, run_name, project_id
+    # response: script, stdout, stderr, return_code, success, generated_files, image_files
+```
+
+#### `POST /api/v1/agents/ephemeral/evaluate`
+```python
+@router.post("/ephemeral/evaluate", response_model=EphemeralEvalResponse)
+async def ephemeral_evaluate(request: EphemeralEvalRequest) -> EphemeralEvalResponse:
+    # request: description, ports, script, stdout, stderr, image_base64_list
+    # response: passed, issues, suggestions
+```
+
+#### `POST /api/v1/agents/save-session`
+```python
+@router.post("/save-session", response_model=SaveSessionResponse)
+async def save_session(request: SaveSessionRequest) -> SaveSessionResponse:
+    # request: session_id, messages
+    # response: saved, session_id, path, message_count
 ```
 
 **Design**:
@@ -858,6 +909,80 @@ Checklist:
   2. DAG validity: no cycles?
   3. Scientific correctness: geo-opt before freq?
 Output: JSON {passed, issues, suggestions}
+```
+
+---
+
+## Ephemeral Node Architecture (M2)
+
+### Overview
+
+Ephemeral nodes use a **two-phase architecture** distinct from the formal Generator-Evaluator pattern:
+
+1. **Compile time**: Compiler generates a thin wrapper script (not the actual Python script)
+2. **Run time**: Wrapper calls `POST /api/v1/agents/ephemeral`, server completes the full generation cycle
+
+### ReAct Agent Inner Loop
+
+Unlike formal mode (simple generate → evaluate), ephemeral mode uses a **ReAct-style Agent loop**:
+
+```
+SystemMessage + HumanMessage (task + context + input data)
+  ↓
+LLM (bound with sandbox_execute + pip_install tools)
+  ↓ calls sandbox_execute
+Tool Result (stdout + stderr + return_code + image_files)
+  ↓ LLM reads result, decides to fix or finish
+[Repeat until LLM stops calling tools or max rounds reached]
+  ↓
+Extract final script from conversation history
+```
+
+**Key differences from formal mode:**
+- LLM has **agency**: it decides when to execute, what to fix, when to stop
+- Tools: `sandbox_execute` (execute Python in sandbox) + `pip_install` (install packages)
+- Self-correction: LLM reads stderr and rewrites script on failure
+- Vision feedback: evaluation results feed back into next generation round
+
+### Sandbox Execution (`sandbox.py`)
+
+Two execution modes, auto-selected:
+- **Docker** (preferred): Runs in `ephemeral-py:3.11` container (pre-installed: numpy, matplotlib, scipy, pandas, etc.)
+- **Subprocess** (fallback): Runs on host Python when Docker unavailable
+
+**Path handling**:
+- Priority: create symlinks `/mf/input → tmpdir/input` (matches Pod environment)
+- Fallback: rewrite script paths to use temp directory
+
+**Output scanning**: Automatically detects generated files and image files (PNG, JPG, SVG, PDF, etc.)
+
+### Visual Evaluation (`evaluator.py`)
+
+For ephemeral nodes that produce images:
+1. Programmatic checks (Python syntax, I/O path conventions, sweep type conversion)
+2. Execution result check (return code)
+3. **Multimodal vision evaluation**: images sent to GPT-4o for visual quality check
+
+Vision evaluation uses `nodegen_ephemeral_evaluate_vision.jinja2` prompt and sends up to 4 images per evaluation.
+
+### API Endpoint Flow
+
+`POST /api/v1/agents/ephemeral` runs the complete outer loop:
+
+```
+for outer_round in range(max_outer_rounds):
+    1. Generate (inner ReAct Agent loop with sandbox)
+    2. If execution failed → continue to next round with stderr
+    3. If execution succeeded → evaluate (programmatic + vision)
+    4. If evaluation passed → break
+    5. If evaluation failed → continue with vision_feedback
+```
+
+Configuration in `userdata/settings.yaml`:
+```yaml
+ephemeral:
+  max_outer_rounds: 2    # outer generate→evaluate loop
+  max_inner_rounds: 3    # inner ReAct sandbox executions
 ```
 
 ---

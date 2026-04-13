@@ -175,9 +175,7 @@ cp .env.example .env
 | `ARGO_NAMESPACE` | 默认 `miqroforge-v2`，通常不需要改 | — |
 | `ARGO_TOKEN` | 提交工作流时若提示鉴权失败 | 运行 `argo auth token` |
 | `DOCKER_HUB_MIRROR` | 国内服务器拉取 Docker Hub 镜像慢时 | 填入镜像站域名，如 `docker.m.daocloud.io` |
-| `MF_LLM_PROVIDER` | Phase 2 开发 Agent 时 | `openai` 或 `deepseek` |
-| `MF_LLM_MODEL` | Phase 2 开发 Agent 时 | 如 `gpt-4o`、`deepseek-coder` |
-| `OPENAI_API_KEY` | Phase 2，使用 OpenAI 模型时 | 从 OpenAI 控制台获取 |
+| `userdata/models.yaml` | **Phase 2 开发 Agent 时必须配置** | 从 `models.yaml.example` 复制，填入 `proxy.api_key` |
 
 **典型的新开发者流程：**
 

@@ -149,9 +149,11 @@ class MFNodeInstance(BaseModel):
     def get_generation_description(self) -> str:
         """获取用于脚本生成的 description。
 
-        优先从 onboard_params 取值（用户/Agent 在 inspector 中填写），
-        fallback 到顶层 description 字段。
+        临时节点：必须从 onboard_params.description 读取（Agent 据此生成脚本）。
+        正式节点：fallback 到顶层 description 字段。
         """
+        if self.ephemeral:
+            return self.onboard_params.get("description", "")
         return self.onboard_params.get("description", "") or self.description
 
     @model_validator(mode="after")
