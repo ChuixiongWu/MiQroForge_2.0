@@ -165,7 +165,7 @@ export function ProjectCard({
             </button>
             {emojiPickerOpen && (
               <div
-                className="absolute left-0 top-full mt-1 bg-mf-panel border border-mf-border rounded-lg shadow-xl z-50 p-2 w-56"
+                className="absolute left-0 top-full mt-1 bg-mf-panel border border-mf-border rounded-lg shadow-xl z-50 p-2 w-56 max-h-60 overflow-y-auto mf-scroll"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="grid grid-cols-6 gap-0.5">

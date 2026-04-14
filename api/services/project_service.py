@@ -143,6 +143,12 @@ class ProjectService:
         (project_dir / "conversations").mkdir()
         (project_dir / "runs").mkdir()
         (project_dir / "snapshots").mkdir()
+        # 项目文件实际存储在 workspace/.files/{pid}/，此处 symlink 方便查找
+        files_real = self.settings.userdata_root / "workspace" / ".files" / pid
+        files_real.mkdir(parents=True, exist_ok=True)
+        files_link = project_dir / "files"
+        if not files_link.exists():
+            files_link.symlink_to(files_real)
 
         meta_raw: dict[str, Any] = {
             "id": pid,

@@ -411,16 +411,19 @@ async def ephemeral_generate(
         eval_passed = evaluation.passed if evaluation else True
         overall_success = (exec_return_code == 0) and eval_passed
 
-        # 将 sandbox 中生成的图片复制到 workspace，使前端可通过 files API 访问
+        # 将 sandbox 中生成的图片复制到项目作用域 workspace，使前端可通过项目 files API 访问
         if image_files:
             import shutil as _shutil
-            workspace_dir = settings.userdata_root / "workspace"
-            workspace_dir.mkdir(parents=True, exist_ok=True)
+            if request.project_id:
+                target_dir = settings.userdata_root / "workspace" / ".files" / request.project_id
+            else:
+                target_dir = settings.userdata_root / "workspace"
+            target_dir.mkdir(parents=True, exist_ok=True)
             for img_path in image_files:
                 try:
                     src = Path(img_path)
                     if src.is_file():
-                        _shutil.copy2(src, workspace_dir / src.name)
+                        _shutil.copy2(src, target_dir / src.name)
                 except Exception:
                     pass
 

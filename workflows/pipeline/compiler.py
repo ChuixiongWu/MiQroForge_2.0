@@ -52,6 +52,22 @@ _EPHEMERAL_PYTHON_VERSION = "3.11"
 _WORKSPACE_PVC_NAME = "mf-workspace"
 
 
+def _workspace_volume_mount(project_id: str = "") -> dict[str, str]:
+    """返回 workspace volumeMount dict，project_id 非空时使用 subPath 指向项目 files/。"""
+    m: dict[str, str] = {"name": "workspace", "mountPath": "/mf/workspace"}
+    if project_id:
+        m["subPath"] = f".files/{project_id}"
+    return m
+
+
+def _workspace_volume() -> dict[str, Any]:
+    """返回 workspace volume dict（PVC 引用）。"""
+    return {
+        "name": "workspace",
+        "persistentVolumeClaim": {"claimName": _WORKSPACE_PVC_NAME},
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 公开 API
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1103,6 +1119,7 @@ def _build_template(
             input_params=input_params,
             output_params=output_params,
             resource_overrides=resource_overrides,
+            project_id=project_id,
         )
     elif isinstance(spec.execution, LightweightExecutionConfig):
         if spec.execution.entrypoint_script:
@@ -1114,6 +1131,7 @@ def _build_template(
                 docker_hub_mirror=docker_hub_mirror,
                 input_params=input_params,
                 output_params=output_params,
+                project_id=project_id,
             )
         else:
             # inline_script / script_path 模式 — script template（原有逻辑）
@@ -1130,6 +1148,7 @@ def _build_template(
                 docker_hub_mirror=docker_hub_mirror,
                 input_params=input_params,
                 output_params=output_params,
+                project_id=project_id,
             )
     else:
         raise ValueError(
@@ -1146,6 +1165,7 @@ def _build_compute_template(
     input_params: list[dict[str, str]],
     output_params: list[dict[str, Any]],
     resource_overrides: dict[str, Any] | None = None,
+    project_id: str = "",
 ) -> dict[str, Any]:
     """构建 compute 节点的 container template。"""
     exec_cfg = spec.execution  # ComputeExecutionConfig
@@ -1194,10 +1214,7 @@ def _build_compute_template(
                     "name": "profile",
                     "mountPath": exec_cfg.profile_mount_path,
                 },
-                {
-                    "name": "workspace",
-                    "mountPath": "/mf/workspace",
-                },
+                _workspace_volume_mount(project_id),
             ],
         },
         "volumes": [
@@ -1208,10 +1225,7 @@ def _build_compute_template(
                     "defaultMode": 0o755,
                 },
             },
-            {
-                "name": "workspace",
-                "persistentVolumeClaim": {"claimName": _WORKSPACE_PVC_NAME},
-            },
+            _workspace_volume(),
         ],
     }
 
@@ -1240,6 +1254,7 @@ def _build_lightweight_script_template(
     docker_hub_mirror: str = "",
     input_params: list[dict[str, str]],
     output_params: list[dict[str, Any]],
+    project_id: str = "",
 ) -> dict[str, Any]:
     """构建 lightweight 节点的 script template（inline_script / script_path 模式）。
 
@@ -1318,17 +1333,11 @@ def _build_lightweight_script_template(
                 },
             },
             "volumeMounts": [
-                {
-                    "name": "workspace",
-                    "mountPath": "/mf/workspace",
-                },
+                _workspace_volume_mount(project_id),
             ],
         },
         "volumes": [
-            {
-                "name": "workspace",
-                "persistentVolumeClaim": {"claimName": _WORKSPACE_PVC_NAME},
-            },
+            _workspace_volume(),
         ],
     }
 
@@ -1419,17 +1428,11 @@ def _build_ephemeral_template(
                 },
             },
             "volumeMounts": [
-                {
-                    "name": "workspace",
-                    "mountPath": "/mf/workspace",
-                },
+                _workspace_volume_mount(project_id),
             ],
         },
         "volumes": [
-            {
-                "name": "workspace",
-                "persistentVolumeClaim": {"claimName": _WORKSPACE_PVC_NAME},
-            },
+            _workspace_volume(),
         ],
     }
 
@@ -1444,6 +1447,7 @@ def _build_lightweight_profile_template(
     docker_hub_mirror: str = "",
     input_params: list[dict[str, str]],
     output_params: list[dict[str, Any]],
+    project_id: str = "",
 ) -> dict[str, Any]:
     """构建 lightweight 节点的 container template（entrypoint_script 模式）。
 
@@ -1505,10 +1509,7 @@ def _build_lightweight_profile_template(
                     "name": "profile",
                     "mountPath": profile_mount_path,
                 },
-                {
-                    "name": "workspace",
-                    "mountPath": "/mf/workspace",
-                },
+                _workspace_volume_mount(project_id),
             ],
         },
         "volumes": [
@@ -1519,10 +1520,7 @@ def _build_lightweight_profile_template(
                     "defaultMode": 0o755,
                 },
             },
-            {
-                "name": "workspace",
-                "persistentVolumeClaim": {"claimName": _WORKSPACE_PVC_NAME},
-            },
+            _workspace_volume(),
         ],
     }
 

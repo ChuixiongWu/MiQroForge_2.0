@@ -8,7 +8,7 @@ import { PORT_COLORS, portCategoryLabel } from '../../lib/port-type-utils'
 import type { OnBoardOutput } from '../../types/nodespec'
 import { phaseEmoji, phaseBadgeClass, formatElapsed } from '../../lib/phase-utils'
 import { X, Cpu, MemoryStick, Clock } from 'lucide-react'
-import { filesApi } from '../../api/files-api'
+import { filesApi, projectFilesApi } from '../../api/files-api'
 
 // ─── Parameter form ───────────────────────────────────────────────────────────
 
@@ -312,7 +312,7 @@ function EphemeralPortEditor({ nodeId }: { nodeId: string }) {
 
 // ─── Workspace image display ──────────────────────────────────────────────────
 
-function WorkspaceImage({ filename, nodeId }: { filename: string; nodeId: string }) {
+function WorkspaceImage({ filename, nodeId, projectId }: { filename: string; nodeId: string; projectId?: string | null }) {
   const [imageUrl, setImageUrl] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [expanded, setExpanded] = React.useState(false)
@@ -324,7 +324,9 @@ function WorkspaceImage({ filename, nodeId }: { filename: string; nodeId: string
 
     async function loadImage() {
       try {
-        const blob = await filesApi.download(filename)
+        const blob = projectId
+          ? await projectFilesApi.download(projectId, filename)
+          : await filesApi.download(filename)
         if (cancelled) return
         const url = URL.createObjectURL(blob)
         revokedUrl = url
@@ -344,7 +346,7 @@ function WorkspaceImage({ filename, nodeId }: { filename: string; nodeId: string
       cancelled = true
       if (revokedUrl) URL.revokeObjectURL(revokedUrl)
     }
-  }, [filename, runStatus?.phase])
+  }, [filename, runStatus?.phase, projectId])
 
   if (error) return null
   if (!imageUrl) return null
@@ -535,6 +537,7 @@ export function NodeInspector() {
   const selectedNodeId = useUIStore((s) => s.selectedNodeId)
   const { selectNode } = useUIStore()
   const removeNode = useWorkflowStore((s) => s.removeNode)
+  const projectId = useWorkflowStore((s) => s._projectId)
   const node = useWorkflowStore((s) =>
     selectedNodeId ? s.nodes.find((n) => n.id === selectedNodeId) : null,
   )
@@ -651,7 +654,7 @@ export function NodeInspector() {
             </Section>
             {/* Ephemeral image display — driven by _mf_images output param */}
             {isEphemeral && runStatus?.outputs?._mf_images && (
-              <WorkspaceImage filename={runStatus.outputs._mf_images.split('\n')[0].split('/').pop()!} nodeId={node.id} />
+              <WorkspaceImage filename={runStatus.outputs._mf_images.split('\n')[0].split('/').pop()!} nodeId={node.id} projectId={projectId} />
             )}
           </>
         ) : (

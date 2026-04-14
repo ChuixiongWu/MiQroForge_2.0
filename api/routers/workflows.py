@@ -132,6 +132,9 @@ async def submit_workflow(
     run_name = submit_result["workflow_name"]
     if not req.project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
+    # 确保项目 files/ 目录存在（编译器 subPath=.files/{project_id} 需要）
+    files_dir = settings.userdata_root / "workspace" / ".files" / req.project_id
+    files_dir.mkdir(parents=True, exist_ok=True)
     run_dir = settings.userdata_root / "projects" / req.project_id / "runs" / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "mf-workflow.yaml").write_text(req.yaml_content, encoding="utf-8")
