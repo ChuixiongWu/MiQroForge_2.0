@@ -293,8 +293,24 @@ cp "${WORKSPACE_DIR}/input_data.bin" /mf/input/
 
 Workspace 是**用户/Main Agent ↔ 节点**之间的输入输出交换区，不是节点间数据传递通道。
 
-所有节点（compute 和 lightweight）的容器内 `/mf/workspace` 均挂载同一个 PVC（`mf-workspace`），
-对应 NFS 路径 `/data/k8s/nfs/miqroforge-workspace`，实现跨工作流运行的文件持久化。
+### 项目级文件隔离
+
+每个项目有独立的 workspace 子目录，运行时通过 PVC `subPath` 实现隔离：
+
+```
+userdata/workspace/                    ← PV hostPath 根目录
+  .files/
+    proj_xxx/                          ← 项目 A 的文件
+    proj_yyy/                          ← 项目 B 的文件
+```
+
+- 编译器为每个工作流模板注入 `subPath: .files/{project_id}`，容器内 `/mf/workspace`
+  直接映射到项目的文件子目录，节点只看到本项目的文件。
+- 全局 workspace 根目录仍可通过 Files 面板访问（作为文件中转站）。
+- `userdata/projects/{project_id}/files` 是指向 `workspace/.files/{project_id}` 的 symlink，
+  方便手动浏览，不影响 MF 运行时。
+
+当 `project_id` 为空时（向后兼容），不使用 subPath，挂载整个 `userdata/workspace/`。
 
 **两种典型用途：**
 - 用途1：用户上传输入文件（如分子坐标 `.xyz`、力场参数），节点在运行时从
@@ -311,7 +327,7 @@ workspace 不参与节点间数据流。
 
 ```bash
 source /mf/profile/mf2_init.sh
-# WORKSPACE_DIR 已由 mf2_init.sh 设置为 /mf/workspace
+# WORKSPACE_DIR 已由 mf2_init.sh 设置为 /mf/workspace（已是项目级子目录）
 ls "${WORKSPACE_DIR}/"
 cp "${WORKSPACE_DIR}/large_file.bin" /mf/workdir/
 ```
@@ -325,14 +341,9 @@ with open(f"{workspace_dir}/large_file.bin", "rb") as f:
     data = f.read()
 ```
 
-**基础设施部署（一次性）：**
+**基础设施部署（一次性，hostPath 模式无需 NFS 操作）：**
 
 ```bash
-# NFS 服务器上创建目录
-sudo mkdir -p /data/k8s/nfs/miqroforge-workspace
-sudo chmod 777 /data/k8s/nfs/miqroforge-workspace
-
-# 部署 PV + PVC
 kubectl apply -f infrastructure/k8s/workspace.yaml
 kubectl get pvc mf-workspace -n miqroforge-v2  # 应显示 Bound
 ```

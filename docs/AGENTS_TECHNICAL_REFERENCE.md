@@ -488,14 +488,19 @@ If no candidates exist for a step, the list is empty (YAML Coder will flag as `n
 
 ### Workspace Integration
 
-Planner loads user-uploaded workspace files and includes filenames in prompt:
+Planner loads user-uploaded workspace files (project-scoped) and includes filenames in prompt:
 
 ```python
-workspace_dir = get_settings().userdata_root / "workspace"
+settings = get_settings()
+# 项目级文件目录：userdata/workspace/.files/{project_id}/
+if project_id:
+    workspace_dir = settings.userdata_root / "workspace" / ".files" / project_id
+else:
+    workspace_dir = settings.userdata_root / "workspace"
 workspace_files = []
 if workspace_dir.exists():
     for f in sorted(workspace_dir.iterdir()):
-        if f.is_file():
+        if f.is_file() and f.name != ".gitkeep":
             workspace_files.append({
                 "name": f.name,
                 "size_bytes": f.stat().st_size
@@ -514,6 +519,10 @@ constraints: {"geometry_file": "h2o.xyz"}
 ```
 
 YAML Coder later includes this filename in `onboard_params`.
+
+> **Note**: Since workspace is now project-scoped via `subPath`, the Planner reads from
+> `workspace/.files/{project_id}/` when a project context is active. This ensures each project
+> only sees its own files.
 
 ---
 
