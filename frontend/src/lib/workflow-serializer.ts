@@ -61,7 +61,8 @@ export function rfStateToWorkflowDoc(
 export function workflowDocToYaml(doc: WorkflowDocument): string {
   // Build flat top-level structure that matches backend MFWorkflow model:
   //   name / description / mf_version / nodes / connections
-  // _ui position metadata stored per-node is ignored by Pydantic (extra="ignore")
+  // _ui is intentionally omitted — canvas position is UI-only metadata,
+  // stored in canvas.json / localStorage, not in the reproducible MF YAML.
   const yamlObj: Record<string, unknown> = {
     mf_version: '1.0',
     name: doc.meta.name,
@@ -75,9 +76,6 @@ export function workflowDocToYaml(doc: WorkflowDocument): string {
       const extra = n as unknown as Record<string, unknown>
       const isEphemeral = !!extra.ephemeral
       const isSweep = !!extra.parallel_sweep
-      if (n.position) {
-        nodeObj._ui = { position: n.position }
-      }
       // Unified: all non-ephemeral nodes use 'node' field (not nodespec_path)
       // Backend MFWorkflow validates node XOR nodespec_path — cannot have both
       if (!isEphemeral) {
@@ -268,9 +266,13 @@ export function workflowNodeToRF(
 
 // ─── WorkflowConnection → React Flow Edge ────────────────────────────────────
 
-export function connectionToRFEdge(conn: WorkflowConnection): RFEdge {
+export function connectionToRFEdge(
+  conn: WorkflowConnection,
+  sourceOutputs?: Array<{ name: string; category: string }>,
+): RFEdge {
   const [sourceNode, sourceHandle] = conn.from.split('.')
   const [targetNode, targetHandle] = conn.to.split('.')
+  const formalPort = sourceOutputs?.find((p) => p.name === sourceHandle)
   return {
     id: `e-${conn.from}-${conn.to}`,
     source: sourceNode,
@@ -278,5 +280,8 @@ export function connectionToRFEdge(conn: WorkflowConnection): RFEdge {
     target: targetNode,
     targetHandle,
     type: 'mfEdge',
+    data: formalPort
+      ? { sourcePort: { name: formalPort.name, category: formalPort.category } }
+      : undefined,
   }
 }

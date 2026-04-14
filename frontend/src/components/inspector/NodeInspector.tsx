@@ -488,14 +488,32 @@ function OnboardOutputList({
 
 // ─── Run summary section ──────────────────────────────────────────────────────
 
-function RunSummarySection({ runStatus }: { runStatus: NodeRunStatus }) {
+function RunSummarySection({
+  runStatus,
+  nodeId,
+  onRotate,
+}: {
+  runStatus: NodeRunStatus
+  nodeId?: string
+  onRotate?: (canvasId: string) => void
+}) {
   const elapsed = formatElapsed(runStatus.startedAt, runStatus.finishedAt)
+  const multi = runStatus.instances.length > 1
   return (
     <div className="px-3 py-2 flex items-center gap-2">
       <span className={`${phaseBadgeClass(runStatus.phase)} text-xs`}>
         {phaseEmoji(runStatus.phase)} {runStatus.phase}
       </span>
       {elapsed && <span className="text-[11px] text-mf-text-muted">{elapsed}</span>}
+      {multi && nodeId && onRotate && (
+        <button
+          className="ml-auto text-[11px] text-purple-300 hover:text-purple-200 font-mono cursor-pointer select-none"
+          onClick={() => onRotate(nodeId)}
+          title="Click to switch instance"
+        >
+          &lsaquo; {runStatus.currentIndex + 1}/{runStatus.instances.length} &rsaquo;
+        </button>
+      )}
     </div>
   )
 }
@@ -524,6 +542,7 @@ export function NodeInspector() {
   const runStatus = useRunOverlayStore((s) =>
     selectedNodeId ? s.nodeStatuses[selectedNodeId] : undefined,
   )
+  const rotateInstance = useRunOverlayStore((s) => s.rotateInstance)
 
   if (!node) {
     return (
@@ -586,7 +605,7 @@ export function NodeInspector() {
         {/* Run status (when available) */}
         {runStatus && (
           <Section title="Run Status">
-            <RunSummarySection runStatus={runStatus} />
+            <RunSummarySection runStatus={runStatus} nodeId={node.id} onRotate={rotateInstance} />
           </Section>
         )}
 

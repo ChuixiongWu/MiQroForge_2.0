@@ -1,21 +1,35 @@
 import { create } from 'zustand'
 import type { RunPhase } from '../types/index-types'
 
+/** One instance of a node's execution (a single sweep iteration, or the sole run). */
+export interface NodeInstanceStatus {
+  phase: RunPhase
+  startedAt?: string
+  finishedAt?: string
+  outputs: Record<string, string>
+}
+
 export interface NodeRunStatus {
   phase: RunPhase
   startedAt?: string
   finishedAt?: string
-  outputs: Record<string, string>   // { total_energy: "-76.123 Ha", opt_converged: "true" }
+  /** One entry per instance. For non-sweep nodes this is always length 1. */
+  instances: NodeInstanceStatus[]
+  /** Index of the instance currently displayed in canvas / inspector. */
+  currentIndex: number
+  /** Backward-compat: outputs of the current instance. */
+  outputs: Record<string, string>
 }
 
 interface RunOverlayState {
   activeRunName: string | null
   workflowPhase: RunPhase | null
-  nodeStatuses: Record<string, NodeRunStatus>   // key = canvas nodeId
+  nodeStatuses: Record<string, NodeRunStatus>
 
   setActiveRun: (name: string) => void
   updateFromArgo: (raw: Record<string, unknown>) => void
   clearOverlay: () => void
+  rotateInstance: (canvasId: string) => void
 }
 
 // ─── Argo JSON helpers ────────────────────────────────────────────────────────
@@ -23,6 +37,7 @@ interface RunOverlayState {
 interface ArgoNode {
   type?: string
   templateName?: string
+  displayName?: string
   phase?: string
   startedAt?: string
   finishedAt?: string
@@ -36,6 +51,9 @@ interface ArgoNode {
  *
  * Argo status.nodes is a flat object keyed by Argo node ID.
  * Pod-type nodes have templateName = "mf-{canvasNodeId}" by MiQroForge convention.
+ *
+ * Sweep pipelines produce multiple Pod nodes with the same templateName
+ * (one per sweep iteration). We collect them all into `instances[]`.
  *
  * Skipped-type nodes (phase "Omitted") occur when a `when` condition evaluated
  * to false — i.e. a quality gate blocked downstream execution.  We surface these
@@ -53,26 +71,23 @@ function parseArgoNodes(raw: Record<string, unknown>): {
   let workflowPhase = (status.phase as RunPhase | undefined) ?? 'Unknown'
   const rawNodes = (status.nodes ?? {}) as Record<string, ArgoNode>
 
-  const nodeStatuses: Record<string, NodeRunStatus> = {}
+  // Collect instances per canvas node id
+  const instancesMap: Record<string, NodeInstanceStatus[]> = {}
   let hasOmitted = false
 
   for (const argoNode of Object.values(rawNodes)) {
-    // Process Pod nodes (actual computation steps) and Skipped nodes (omitted
-    // because a `when` condition was false — e.g. quality gate not passed).
     const isCompute = argoNode.type === 'Pod'
     const isSkipped = argoNode.type === 'Skipped'
     if (!isCompute && !isSkipped) continue
 
     const templateName = argoNode.templateName ?? ''
-    // Template name format: "mf-{canvasNodeId}"
     if (!templateName.startsWith('mf-')) continue
-    const canvasId = templateName.slice(3)   // strip "mf-"
+    const canvasId = templateName.slice(3)
     if (!canvasId) continue
 
     const nodePhase = (argoNode.phase as RunPhase | undefined) ?? 'Unknown'
     if (nodePhase === 'Omitted') hasOmitted = true
 
-    // Extract output parameters (only present on Pod nodes that ran)
     const outputs: Record<string, string> = {}
     for (const param of argoNode.outputs?.parameters ?? []) {
       if (param.name && param.value !== undefined) {
@@ -80,15 +95,42 @@ function parseArgoNodes(raw: Record<string, unknown>): {
       }
     }
 
-    nodeStatuses[canvasId] = {
-      phase:      nodePhase,
-      startedAt:  argoNode.startedAt,
+    const instance: NodeInstanceStatus = {
+      phase: nodePhase,
+      startedAt: argoNode.startedAt,
       finishedAt: argoNode.finishedAt,
       outputs,
     }
+
+    if (!instancesMap[canvasId]) {
+      instancesMap[canvasId] = []
+    }
+    instancesMap[canvasId].push(instance)
   }
 
-  // Promote Succeeded → PartialSuccess when quality gates blocked downstream nodes
+  // Build nodeStatuses with aggregated phase from instances
+  const nodeStatuses: Record<string, NodeRunStatus> = {}
+  for (const [canvasId, instances] of Object.entries(instancesMap)) {
+    // Aggregate phase: if any instance failed → Failed; any running → Running; else use first
+    let aggPhase: RunPhase = instances[0].phase
+    if (instances.some((i) => i.phase === 'Failed' || i.phase === 'Error')) {
+      aggPhase = 'Failed'
+    } else if (instances.some((i) => i.phase === 'Running')) {
+      aggPhase = 'Running'
+    } else if (instances.every((i) => i.phase === 'Succeeded')) {
+      aggPhase = 'Succeeded'
+    }
+
+    nodeStatuses[canvasId] = {
+      phase: aggPhase,
+      startedAt: instances[0].startedAt,
+      finishedAt: instances[instances.length - 1].finishedAt,
+      instances,
+      currentIndex: 0,
+      outputs: instances[0].outputs,
+    }
+  }
+
   if (workflowPhase === 'Succeeded' && hasOmitted) {
     workflowPhase = 'PartialSuccess'
   }
@@ -115,16 +157,22 @@ export const useRunOverlayStore = create<RunOverlayState>((set) => ({
 
       for (const [canvasId, nextStatus] of Object.entries(next)) {
         const prev = state.nodeStatuses[canvasId]
+        // Keep the user's currentIndex if still valid
+        const carryIndex = prev && prev.currentIndex < nextStatus.instances.length
+          ? prev.currentIndex
+          : 0
+        const adjusted = { ...nextStatus, currentIndex: carryIndex, outputs: nextStatus.instances[carryIndex].outputs }
+
         if (
           prev &&
-          prev.phase      === nextStatus.phase &&
-          prev.startedAt  === nextStatus.startedAt &&
-          prev.finishedAt === nextStatus.finishedAt &&
-          JSON.stringify(prev.outputs) === JSON.stringify(nextStatus.outputs)
+          prev.phase === adjusted.phase &&
+          prev.currentIndex === adjusted.currentIndex &&
+          JSON.stringify(prev.outputs) === JSON.stringify(adjusted.outputs) &&
+          prev.instances.length === adjusted.instances.length
         ) {
-          merged[canvasId] = prev   // reuse same reference
+          merged[canvasId] = prev
         } else {
-          merged[canvasId] = nextStatus
+          merged[canvasId] = adjusted
           statusesChanged = true
         }
       }
@@ -141,4 +189,24 @@ export const useRunOverlayStore = create<RunOverlayState>((set) => ({
   },
 
   clearOverlay: () => set({ activeRunName: null, workflowPhase: null, nodeStatuses: {} }),
+
+  rotateInstance: (canvasId) =>
+    set((state) => {
+      const status = state.nodeStatuses[canvasId]
+      if (!status || status.instances.length <= 1) return state
+
+      const nextIndex = (status.currentIndex + 1) % status.instances.length
+      const nextInstance = status.instances[nextIndex]
+
+      return {
+        nodeStatuses: {
+          ...state.nodeStatuses,
+          [canvasId]: {
+            ...status,
+            currentIndex: nextIndex,
+            outputs: nextInstance.outputs,
+          },
+        },
+      }
+    }),
 }))

@@ -11,7 +11,7 @@
 import { useState, useRef, useEffect, memo, useCallback } from 'react'
 import { Send, X, Trash2, Loader2, Square, Save } from 'lucide-react'
 import { useAgentStore } from '../../stores/agent-store'
-import { useWorkflowStore } from '../../stores/workflow-store'
+import { useWorkflowStore, type MFNodeData } from '../../stores/workflow-store'
 import { useUIStore } from '../../stores/ui-store'
 import { agentsApi } from '../../api/agents-api'
 import { nodesApi } from '../../api/nodes-api'
@@ -191,6 +191,25 @@ export const ChatPanel = memo(() => {
       if (result.mf_yaml && resolvedCount > 0) {
         const newEdges = buildResolvedEdges(result.mf_yaml, resolutions, pendingByStepId)
         if (newEdges.length > 0) {
+          // Enrich edges with sourcePort data for proper coloring
+          const currentNodes = useWorkflowStore.getState().nodes
+          const nodeOutputsMap = new Map<string, Array<{ name: string; category: string }>>()
+          for (const n of currentNodes) {
+            const data = n.data as MFNodeData
+            nodeOutputsMap.set(
+              n.id,
+              data.stream_outputs?.map((p) => ({ name: p.name, category: p.category })) ?? [],
+            )
+          }
+          for (const edge of newEdges) {
+            if (!edge.data) {
+              const outputs = nodeOutputsMap.get(edge.source)
+              const port = outputs?.find((p) => p.name === edge.sourceHandle)
+              if (port) {
+                edge.data = { sourcePort: { name: port.name, category: port.category } }
+              }
+            }
+          }
           const currentEdges = useWorkflowStore.getState().edges
           const keptEdges = currentEdges.filter((e) => e.type !== SEMANTIC_EDGE_TYPE)
           useWorkflowStore.setState({ edges: [...keptEdges, ...newEdges] })

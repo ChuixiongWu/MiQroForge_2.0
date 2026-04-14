@@ -108,8 +108,17 @@ function GateBadge({ gate, runValue }: GateBadgeProps) {
 
 // ─── Run overlay section ──────────────────────────────────────────────────────
 
-function RunOverlaySection({ status }: { status: NodeRunStatus }) {
+function RunOverlaySection({
+  status,
+  nodeId,
+  onRotate,
+}: {
+  status: NodeRunStatus
+  nodeId: string
+  onRotate?: (canvasId: string) => void
+}) {
   const elapsed = formatElapsed(status.startedAt, status.finishedAt)
+  const multi = status.instances.length > 1
 
   // Exclude quality-gate keys (_qg_*) and internal mf keys (_mf_*) — shown integrated in the gate badges above
   const outputEntries = Object.entries(status.outputs).filter(
@@ -118,10 +127,21 @@ function RunOverlaySection({ status }: { status: NodeRunStatus }) {
 
   return (
     <div className="border-t border-mf-border/50 px-2 py-1.5 space-y-0.5">
-      {/* Elapsed time — only show when there's something to report */}
-      {elapsed && (
-        <div className="text-[10px] text-mf-text-muted text-right">{elapsed}</div>
-      )}
+      {/* Header row: elapsed + instance selector */}
+      <div className="flex items-center justify-between">
+        {multi && onRotate ? (
+          <button
+            className="text-[10px] text-purple-300 hover:text-purple-200 font-mono cursor-pointer select-none"
+            onClick={(e) => { e.stopPropagation(); onRotate(nodeId) }}
+            title="Click to switch instance"
+          >
+            &lsaquo; {status.currentIndex + 1}/{status.instances.length} &rsaquo;
+          </button>
+        ) : <span />}
+        {elapsed && (
+          <div className="text-[10px] text-mf-text-muted">{elapsed}</div>
+        )}
+      </div>
 
       {/* Output values — only shown on success */}
       {status.phase === 'Succeeded' && outputEntries.length > 0 && (
@@ -238,6 +258,7 @@ PendingNodeCard.displayName = 'PendingNodeCard'
 export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
   // Each node selects only its own status; stable reference preserved by run-overlay-store
   const runStatus = useRunOverlayStore((s) => s.nodeStatuses[id])
+  const rotateInstance = useRunOverlayStore((s) => s.rotateInstance)
   const isCompiling = useWorkflowStore((s) => s.compilingNodeIds.includes(id))
 
   // ── Pending variant ────────────────────────────────────────────────────────
@@ -317,7 +338,7 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
           {/* Sweep badge */}
           {data.parallel_sweep && (
             <span className="text-[10px] bg-purple-900/40 text-purple-300 px-1.5 py-0.5 rounded flex-shrink-0">
-              sweep &times;{data.parallel_sweep.values.length}
+              Multi
             </span>
           )}
           {/* Phase badge */}
@@ -385,7 +406,7 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
       )}
 
       {/* Run overlay section */}
-      {runStatus && <RunOverlaySection status={runStatus} />}
+      {runStatus && <RunOverlaySection status={runStatus} nodeId={id} onRotate={rotateInstance} />}
 
       {/* Footer */}
       <div className="mf-node-footer flex items-center justify-between text-[10px] text-mf-text-muted">

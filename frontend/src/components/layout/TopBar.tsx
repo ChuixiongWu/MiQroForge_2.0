@@ -190,7 +190,19 @@ export function TopBar() {
             }
           }),
         )
-        const rfEdges = parsed.connections.map(connectionToRFEdge)
+        // Build source node outputs map for edge coloring
+        const nodeOutputsMap = new Map<string, Array<{ name: string; category: string }>>()
+        for (const rfNode of rfNodes) {
+          const data = rfNode.data as MFNodeData
+          nodeOutputsMap.set(
+            rfNode.id,
+            data.stream_outputs?.map((p) => ({ name: p.name, category: p.category })) ?? [],
+          )
+        }
+        const rfEdges = parsed.connections.map((c) => {
+          const sourceId = c.from.split('.')[0]
+          return connectionToRFEdge(c, nodeOutputsMap.get(sourceId))
+        })
         loadFromNodes(rfNodes, rfEdges)
         showNotification('success', `Imported "${parsed.meta.name}"`)
       } catch (err) {
