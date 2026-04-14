@@ -388,7 +388,8 @@ export const useWorkflowStore = create<WorkflowState>()(
       merge: (persisted, current) => {
         const merged = { ...current, ...(persisted as Partial<WorkflowState>) }
         if (Array.isArray(merged.nodes)) {
-          merged.nodes = merged.nodes.map((n: Record<string, unknown>) => {
+          const raw = merged.nodes as Array<Record<string, unknown>>
+          merged.nodes = raw.map((n) => {
             const data = n.data as Record<string, unknown> | undefined
             if (data?.ports && typeof data.ports === 'object') {
               const ports = data.ports as Record<string, unknown>
@@ -402,7 +403,7 @@ export const useWorkflowStore = create<WorkflowState>()(
               }
             }
             return n
-          })
+          }) as typeof merged.nodes
         }
         return merged
       },

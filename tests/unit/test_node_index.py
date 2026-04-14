@@ -146,14 +146,14 @@ class TestScanner:
         assert "orca-thermo-extractor" not in names
 
     def test_scan_finds_test_nodes(self, project_root):
-        index = scan_nodes(project_root)
+        index = scan_nodes(project_root, include_test_nodes=True)
         names = [e.name for e in index.entries]
         assert "test-gaussian-geo-opt" in names
         assert "test-gaussian-freq" in names
         assert "test-thermo-extractor" in names
 
-    def test_scan_skip_test(self, project_root):
-        index = scan_nodes(project_root, skip_test=True)
+    def test_scan_default_skips_test_nodes(self, project_root):
+        index = scan_nodes(project_root)
         names = [e.name for e in index.entries]
         assert "test-gaussian-geo-opt" not in names
         assert "orca-geo-opt" in names
@@ -161,7 +161,8 @@ class TestScanner:
     def test_total_nodes_count(self, project_root):
         index = scan_nodes(project_root)
         assert index.total_nodes == len(index.entries)
-        assert index.total_nodes >= 7
+        # 默认不包含测试节点，只有 ORCA 节点
+        assert index.total_nodes >= 3
 
     def test_entries_sorted_by_category_name(self, project_root):
         index = scan_nodes(project_root)
@@ -188,8 +189,10 @@ class TestScanner:
         assert entry.resources_memory_gb > 0
 
     def test_thermo_extractor_is_lightweight(self, project_root):
-        """orca-thermo-extractor 已移除；test-thermo-extractor 是 compute mock 节点。"""
-        index = scan_nodes(project_root)
+        """orca-thermo-extractor 已移除；test-thermo-extractor 是 compute mock 节点。
+        需要 include_test_nodes=True 才能扫描到。
+        """
+        index = scan_nodes(project_root, include_test_nodes=True)
         names = [e.name for e in index.entries]
         assert "test-thermo-extractor" in names
         entry = next(e for e in index.entries if e.name == "test-thermo-extractor")
@@ -295,7 +298,7 @@ class TestSearch:
     @pytest.fixture(scope="class")
     def index(self) -> NodeIndex:
         project_root = Path(__file__).parent.parent.parent
-        return scan_nodes(project_root)
+        return scan_nodes(project_root, include_test_nodes=True)
 
     def test_search_orca(self, index):
         results = search_nodes(index, "orca")

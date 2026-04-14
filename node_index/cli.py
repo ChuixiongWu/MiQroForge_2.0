@@ -41,6 +41,20 @@ def _detect_project_root() -> Path:
     return cwd
 
 
+def _load_include_test_setting(project_root: Path) -> bool:
+    """从 userdata/settings.yaml 读取 index.include_test_nodes 配置。"""
+    settings_path = project_root / "userdata" / "settings.yaml"
+    if not settings_path.exists():
+        return False
+    try:
+        import yaml
+        with settings_path.open("r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        return cfg.get("index", {}).get("include_test_nodes", False)
+    except Exception:
+        return False
+
+
 def cmd_reindex() -> int:
     """重新扫描生成 node_index.yaml。"""
     from .scanner import scan_nodes, write_index
@@ -49,7 +63,8 @@ def cmd_reindex() -> int:
     print(f"\n{BLUE}{BOLD}══ MF Node Index — Reindex ══{NC}\n")
     print(f"  {BLUE}i Scanning nodes/ directory...{NC}")
 
-    index = scan_nodes(project_root)
+    include_test = _load_include_test_setting(project_root)
+    index = scan_nodes(project_root, include_test_nodes=include_test)
     output = write_index(index, project_root)
 
     print(f"  {GREEN}✔ Indexed {index.total_nodes} nodes → {output}{NC}")

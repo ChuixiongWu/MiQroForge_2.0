@@ -31,13 +31,15 @@ _SKIP_DIRS = {"schemas", "base_images", "__pycache__", ".git", "node_modules"}
 def scan_nodes(
     project_root: Path | None = None,
     *,
-    skip_test: bool = False,
+    include_test_nodes: bool = False,
 ) -> NodeIndex:
     """扫描 nodes/ 和 userdata/nodes/ 目录下的所有 nodespec.yaml，生成 NodeIndex。
 
     Parameters:
         project_root: 项目根目录。默认为当前工作目录。
-        skip_test: 是否跳过 test/ 目录下的节点。
+        include_test_nodes: 是否包含 test/ 目录下的测试节点。默认不包含，
+            前端/索引不展示测试节点。可通过 userdata/settings.yaml 的
+            index.include_test_nodes 开关覆盖。
 
     Returns:
         NodeIndex 实例。
@@ -63,8 +65,8 @@ def scan_nodes(
             if any(part in _SKIP_DIRS for part in rel_parts):
                 continue
 
-            # 可选跳过 test/ 目录
-            if skip_test and "test" in rel_parts:
+            # 默认跳过 test/ 目录（可通过 include_test_nodes=True 包含）
+            if not include_test_nodes and "test" in rel_parts:
                 continue
 
             try:

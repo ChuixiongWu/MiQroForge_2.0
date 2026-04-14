@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Copy, Trash2, MoreVertical, Pencil, Smile, FileText } from 'lucide-react'
+import { Copy, Trash2, MoreVertical, Pencil, FileText } from 'lucide-react'
 import type { ProjectMeta } from '../../api/projects-api'
 
 // ─── Common emoji sets ──────────────────────────────────────────────────────────

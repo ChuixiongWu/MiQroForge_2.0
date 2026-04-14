@@ -85,7 +85,7 @@ function CanvasLayout() {
         if (nodes.length > 0 || edges.length > 0) {
           loadFromNodes(nodes, edges)
           if (canvas.meta && typeof canvas.meta === 'object') {
-            useWorkflowStore.getState().setMeta(canvas.meta as import('./types/workflow').WorkflowMeta)
+            useWorkflowStore.getState().setMeta(canvas.meta as unknown as import('./types/workflow').WorkflowMeta)
           }
         }
       } catch { /* empty project, no canvas yet */ }
