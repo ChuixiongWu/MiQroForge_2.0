@@ -1,0 +1,161 @@
+# ===========================================================================
+# gaussian-geo-opt — Gaussian 16 Geometry Optimization
+#
+# 使用 Gaussian 16 进行几何结构优化。
+# ===========================================================================
+
+metadata:
+  name: gaussian-geo-opt
+  version: 1.0.0
+  display_name: Gaussian 16 Geometry Optimization
+  description: >
+    Performs a geometry optimization using Gaussian 16 to find the
+    minimum-energy molecular structure. Produces optimized geometry
+    and formatted checkpoint file.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: geometry-optimization
+  base_image_ref: g16
+  tags:
+    software: gaussian
+    version: "16"
+    method:
+      - DFT
+      - HF
+      - geometry-optimization
+    domain:
+      - molecular
+    capabilities:
+      - geometry-optimization
+    keywords:
+      - gaussian
+      - optimization
+      - geometry
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: >
+      Molecular geometry in standard XYZ format (Angstrom).
+
+stream_outputs:
+  - name: optimized_xyz
+    display_name: Optimized Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    description: Optimized molecular geometry in XYZ format.
+
+  - name: fchk_file
+    display_name: Formatted Checkpoint File
+    io_type:
+      category: software_data_package
+      ecosystem: gaussian
+      data_type: formatted-checkpoint
+    description: Formatted checkpoint file at the optimized geometry.
+
+  - name: total_energy
+    display_name: Final Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total electronic energy at the optimized geometry.
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: method
+    display_name: Method
+    kind: string
+    default: B3LYP
+    description: "Gaussian method keyword: B3LYP, PBE0, HF, MP2, etc."
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: "6-31G*"
+    description: "Basis set: 6-31G*, def2-SVP, cc-pVTZ, etc."
+
+  - name: population
+    display_name: Population Analysis
+    kind: enum
+    default: Full
+    allowed_values:
+      - Full
+      - None
+      - Minimal
+
+  - name: mem_gb
+    display_name: Memory (GB)
+    kind: float
+    default: 4.0
+    min_value: 1.0
+    max_value: 256.0
+    description: >
+      Gaussian 内存限制（%mem 指令）。应小于 K8s Pod 分配的 resources.memory_gb，
+      以留出 OS/Python/缓存的余量。
+
+  - name: max_iter
+    display_name: Max Optimization Steps
+    kind: integer
+    default: 200
+    min_value: 10
+    max_value: 1000
+
+onboard_outputs:
+  - name: final_energy
+    display_name: Final Energy (Ha)
+    kind: float
+    unit: Ha
+    description: Energy at the optimized geometry.
+
+  - name: opt_cycles
+    display_name: Optimization Cycles
+    kind: integer
+    description: Number of optimization steps taken.
+
+  - name: opt_converged
+    display_name: Optimization Converged
+    kind: boolean
+    description: Whether the geometry optimization converged.
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "Geometry optimization must converge."
+
+resources:
+  cpu_cores: 4
+  memory_gb: 8.0
+  estimated_walltime_hours: 1.5
+  scratch_disk_gb: 10.0
+  resource_bindings:
+    - cpu_cores
+
+execution:
+  environment:
+    GAUSS_SCRDIR: "/tmp"
+
+semantic_identity: >-
+  Geometry optimization using Gaussian 16. Produces optimized geometry,
+  formatted checkpoint, and final energy.
+
+distinguishing_ports:
+  - optimized_xyz
+  - fchk_file
+
+rag_summary: ""

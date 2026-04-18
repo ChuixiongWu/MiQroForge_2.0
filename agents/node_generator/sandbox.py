@@ -1,14 +1,9 @@
 """agents/node_generator/sandbox.py — 服务端执行沙箱。
 
-为临时节点 Agent 提供安全的脚本执行环境：
-- 优先使用 Docker 容器执行（ephemeral-py 镜像），与 Pod 环境一致
-- Docker 不可用时 fallback 到宿主 subprocess
-- 提供 LangChain Tool 工厂：sandbox_execute、pip_install
+使用 Docker 容器（ephemeral-py 镜像）为临时节点 Agent 提供安全的脚本执行环境：
+- pip install 隔离（不污染宿主机）
+- 文件系统隔离（容器内独立 /mf/ 路径）
 - 沙箱工作目录使用 userdata/sandbox_runs/<run_id>/ 持久化（不随 with 块清理）
-
-路径处理策略：
-1. 优先创建 /mf/input → tmpdir/input 等符号链接（Pod 内可用）
-2. 降级：将脚本中的 /mf/ 绝对路径替换为临时目录路径
 """
 
 from __future__ import annotations
@@ -18,8 +13,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
-import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -33,15 +26,13 @@ _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".svg", ".pdf", ".gif", ".webp"}
 # 执行模式选择
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _resolve_sandbox_mode() -> str:
-    """解析沙箱执行模式。返回 'docker' 或 'subprocess'。"""
-    mode = os.environ.get("MF_SANDBOX_MODE", "auto").lower()
-    if mode == "docker":
-        return "docker"
-    if mode == "subprocess":
-        return "subprocess"
-    # auto: 优先 docker
-    return "docker" if _docker_available() else "subprocess"
+def _ensure_docker() -> None:
+    """确认 Docker 可用，不可用时抛异常。"""
+    if not _docker_available():
+        raise RuntimeError(
+            "Docker is required for ephemeral sandbox but not available. "
+            "Install Docker and ensure the daemon is running."
+        )
 
 
 def _docker_available() -> bool:
@@ -93,62 +84,6 @@ def cleanup_sandbox_dir(sandbox_dir: Path) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 符号链接 / 路径重写
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _setup_symlinks(tmpdir_path: Path) -> bool:
-    """尝试在 /mf/ 下创建符号链接到临时目录的对应子目录。
-
-    如果权限不足（非 root 环境），返回 False，调用方需降级处理。
-    """
-    mapping = {
-        "/mf/input": tmpdir_path / "input",
-        "/mf/output": tmpdir_path / "output",
-        "/mf/workspace": tmpdir_path / "workspace",
-    }
-    try:
-        for link_path, target in mapping.items():
-            p = Path(link_path)
-            if p.is_symlink():
-                p.unlink()
-            elif p.exists():
-                return False  # 已有真实目录，不覆盖
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.symlink_to(target, target_is_directory=True)
-        return True
-    except (PermissionError, OSError):
-        return False
-
-
-def _cleanup_symlinks() -> None:
-    """清理沙箱创建的符号链接。"""
-    for link_path in ("/mf/input", "/mf/output", "/mf/workspace"):
-        p = Path(link_path)
-        try:
-            if p.is_symlink():
-                p.unlink()
-        except (PermissionError, OSError):
-            pass
-
-
-def _rewrite_script_paths(
-    script: str,
-    input_dir: Path,
-    output_dir: Path,
-    workspace_dir: Path,
-) -> str:
-    """将脚本中的 /mf/ 绝对路径替换为实际临时目录路径。"""
-    script = script.replace("/mf/input/", str(input_dir) + "/")
-    script = script.replace("/mf/output/", str(output_dir) + "/")
-    script = script.replace("/mf/workspace/", str(workspace_dir) + "/")
-    # 无尾斜杠的精确匹配
-    script = script.replace('"/mf/input"', f'"{input_dir}"')
-    script = script.replace('"/mf/output"', f'"{output_dir}"')
-    script = script.replace('"/mf/workspace"', f'"{workspace_dir}"')
-    return script
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # Docker 执行
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -190,9 +125,12 @@ def _execute_in_docker(
         cmd = [
             "docker", "run", "--rm",
             "-v", f"{sandbox_dir}:/sandbox",
-            "-e", "MF_INPUT_DIR=/sandbox/input",
-            "-e", "MF_OUTPUT_DIR=/sandbox/output",
-            "-e", "MF_WORKSPACE_DIR=/sandbox/workspace",
+            "-v", f"{input_dir}:/mf/input",
+            "-v", f"{output_dir}:/mf/output",
+            "-v", f"{workspace_dir}:/mf/workspace",
+            "-e", "MF_INPUT_DIR=/mf/input",
+            "-e", "MF_OUTPUT_DIR=/mf/output",
+            "-e", "MF_WORKSPACE_DIR=/mf/workspace",
         ]
         # 传递额外环境变量
         for k, v in (env_overrides or {}).items():
@@ -263,112 +201,6 @@ def _docker_pip_install(package: str) -> dict[str, Any]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Subprocess 执行（fallback）
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _execute_in_subprocess(
-    script: str,
-    input_data: dict[str, str] | None,
-    env_overrides: dict[str, str] | None,
-    timeout: int,
-    sandbox_dir: Path | None = None,
-) -> dict[str, Any]:
-    """在宿主机子进程中执行脚本（fallback）。"""
-    own_dir = sandbox_dir is None
-    if own_dir:
-        sandbox_dir = create_sandbox_dir()
-
-    try:
-        input_dir = sandbox_dir / "input"
-        output_dir = sandbox_dir / "output"
-        workspace_dir = sandbox_dir / "workspace"
-
-        # 写入输入数据
-        if input_data:
-            for port_name, content in input_data.items():
-                port_file = input_dir / port_name
-                port_file.write_text(content, encoding="utf-8")
-
-        # 路径处理：优先 symlink，否则重写脚本路径
-        symlinks_ok = _setup_symlinks(sandbox_dir)
-        if not symlinks_ok:
-            script = _rewrite_script_paths(script, input_dir, output_dir, workspace_dir)
-
-        # 写入脚本
-        script_path = sandbox_dir / "_script.py"
-        script_path.write_text(script, encoding="utf-8")
-
-        # 环境变量
-        env = os.environ.copy()
-        env["MF_INPUT_DIR"] = str(input_dir)
-        env["MF_OUTPUT_DIR"] = str(output_dir)
-        env["MF_WORKSPACE_DIR"] = str(workspace_dir)
-        if env_overrides:
-            env.update(env_overrides)
-
-        # 执行
-        timed_out = False
-        try:
-            result = subprocess.run(
-                [sys.executable, str(script_path)],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=str(sandbox_dir),
-                env=env,
-            )
-            stdout = result.stdout
-            stderr = result.stderr
-            return_code = result.returncode
-        except subprocess.TimeoutExpired as e:
-            stdout = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
-            stderr = (
-                e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
-            ) + "\n[TIMEOUT]"
-            return_code = -1
-            timed_out = True
-
-        # 清理符号链接
-        if symlinks_ok:
-            _cleanup_symlinks()
-
-        # 检测生成的文件
-        generated_files, image_files = _scan_output_files(output_dir, workspace_dir)
-
-        return {
-            "stdout": stdout,
-            "stderr": stderr,
-            "return_code": return_code,
-            "timed_out": timed_out,
-            "generated_files": generated_files,
-            "image_files": image_files,
-            "sandbox_dir": str(sandbox_dir),
-        }
-    finally:
-        if own_dir:
-            cleanup_sandbox_dir(sandbox_dir)
-
-
-def _subprocess_pip_install(package: str) -> dict[str, Any]:
-    """在宿主机执行 pip install（fallback）。"""
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--no-cache-dir", package],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        return {
-            "return_code": result.returncode,
-            "output": (result.stdout + result.stderr)[-500:],
-        }
-    except subprocess.TimeoutExpired:
-        return {"return_code": -1, "output": "pip install timed out"}
-    except Exception as e:
-        return {"return_code": -1, "output": str(e)}
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # 辅助
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -397,9 +229,7 @@ def execute_script_sandbox(
     timeout: int = 120,
     sandbox_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """在沙箱中执行 Python 脚本。
-
-    优先使用 Docker 容器（与 Pod 环境一致），不可用时 fallback 到 subprocess。
+    """在 Docker 沙箱中执行 Python 脚本。
 
     Parameters
     ----------
@@ -419,18 +249,14 @@ def execute_script_sandbox(
     dict:
         stdout, stderr, return_code, timed_out, generated_files, image_files, sandbox_dir
     """
-    mode = _resolve_sandbox_mode()
-    if mode == "docker":
-        return _execute_in_docker(script, input_data, env_overrides, timeout, sandbox_dir)
-    return _execute_in_subprocess(script, input_data, env_overrides, timeout, sandbox_dir)
+    _ensure_docker()
+    return _execute_in_docker(script, input_data, env_overrides, timeout, sandbox_dir)
 
 
 def _run_pip_install(package: str) -> dict[str, Any]:
-    """统一 pip install 入口。"""
-    mode = _resolve_sandbox_mode()
-    if mode == "docker":
-        return _docker_pip_install(package)
-    return _subprocess_pip_install(package)
+    """pip install（在 Docker 容器内执行）。"""
+    _ensure_docker()
+    return _docker_pip_install(package)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

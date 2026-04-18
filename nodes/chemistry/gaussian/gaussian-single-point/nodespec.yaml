@@ -1,0 +1,144 @@
+# ===========================================================================
+# gaussian-single-point — Gaussian 16 Single-Point Energy Calculation
+#
+# 使用 Gaussian 16 进行单点能量计算。
+# ===========================================================================
+
+metadata:
+  name: gaussian-single-point
+  version: 1.0.0
+  display_name: Gaussian 16 Single-Point Energy
+  description: >
+    Performs a single-point electronic energy calculation using Gaussian 16.
+    Supports DFT, HF, MP2, and CCSD methods. Produces a formatted checkpoint
+    file (.fchk) and energy.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: single-point-energy
+  base_image_ref: g16
+  tags:
+    software: gaussian
+    version: "16"
+    method:
+      - DFT
+      - HF
+      - MP2
+      - single-point
+    domain:
+      - molecular
+      - thermochemistry
+    capabilities:
+      - single-point-energy
+    keywords:
+      - gaussian
+      - single-point
+      - energy
+      - dft
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: >
+      Molecular geometry in standard XYZ format (Angstrom).
+
+stream_outputs:
+  - name: fchk_file
+    display_name: Formatted Checkpoint File
+    io_type:
+      category: software_data_package
+      ecosystem: gaussian
+      data_type: formatted-checkpoint
+    description: Gaussian formatted checkpoint file (.fchk) containing wavefunction data.
+
+  - name: total_energy
+    display_name: Total Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total electronic energy at the given geometry.
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: method
+    display_name: Method
+    kind: string
+    default: B3LYP
+    description: "Gaussian method keyword: B3LYP, PBE0, HF, MP2, etc."
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: "6-31G*"
+    description: "Basis set: 6-31G*, def2-SVP, cc-pVTZ, etc."
+
+  - name: population
+    display_name: Population Analysis
+    kind: enum
+    default: Full
+    allowed_values:
+      - Full
+      - None
+      - Minimal
+
+  - name: mem_gb
+    display_name: Memory (GB)
+    kind: float
+    default: 4.0
+    min_value: 1.0
+    max_value: 256.0
+    description: >
+      Gaussian 内存限制（%mem 指令）。应小于 K8s Pod 分配的 resources.memory_gb，
+      以留出 OS/Python/缓存的余量。
+
+onboard_outputs:
+  - name: scf_energy
+    display_name: SCF Energy (Ha)
+    kind: float
+    unit: Ha
+    description: Final SCF energy.
+
+  - name: scf_converged
+    display_name: SCF Converged
+    kind: boolean
+    description: Whether the SCF calculation converged.
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "SCF must converge for the energy to be meaningful."
+
+resources:
+  cpu_cores: 4
+  memory_gb: 8.0
+  estimated_walltime_hours: 0.5
+  scratch_disk_gb: 10.0
+  resource_bindings:
+    - cpu_cores
+
+execution:
+  environment:
+    GAUSS_SCRDIR: "/tmp"
+
+semantic_identity: >-
+  Single-point electronic energy calculation using Gaussian 16.
+  Produces formatted checkpoint file and total energy.
+
+distinguishing_ports:
+  - fchk_file
+  - total_energy
+
+rag_summary: ""

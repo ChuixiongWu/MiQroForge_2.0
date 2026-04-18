@@ -11,7 +11,7 @@
 前提：
   - kubectl / argo CLI 可用
   - miqroforge-v2 namespace 存在且 RBAC 就绪
-  - harbor.era.local/library/busybox:latest 可拉取
+  - harbor.era.local/miqroforge2.0/busybox:latest 可拉取
 
 运行：
   pytest tests/integration/test_h2o_thermo.py -v

@@ -1,0 +1,74 @@
+# ===========================================================================
+# multi-software-psi4-opt-orca-freq-mf.yaml — 跨软件热力学链
+#
+# MiQroForge 2.0 工作流定义：
+#   geom-input → psi4-geo-opt → orca-freq
+#
+# 跨软件热力学工作流：
+#   1. 使用 Psi4（开源、快速）对 H2O 进行几何优化
+#   2. 使用 ORCA（成熟的频率分析后处理）计算谐振频率和热化学量
+#
+# 场景：Psi4 无 license 限制适合大批量预优化，ORCA 的频率分析
+# 后处理更成熟（thermo_package 输出）。两者通过 optimized_xyz 无缝衔接。
+#
+# 前提：
+#   1. Psi4 镜像已构建并推送
+#   2. ORCA 镜像已构建并推送
+#
+# 运行：
+#   bash scripts/mf2.sh validate workflows/examples/multi-software-psi4-opt-orca-freq-mf.yaml
+#   bash scripts/mf2.sh compile  workflows/examples/multi-software-psi4-opt-orca-freq-mf.yaml
+#   bash scripts/mf2.sh run      workflows/examples/multi-software-psi4-opt-orca-freq-mf.yaml
+# ===========================================================================
+
+mf_version: "1.0"
+name: multi-software-psi4-opt-orca-freq
+description: >
+  Cross-software thermochemistry: Psi4 geometry optimization → ORCA frequency
+  analysis. Leverages Psi4's open-source license for optimization and ORCA's
+  mature thermochemistry post-processing.
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      inline_geometry: |
+        3
+        Water molecule
+        O   0.000000   0.000000   0.117300
+        H   0.000000   0.757200  -0.469200
+        H   0.000000  -0.757200  -0.469200
+
+  - id: psi4-opt
+    nodespec_path: nodes/chemistry/psi4/psi4-geo-opt/nodespec.yaml
+    onboard_params:
+      method: B3LYP
+      basis_set: cc-pVDZ
+      reference: rhf
+      scf_type: pk
+      max_iter: 100
+      geom_max_force: 3.0e-4
+      charge: 0
+      multiplicity: 1
+      n_cores: 4
+
+  - id: orca-freq
+    nodespec_path: nodes/chemistry/orca/orca-freq/nodespec.yaml
+    onboard_params:
+      method: B3LYP
+      basis_set: def2-SVP
+      dispersion: D3BJ
+      temperature: 298.15
+      pressure: 1.0
+      charge: 0
+      multiplicity: 1
+      n_cores: 4
+
+connections:
+  - from: geom-input.xyz_geometry
+    to: psi4-opt.xyz_geometry
+  - from: psi4-opt.optimized_xyz
+    to: orca-freq.xyz_geometry

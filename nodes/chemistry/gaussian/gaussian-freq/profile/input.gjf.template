@@ -1,0 +1,10 @@
+%chk=input.chk
+%mem=${mem_mb}MB
+%nprocshared=${n_cores}
+#p ${method}/${basis_set} Freq Pop=${population} Temperature=${temperature} Pressure=${pressure}
+
+Frequency analysis
+
+${charge} ${multiplicity}
+${geometry_lines}
+

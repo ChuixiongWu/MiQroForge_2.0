@@ -1,0 +1,32 @@
+import psi4
+
+psi4.set_memory('${mem_mb} MB')
+psi4.set_num_threads(${n_cores})
+
+mol = psi4.geometry("""
+${charge} ${multiplicity}
+${geometry_lines}
+symmetry c1
+""")
+
+psi4.set_options({
+    'basis': '${basis_set}',
+    'reference': '${reference}',
+    'scf_type': '${scf_type}',
+    'geom_maxiter': ${max_iter},
+    'g_convergence': '${g_convergence}',
+})
+
+energy, wfn = psi4.optimize('${method}/${basis_set}', molecule=mol, return_wfn=True)
+
+# 写出优化后的几何 — 转为标准 XYZ 格式
+# save_string_xyz() 输出的是 Psi4 geometry 格式 (charge multiplicity 头 + 坐标行)
+# 需要去掉第一行 (charge multiplicity)，转为标准 XYZ (natoms 头 + 注释 + 坐标)
+geom_lines = mol.save_string_xyz().strip().split('\n')
+coord_lines = geom_lines[1:]  # 跳过 "charge multiplicity" 头
+with open('${output_dir}/optimized_xyz', 'w') as f:
+    f.write(f"{mol.natom()}\n")
+    f.write(f"Optimized geometry from Psi4, E={energy} Ha\n")
+    f.write('\n'.join(coord_lines) + '\n')
+
+print(f"FINAL ENERGY: {energy}")

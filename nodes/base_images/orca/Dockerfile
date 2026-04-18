@@ -9,7 +9,7 @@
 #   3. 运行 nodes/base_images/orca/build.sh 构建镜像
 #
 # 构建命令（由 build_orca_image.sh 自动调用）：
-#   docker build -t harbor.era.local/library/orca:6.1 \
+#   docker build -t harbor.era.local/miqroforge2.0/orca:6.1 \
 #     --build-arg ORCA_TARBALL=orca_6_1_0_linux_x86-64_shared_openmpi418_avx2.tar.xz \
 #     nodes/base_images/orca/
 # =============================================================================
@@ -24,6 +24,9 @@ FROM ubuntu:22.04 AS builder
 
 ARG ORCA_TARBALL
 
+# 国内镜像源加速
+RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list \
+    && sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
 RUN apt-get update \
     && apt-get install -y --no-install-recommends xz-utils \
     && rm -rf /var/lib/apt/lists/*
@@ -40,6 +43,9 @@ FROM ubuntu:22.04
 
 # ── 运行时依赖（不含编译器/开发头文件）────────────────────────────────────
 ENV DEBIAN_FRONTEND=noninteractive
+# 国内镜像源加速
+RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list \
+    && sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # OpenMPI 运行时（shared_openmpi 版 ORCA 需要）
     libopenmpi3 \
@@ -60,6 +66,11 @@ COPY --from=builder /opt/orca /opt/orca
 # ── 环境变量 ──────────────────────────────────────────────────────────────────
 ENV PATH="/opt/orca:${PATH}"
 ENV LD_LIBRARY_PATH="/opt/orca"
+# OpenMPI 允许 root 运行（K8s 环境必需）
+ENV OMPI_ALLOW_RUN_AS_ROOT=1
+ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+# 默认单线程（可通过 onboard_params.n_cores 覆盖，写入 ORCA 输入文件）
+ENV OMP_NUM_THREADS=1
 
 # ── Python 后处理依赖 ──────────────────────────────────────────────────────
 RUN pip3 install --no-cache-dir numpy

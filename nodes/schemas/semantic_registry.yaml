@@ -16,3 +16,7 @@ types:
     display_name: Single-Point Energy
     description: "Electronic energy calculation at a fixed geometry."
     domain: computational-chemistry
+  cell-optimization:
+    display_name: Cell Optimization
+    description: "Simultaneous optimization of atomic positions and unit cell parameters (volume, shape)."
+    domain: computational-chemistry

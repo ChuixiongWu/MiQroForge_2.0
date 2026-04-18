@@ -1,0 +1,52 @@
+# ===========================================================================
+# Psi4 H2O 热力学工作流
+#
+# 几何优化 → 振动频率分析（H2O 分子）
+# 使用 Psi4 开源量子化学软件
+# ===========================================================================
+mf_version: "1.0"
+name: psi4-h2o-thermo
+description: >
+  Water molecule thermochemistry using Psi4: geometry optimization followed
+  by vibrational frequency analysis to confirm a true minimum.
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      inline_geometry: |
+        3
+        Water molecule (initial guess)
+        O   0.000000   0.000000   0.117300
+        H   0.000000   0.757200  -0.469200
+        H   0.000000  -0.757200  -0.469200
+
+  - id: geo-opt
+    nodespec_path: nodes/chemistry/psi4/psi4-geo-opt/nodespec.yaml
+    onboard_params:
+      method: B3LYP
+      basis_set: cc-pVDZ
+      charge: 0
+      multiplicity: 1
+      n_cores: 4
+
+  - id: freq
+    nodespec_path: nodes/chemistry/psi4/psi4-freq/nodespec.yaml
+    onboard_params:
+      method: B3LYP
+      basis_set: cc-pVDZ
+      charge: 0
+      multiplicity: 1
+      temperature: 298.15
+      pressure: 1.0
+      n_cores: 4
+
+connections:
+  - from: geom-input.xyz_geometry
+    to: geo-opt.xyz_geometry
+
+  - from: geo-opt.optimized_xyz
+    to: freq.xyz_geometry

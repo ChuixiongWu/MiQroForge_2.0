@@ -1,0 +1,69 @@
+# ===========================================================================
+# gaussian-h2o-thermo-mf.yaml — H2O Thermochemistry Workflow (Gaussian 16)
+#
+# MiQroForge 2.0 工作流定义：
+#   geom-input → geo-opt → freq
+#
+# 使用 Gaussian 16 计算 H2O 分子的热力学性质：
+#   - geometry-file-input 提供初始几何（inline_geometry）
+#   - B3LYP/6-31G* 几何优化
+#   - 谐振频率分析（298.15 K, 1 atm）
+#
+# 前提：
+#   1. Gaussian 16 镜像已构建：bash nodes/base_images/gaussian/build.sh
+#   2. 镜像已推送到 harbor.era.local/miqroforge2.0/gaussian:16
+#
+# Quality Gate 说明：
+#   - geo-opt.opt_converged (must_pass)：几何优化必须收敛，否则 freq 不运行
+#   - freq.is_true_minimum (must_pass)：必须是真正的极小值
+#
+# 运行：
+#   bash scripts/mf2.sh validate workflows/examples/gaussian-h2o-thermo-mf.yaml
+#   bash scripts/mf2.sh compile  workflows/examples/gaussian-h2o-thermo-mf.yaml
+#   bash scripts/mf2.sh run      workflows/examples/gaussian-h2o-thermo-mf.yaml
+# ===========================================================================
+
+mf_version: "1.0"
+name: gaussian-h2o-thermo
+description: >
+  H2O thermochemistry using Gaussian 16: geometry optimization → frequency
+  analysis. Uses atomic method/basis_set parameters (ORCA-style).
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      inline_geometry: |
+        O   0.000000   0.000000   0.117176
+        H   0.000000   0.756950  -0.468705
+        H   0.000000  -0.756950  -0.468705
+
+  - id: geo-opt
+    nodespec_path: nodes/chemistry/gaussian/gaussian-geo-opt/nodespec.yaml
+    onboard_params:
+      method: B3LYP
+      basis_set: "6-31G*"
+      charge: 0
+      multiplicity: 1
+      mem_gb: 4.0
+      max_iter: 200
+
+  - id: freq
+    nodespec_path: nodes/chemistry/gaussian/gaussian-freq/nodespec.yaml
+    onboard_params:
+      method: B3LYP
+      basis_set: "6-31G*"
+      charge: 0
+      multiplicity: 1
+      mem_gb: 4.0
+      temperature: 298.15
+      pressure: 1.0
+
+connections:
+  - from: geom-input.xyz_geometry
+    to: geo-opt.xyz_geometry
+  - from: geo-opt.optimized_xyz
+    to: freq.xyz_geometry

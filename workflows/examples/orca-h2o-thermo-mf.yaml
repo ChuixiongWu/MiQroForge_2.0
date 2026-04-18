@@ -12,7 +12,7 @@
 #
 # 前提：
 #   1. ORCA 6.1 镜像已构建：bash nodes/base_images/orca/build.sh
-#   2. 镜像已推送到 harbor.era.local/library/orca:6.1
+#   2. 镜像已推送到 harbor.era.local/miqroforge2.0/orca:6.1
 #
 # Quality Gate 说明：
 #   - geo-opt.opt_converged (must_pass)：几何优化必须收敛，否则 freq 不运行

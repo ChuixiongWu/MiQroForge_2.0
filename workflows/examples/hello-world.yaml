@@ -16,7 +16,7 @@ spec:
   arguments:
     parameters:
       - name: image-registry
-        value: "harbor.era.local/library"   # 本集群默认值，按需修改
+        value: "harbor.era.local/miqroforge2.0"   # 本集群默认值，按需修改
 
   templates:
     - name: hello

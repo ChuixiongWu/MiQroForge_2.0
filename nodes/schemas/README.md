@@ -359,7 +359,7 @@ kubectl get pvc mf-workspace -n miqroforge-v2  # 应显示 Bound
    ```
    nodes/<domain>/<node-name>/
    ├── nodespec.yaml      # NodeSpec 的 YAML 序列化（唯一事实来源）
-   └── profile/           # 计算节点：run.sh + 输入模板（.j2）；轻量节点：script.py
+   └── profile/           # 计算节点：run.sh + 输入模板（.template）；轻量节点：script.py
    ```
 
 3. **编写 `nodespec.yaml`**，以 `nodes/NODESPEC_TEMPLATE.yaml` 为模板（含所有字段的注释说明）：
@@ -386,14 +386,12 @@ kubectl get pvc mf-workspace -n miqroforge-v2  # 应显示 Bound
 ## MPI / OpenMPI 节点强制要求
 
 Kubernetes pod 默认以 root 用户运行，OpenMPI 默认拒绝 root 启动。
-所有通过 OpenMPI 并行的节点（ORCA、GROMACS、OpenMolcas 等），
-**必须**在 `nodespec.yaml` 的 `execution.environment` 中声明：
+所有通过 OpenMPI 并行的节点（ORCA、CP2K 等），OMPI 环境变量应在**基础镜像 Dockerfile** 中通过 `ENV` 声明：
 
-```yaml
-execution:
-  environment:
-    OMPI_ALLOW_RUN_AS_ROOT: "1"
-    OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+```dockerfile
+ENV OMPI_ALLOW_RUN_AS_ROOT=1
+ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 ```
 
-两个变量缺一不可。参考实现：`nodes/chemistry/orca/orca-geo-opt/nodespec.yaml`。
+这样 `nodespec.yaml` 中使用 `execution: {}` 即可，无需重复声明。
+参考实现：`nodes/base_images/orca/Dockerfile`。

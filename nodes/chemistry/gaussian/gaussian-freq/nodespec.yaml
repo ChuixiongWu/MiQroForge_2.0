@@ -1,0 +1,173 @@
+# ===========================================================================
+# gaussian-freq — Gaussian 16 Frequency Analysis
+#
+# 使用 Gaussian 16 进行振动频率分析和热化学量计算。
+# ===========================================================================
+
+metadata:
+  name: gaussian-freq
+  version: 1.0.0
+  display_name: Gaussian 16 Frequency Analysis
+  description: >
+    Performs harmonic vibrational frequency analysis using Gaussian 16.
+    Computes ZPE, enthalpy, Gibbs free energy, and checks for imaginary
+    frequencies.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: frequency-analysis
+  base_image_ref: g16
+  tags:
+    software: gaussian
+    version: "16"
+    method:
+      - DFT
+      - HF
+      - frequency
+    domain:
+      - molecular
+      - thermochemistry
+    capabilities:
+      - frequency-analysis
+      - thermochemistry
+    keywords:
+      - gaussian
+      - frequency
+      - vibration
+      - thermochemistry
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: >
+      Molecular geometry in standard XYZ format (Angstrom).
+      Should be a stationary point (optimized geometry).
+
+stream_outputs:
+  - name: zpe
+    display_name: Zero-Point Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Zero-point vibrational energy.
+
+  - name: gibbs_free_energy
+    display_name: Gibbs Free Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Gibbs free energy at the specified temperature.
+
+  - name: enthalpy
+    display_name: Enthalpy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Enthalpy (electronic + ZPE + thermal).
+
+  - name: thermo_report
+    display_name: Thermochemistry Report
+    io_type:
+      category: report_object
+      format: json
+    description: Complete thermochemistry results in JSON format.
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: method
+    display_name: Method
+    kind: string
+    default: B3LYP
+    description: "Gaussian method keyword: B3LYP, PBE0, HF, MP2, etc."
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: "6-31G*"
+    description: "Basis set: 6-31G*, def2-SVP, cc-pVTZ, etc."
+
+  - name: population
+    display_name: Population Analysis
+    kind: enum
+    default: Full
+    allowed_values:
+      - Full
+      - None
+      - Minimal
+
+  - name: mem_gb
+    display_name: Memory (GB)
+    kind: float
+    default: 4.0
+    min_value: 1.0
+    max_value: 256.0
+    description: >
+      Gaussian 内存限制（%mem 指令）。应小于 K8s Pod 分配的 resources.memory_gb，
+      以留出 OS/Python/缓存的余量。
+
+  - name: temperature
+    display_name: Temperature (K)
+    kind: float
+    default: 298.15
+    min_value: 0.0
+    max_value: 5000.0
+    unit: K
+
+  - name: pressure
+    display_name: Pressure (atm)
+    kind: float
+    default: 1.0
+    min_value: 0.0
+    max_value: 1000.0
+    unit: atm
+
+onboard_outputs:
+  - name: n_imaginary
+    display_name: Number of Imaginary Frequencies
+    kind: integer
+    description: Count of imaginary frequencies.
+
+  - name: is_true_minimum
+    display_name: Is True Minimum
+    kind: boolean
+    description: True if no imaginary frequencies found.
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "Structure must be a true minimum (no imaginary frequencies)."
+
+resources:
+  cpu_cores: 4
+  memory_gb: 8.0
+  estimated_walltime_hours: 2.0
+  scratch_disk_gb: 10.0
+  resource_bindings:
+    - cpu_cores
+
+execution:
+  environment:
+    GAUSS_SCRDIR: "/tmp"
+
+semantic_identity: >-
+  Harmonic vibrational frequency analysis using Gaussian 16.
+  Produces ZPE, enthalpy, Gibbs free energy, and frequency data.
+
+distinguishing_ports:
+  - gibbs_free_energy
+  - thermo_report
+
+rag_summary: ""

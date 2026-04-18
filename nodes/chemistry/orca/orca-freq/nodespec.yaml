@@ -97,7 +97,6 @@ stream_outputs:
         {"gibbs_ha": float, "enthalpy_ha": float, "zpe_ha": float,
          "entropy_ha_per_k": float, "n_imaginary": int, "is_true_minimum": bool,
          "frequencies_cm1": [float], "temperature_k": float}
-      description: Complete thermochemistry summary in JSON.
     description: Machine-readable summary of all thermochemical results.
 
 onboard_inputs:
@@ -190,11 +189,7 @@ resources:
     - cpu_cores
     - parallel_tasks
 
-execution:
-  environment:
-    OMP_NUM_THREADS: "1"
-    OMPI_ALLOW_RUN_AS_ROOT: "1"
-    OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+execution: {}
 
 semantic_identity: >-
   Harmonic frequency analysis and thermochemistry using ORCA.

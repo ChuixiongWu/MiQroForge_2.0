@@ -140,11 +140,7 @@ resources:
     - cpu_cores
     - parallel_tasks
 
-execution:
-  environment:
-    OMP_NUM_THREADS: "1"
-    OMPI_ALLOW_RUN_AS_ROOT: "1"
-    OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+execution: {}
 
 semantic_identity: >-
   Single-point electronic energy calculation using ORCA quantum chemistry software.

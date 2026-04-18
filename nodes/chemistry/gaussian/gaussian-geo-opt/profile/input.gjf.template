@@ -1,0 +1,10 @@
+%chk=input.chk
+%mem=${mem_mb}MB
+%nprocshared=${n_cores}
+#p ${method}/${basis_set} Opt=${opt_params} Pop=${population}
+
+Geometry optimization
+
+${charge} ${multiplicity}
+${geometry_lines}
+

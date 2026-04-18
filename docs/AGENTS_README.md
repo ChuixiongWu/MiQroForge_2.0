@@ -304,7 +304,7 @@ Tools are defined but **not used** in Phase 2:
 
 LLM provider configuration. Create from `models.yaml.example`.
 
-### 2. `nodes/semantic_registry.yaml` (required)
+### 2. `nodes/schemas/semantic_registry.yaml` (required)
 
 Lists all semantic computation types:
 ```yaml

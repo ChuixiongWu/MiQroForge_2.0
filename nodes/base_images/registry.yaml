@@ -9,7 +9,7 @@ images:
   - name: test-busybox
     display_name: "Test BusyBox"
     description: "Minimal busybox image for testing compute node pipelines. Not for production."
-    image: harbor.era.local/library/busybox
+    image: harbor.era.local/miqroforge2.0/busybox
     tag: latest
     source_type: harbor
     software_name: busybox
@@ -25,7 +25,7 @@ images:
       Pre-built Python 3.11 image for ephemeral (Agent-generated) nodes.
       Includes numpy, scipy, pandas, matplotlib, pyyaml, jinja2, requests.
       Build: bash nodes/base_images/ephemeral-py/build.sh
-    image: harbor.era.local/library/mf-ephemeral-py
+    image: harbor.era.local/miqroforge2.0/ephemeral-py
     tag: "3.11"
     source_type: user-built
     software_name: python
@@ -45,7 +45,7 @@ images:
       ORCA 6.1 quantum chemistry program suite with OpenMPI support.
       BYOB (Bring Your Own Binary) — user must build locally via nodes/base_images/orca/build.sh.
       ORCA is free for academic use but requires registration at orcaforum.kofo.mpg.de.
-    image: harbor.era.local/library/orca
+    image: harbor.era.local/miqroforge2.0/orca
     tag: "6.1"
     source_type: user-built
     software_name: orca
@@ -56,3 +56,75 @@ images:
     workdir: /mf/workdir
     entrypoint_convention: /mf/profile/run.sh
     license_type: academic-free
+
+  - name: psi4-1.10
+    display_name: "Psi4 1.10"
+    description: >
+      Psi4 1.10 open-source quantum chemistry program.
+      Based on official psi4/psi4 Docker image. No MPI — uses threading for parallelism.
+      Build: bash nodes/base_images/psi4/build.sh
+    image: harbor.era.local/miqroforge2.0/psi4
+    tag: "1.10"
+    source_type: user-built
+    software_name: psi4
+    software_version: "1.10"
+    additional_software:
+      python: "3.11"
+      numpy: "*"
+      scipy: "*"
+    workdir: /mf/workdir
+    entrypoint_convention: /mf/profile/run.sh
+    license_type: LGPL-3.0
+
+  - name: g16
+    display_name: "Gaussian 16"
+    description: >
+      Gaussian 16 quantum chemistry suite.
+      BYOB (Bring Your Own Binary) — user must build locally via nodes/base_images/gaussian/build.sh.
+      Requires Gaussian license. No MPI — parallelizes internally via %nprocshared.
+    image: harbor.era.local/miqroforge2.0/gaussian
+    tag: "16"
+    source_type: user-built
+    software_name: gaussian
+    software_version: "16"
+    additional_software:
+      python: "3.10"
+    workdir: /mf/workdir
+    entrypoint_convention: /mf/profile/run.sh
+    license_type: proprietary
+
+  - name: cp2k-2025.2
+    display_name: "CP2K 2025.2"
+    description: >
+      CP2K 2025.2 quantum chemistry suite for periodic DFT (GPW/GAPW methods).
+      Open-source. Based on official cp2k/cp2k Docker image with OpenMPI support.
+      Build: bash nodes/base_images/cp2k/build.sh
+    image: harbor.era.local/miqroforge2.0/cp2k
+    tag: "2025.2"
+    source_type: user-built
+    software_name: cp2k
+    software_version: "2025.2"
+    additional_software:
+      openmpi: "4.1.6"
+      python: "3.10"
+    workdir: /mf/workdir
+    entrypoint_convention: /mf/profile/run.sh
+    license_type: GPL-2.0
+
+  - name: cirq-1
+    display_name: "Cirq + qsim"
+    description: >
+      Google Cirq quantum computing framework with qsim high-performance
+      simulator. Supports circuit construction, simulation, and noise
+      modeling. Build: bash nodes/base_images/cirq/build.sh
+    image: harbor.era.local/miqroforge2.0/cirq
+    tag: "1"
+    source_type: user-built
+    software_name: cirq
+    software_version: "1.x"
+    additional_software:
+      qsimcirq: "*"
+      python: "3.11"
+    workdir: /mf/workdir
+    entrypoint_convention: /mf/profile/run.sh
+    license_type: Apache-2.0

@@ -104,3 +104,29 @@ mf_write_xyz() {
 # 直接在 source mf2_init.sh 的同时完成参数加载，run.sh 无需手写任何 mf_param 调用。
 # shellcheck source=/dev/null
 [[ -f "${PROFILE_DIR}/mf_node_params.sh" ]] && source "${PROFILE_DIR}/mf_node_params.sh"
+
+# ── 崩溃诊断钩子 ──────────────────────────────────────────────────────────────
+# 所有计算节点普遍把外部二进制（orca / g16 / psi4 / cp2k.psmp ...）的
+# stderr 重定向进 output.log / output.out 这类文件；配合 set -euo pipefail，
+# 一旦二进制非零退出，脚本立即被杀，最关键的诊断信息留在那个文件里没人打印。
+#
+# 本 trap 在脚本任意一处非零退出时自动 dump 最可能存放诊断信息的日志文件末尾
+# 到 stderr，exit code 透传，保证节点层再也不会"静默 exit 1"。
+_mf_dump_on_err() {
+    local ec=$?
+    local ln="${1:-?}"
+    [[ $ec -eq 0 ]] && return 0
+    echo "" >&2
+    echo "[mf2][ERR] script exited with code ${ec} at line ${ln}" >&2
+    local f
+    for f in "${WORKDIR}/output.log" "${WORKDIR}/output.out" \
+             "${WORKDIR}/input.log" "${WORKDIR}/cp2k.log"; do
+        if [[ -f "$f" && -s "$f" ]]; then
+            echo "[mf2][ERR] ---- tail -n 200 $f ----" >&2
+            tail -n 200 "$f" >&2 || true
+            echo "[mf2][ERR] ---- end $f ----" >&2
+        fi
+    done
+    return $ec
+}
+trap '_mf_dump_on_err $LINENO' ERR

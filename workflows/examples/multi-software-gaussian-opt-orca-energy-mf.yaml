@@ -1,0 +1,74 @@
+# ===========================================================================
+# multi-software-gaussian-opt-orca-energy-mf.yaml — 跨软件管道
+#
+# MiQroForge 2.0 工作流定义：
+#   geom-input → gaussian-geo-opt → orca-sp
+#
+# 跨软件工作流示例：
+#   1. 使用 Gaussian 16 对 H2O 进行几何优化（B3LYP/6-31G*）
+#   2. 将优化后的几何传递给 ORCA 进行高精度单点能量计算（PBE0/def2-TZVP）
+#
+# 这展示了 MF 的核心理念：不同软件各取所长，通过 Stream I/O 无缝衔接。
+# Gaussian 擅长分子优化，ORCA 擅长灵活的方法组合。
+#
+# 注意：
+#   - gaussian-geo-opt 输出 optimized_xyz（PhysicalQuantity, Ang, array）
+#   - orca-single-point 输入 xyz_geometry（同类型）
+#   - 端口类型完全兼容，编译器可直接连接
+#
+# 前提：
+#   1. Gaussian 16 镜像已构建并推送
+#   2. ORCA 镜像已构建并推送
+#
+# 运行：
+#   bash scripts/mf2.sh validate workflows/examples/multi-software-gaussian-opt-orca-energy-mf.yaml
+#   bash scripts/mf2.sh compile  workflows/examples/multi-software-gaussian-opt-orca-energy-mf.yaml
+#   bash scripts/mf2.sh run      workflows/examples/multi-software-gaussian-opt-orca-energy-mf.yaml
+# ===========================================================================
+
+mf_version: "1.0"
+name: multi-software-g16-opt-orca-sp
+description: >
+  Cross-software pipeline: Gaussian 16 geometry optimization → ORCA high-level
+  single-point energy. Optimized structure from Gaussian, refined energy from ORCA.
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      inline_geometry: |
+        3
+        Water molecule
+        O   0.000000   0.000000   0.117176
+        H   0.000000   0.756950  -0.468705
+        H   0.000000  -0.756950  -0.468705
+
+  - id: gaussian-opt
+    nodespec_path: nodes/chemistry/gaussian/gaussian-geo-opt/nodespec.yaml
+    onboard_params:
+      method: B3LYP
+      basis_set: "6-31G*"
+      charge: 0
+      multiplicity: 1
+      mem_gb: 4.0
+      max_iter: 200
+
+  - id: orca-sp
+    nodespec_path: nodes/chemistry/orca/orca-single-point/nodespec.yaml
+    onboard_params:
+      # 用更高级的方法和基组计算精确单点能量
+      method: PBE0
+      basis_set: def2-TZVP
+      dispersion: D4
+      charge: 0
+      multiplicity: 1
+      n_cores: 4
+
+connections:
+  - from: geom-input.xyz_geometry
+    to: gaussian-opt.xyz_geometry
+  - from: gaussian-opt.optimized_xyz
+    to: orca-sp.xyz_geometry

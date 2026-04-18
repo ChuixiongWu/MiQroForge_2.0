@@ -26,7 +26,7 @@ spec:
   arguments:
     parameters:
       - name: image-registry
-        value: "harbor.era.local/library"
+        value: "harbor.era.local/miqroforge2.0"
       # ── On-Board 参数（模拟用户在节点面板填写的值）──
       - name: functional
         value: "B3LYP"

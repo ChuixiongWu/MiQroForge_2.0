@@ -47,6 +47,7 @@ nodes/base_images/**/*.tar.xz
 nodes/base_images/**/*.tar.gz
 nodes/base_images/**/*.tar.bz2
 nodes/base_images/**/*.zip
+nodes/base_images/**/*.tbJ
 
 # ── 生成产物（运行时生成，不入库）──────────────────────────────────────────
 # 节点索引（bash scripts/mf2.sh nodes reindex 重建）

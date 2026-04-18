@@ -1,0 +1,36 @@
+import psi4
+
+psi4.set_memory('${mem_mb} MB')
+psi4.set_num_threads(${n_cores})
+
+mol = psi4.geometry("""
+${charge} ${multiplicity}
+${geometry_lines}
+symmetry c1
+""")
+
+psi4.set_options({
+    'basis': '${basis_set}',
+    'reference': '${reference}',
+    'scf_type': '${scf_type}',
+    'T': ${temperature},
+    'P': ${pressure},
+})
+
+energy, wfn = psi4.frequency('${method}/${basis_set}', molecule=mol, return_wfn=True)
+
+# 从 Psi4 PSI Variables 获取热化学数据 (单位: Eh)
+# 需要 frequency() 之后再获取（thermo analysis 在 frequency 内部完成）
+zpe = psi4.core.scalar_variable("ZPVE")
+enthalpy = psi4.core.scalar_variable("ENTHALPY")
+gibbs = psi4.core.scalar_variable("GIBBS FREE ENERGY")
+
+freqs = wfn.frequencies().to_array()
+n_imag = sum(1 for f in freqs if f < 0)
+
+print(f"FINAL ENERGY: {energy}")
+print(f"N_IMAGINARY: {n_imag}")
+print(f"ZPE: {zpe}")
+print(f"ENTHALPY: {enthalpy}")
+print(f"GIBBS: {gibbs}")
+print(f"FREQS: {list(freqs)}")

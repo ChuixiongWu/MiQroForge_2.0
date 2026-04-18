@@ -1,0 +1,247 @@
+# ===========================================================================
+# cp2k-cell-opt — CP2K Cell Optimization (Atoms + Cell Vectors)
+#
+# 使用 CP2K 同时优化原子位置和晶胞参数（ORCA/Psi4 都没有的能力）。
+# ===========================================================================
+
+metadata:
+  name: cp2k-cell-opt
+  version: 1.0.0
+  display_name: CP2K Cell Optimization
+  description: >
+    Simultaneous optimization of atomic positions and unit cell parameters
+    using CP2K. Supports fully flexible, isotropic, and shape-only cell
+    optimization. Critical for predicting equilibrium lattice constants,
+    relaxed surface slabs, and 2D material structures.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: cell-optimization
+  base_image_ref: cp2k-2025.2
+  tags:
+    software: cp2k
+    version: "2025.2"
+    method:
+      - DFT
+      - GPW
+      - periodic
+      - cell-optimization
+    domain:
+      - periodic
+      - solid-state
+      - surface
+    capabilities:
+      - cell-optimization
+      - periodic-dft
+    keywords:
+      - cp2k
+      - cell-optimization
+      - lattice
+      - bulk
+      - slab
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: >
+      Atomic positions in XYZ format (Angstrom).
+
+stream_outputs:
+  - name: optimized_xyz
+    display_name: Optimized Geometry
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    description: Optimized atomic positions in XYZ format.
+
+  - name: total_energy
+    display_name: Final Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total energy at the optimized geometry and cell.
+
+  - name: optimized_cell
+    display_name: Optimized Cell Parameters
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    description: >
+      Final cell vectors (a b c alpha beta gamma) after optimization.
+
+  - name: cell_volume
+    display_name: Cell Volume
+    io_type:
+      category: report_object
+      format: json
+      description: JSON with volume (Ang^3) and cell parameters.
+    description: Cell volume and parameters in JSON format.
+
+onboard_inputs:
+  - name: charge
+    display_name: System Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: cell_abc
+    display_name: Initial Cell Parameters (a b c alpha beta gamma)
+    kind: string
+    default: "5.43 5.43 5.43 90 90 90"
+    description: "Initial unit cell: a b c (Ang) alpha beta gamma (deg)."
+
+  - name: xc_functional
+    display_name: Exchange-Correlation Functional
+    kind: enum
+    default: PBE
+    allowed_values:
+      - PBE
+      - PBE0
+      - B3LYP
+      - LDA
+      - BLYP
+      - TPSS
+      - SCAN
+      - HSE06
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: DZVP-MOLOPT-SR-GTH
+
+  - name: cutoff
+    display_name: Plane-Wave Cutoff (Ry)
+    kind: integer
+    default: 400
+    min_value: 100
+    max_value: 2000
+    unit: Ry
+
+  - name: rel_cutoff
+    display_name: Relative Cutoff (Ry)
+    kind: integer
+    default: 50
+    min_value: 20
+    max_value: 200
+
+  - name: max_scf
+    display_name: Max SCF Cycles
+    kind: integer
+    default: 50
+    min_value: 5
+    max_value: 500
+
+  - name: eps_scf
+    display_name: SCF Convergence
+    kind: float
+    default: 1.0e-6
+
+  - name: smearing
+    display_name: Electronic Smearing
+    kind: enum
+    default: "fermi_dirac"
+    allowed_values:
+      - "none"
+      - "fermi_dirac"
+
+  - name: electronic_temperature
+    display_name: Electronic Temperature (K)
+    kind: integer
+    default: 300
+    min_value: 0
+    max_value: 10000
+
+  - name: opt_algorithm
+    display_name: Optimization Algorithm
+    kind: enum
+    default: BFGS
+    allowed_values:
+      - BFGS
+      - CG
+      - LBFGS
+
+  - name: max_opt_iter
+    display_name: Max Optimization Steps
+    kind: integer
+    default: 200
+    min_value: 10
+    max_value: 2000
+
+  - name: opt_max_force
+    display_name: Force Convergence (Ha/bohr)
+    kind: float
+    default: 4.5e-4
+
+  - name: cell_opt_type
+    display_name: Cell Optimization Type
+    kind: enum
+    default: DIRECT_CELL_OPT
+    allowed_values:
+      - DIRECT_CELL_OPT
+      - GEO_OPT
+      - MD
+    description: >
+      FULLY_OPTIMIZED_CELL: all 6 cell parameters free.
+      ISOTROPIC: uniform scaling (cubic constraint).
+      SHAPE: fixed volume, optimize shape.
+      NONE: fixed cell (= GEO_OPT).
+
+  - name: external_pressure
+    display_name: External Pressure (GPa)
+    kind: float
+    default: 0.0
+    min_value: 0.0
+    max_value: 500.0
+    unit: GPa
+    description: "Applied external pressure. 0 = zero-pressure equilibrium."
+
+onboard_outputs:
+  - name: final_energy
+    display_name: Final Energy (Ha)
+    kind: float
+    unit: Ha
+
+  - name: opt_cycles
+    display_name: Optimization Cycles
+    kind: integer
+
+  - name: opt_converged
+    display_name: Optimization Converged
+    kind: boolean
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "Cell optimization must converge."
+
+resources:
+  cpu_cores: 4
+  memory_gb: 16.0
+  estimated_walltime_hours: 3.0
+  scratch_disk_gb: 20.0
+  parallel_tasks: 4
+  resource_bindings:
+    - cpu_cores
+    - parallel_tasks
+
+execution: {}
+
+semantic_identity: >-
+  Simultaneous optimization of atomic positions and unit cell using CP2K.
+  Unique capability for solid-state materials (lattice constants, slab relaxation).
+
+distinguishing_ports:
+  - optimized_cell
+  - total_energy
+
+rag_summary: ""

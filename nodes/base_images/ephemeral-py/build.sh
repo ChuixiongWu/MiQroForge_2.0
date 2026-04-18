@@ -1,27 +1,31 @@
 #!/usr/bin/env bash
 # =============================================================================
-# build.sh — 构建并推送临时节点基础镜像 ephemeral-py
+# build.sh — 构建临时节点基础镜像 ephemeral-py
 #
 # 用法：
 #   bash nodes/base_images/ephemeral-py/build.sh
 #
-# 默认推送到 harbor.era.local，可通过 IMAGE_REGISTRY 环境变量覆盖。
-# 设置 PUSH=0 只构建不推送。
+# 环境变量：
+#   IMAGE_REGISTRY  自定义 registry 前缀（默认 harbor.era.local）
+#   REGISTRY_PROJECT  自定义项目名（默认 miqroforge2.0）
+#
+# 前置条件：
+#   docker login harbor.era.local
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-IMAGE_NAME="${IMAGE_REGISTRY:-harbor.era.local}/library/mf-ephemeral-py"
-IMAGE_TAG="3.11"
-FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
-PUSH="${PUSH:-1}"
+LOCAL_NAME="ephemeral-py"
+LOCAL_TAG="3.11"
+REGISTRY_PREFIX="${IMAGE_REGISTRY:-harbor.era.local}/${REGISTRY_PROJECT:-miqroforge2.0}"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'
-BOLD='\033[1m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
 
 _info() { echo -e "  ${BLUE}ℹ  $*${NC}"; }
 _ok()   { echo -e "  ${GREEN}✔  $*${NC}"; }
+_warn() { echo -e "  ${YELLOW}⚠  $*${NC}"; }
 
 # 自动检测 sudo
 DOCKER="docker"
@@ -34,32 +38,33 @@ echo
 echo -e "${BLUE}${BOLD}══ Build ephemeral-py Docker Image ══${NC}"
 echo
 
-_info "构建镜像：${FULL_IMAGE}"
+# ── 1. 构建镜像 ───────────────────────────────────────────────────────────────
+_info "构建本地镜像：${LOCAL_NAME}:${LOCAL_TAG}"
 echo
 
 $DOCKER build \
-    --tag "${FULL_IMAGE}" \
+    --tag "${LOCAL_NAME}:${LOCAL_TAG}" \
     --no-cache \
     "${SCRIPT_DIR}"
 
 echo
-_ok "构建完成：${FULL_IMAGE}"
+_ok "构建完成：${LOCAL_NAME}:${LOCAL_TAG}"
 
-$DOCKER tag "${FULL_IMAGE}" "${IMAGE_NAME}:latest"
-_ok "已添加 latest 标签"
-
+# ── 2. 验证 ──────────────────────────────────────────────────────────────────
 _info "验证 Python + numpy + matplotlib..."
-$DOCKER run --rm "${FULL_IMAGE}" python -c \
+$DOCKER run --rm "${LOCAL_NAME}:${LOCAL_TAG}" python -c \
     "import numpy; import matplotlib; import scipy; import pandas; print('All OK')"
 
-if [[ "$PUSH" == "1" ]]; then
-    echo
-    _info "推送到 ${IMAGE_NAME}..."
-    $DOCKER push "${FULL_IMAGE}"
-    $DOCKER push "${IMAGE_NAME}:latest"
-    _ok "推送完成"
-fi
+# ── 3. 推送到 Harbor ─────────────────────────────────────────────────────────
+REMOTE_IMAGE="${REGISTRY_PREFIX}/${LOCAL_NAME}:${LOCAL_TAG}"
+
+_info "推送到 ${REMOTE_IMAGE}..."
+$DOCKER tag "${LOCAL_NAME}:${LOCAL_TAG}" "${REMOTE_IMAGE}"
+$DOCKER push "${REMOTE_IMAGE}"
+_ok "推送完成"
 
 echo
-_ok "完成！临时节点将自动使用此镜像。"
+_ok "完成！"
+echo "  本地镜像：${LOCAL_NAME}:${LOCAL_TAG}"
+echo "  Harbor 镜像：${REMOTE_IMAGE}"
 echo

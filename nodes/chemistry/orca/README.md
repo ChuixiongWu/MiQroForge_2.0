@@ -31,17 +31,14 @@ mpirun was configured to not allow running as root.
 
 ### 解决方案
 
-所有使用 OpenMPI 的节点，**必须**在 `nodespec.yaml` 的 `execution.environment` 中声明：
+OMPI 环境变量在**基础镜像 Dockerfile** 中通过 `ENV` 声明（参考 `nodes/base_images/orca/Dockerfile`）：
 
-```yaml
-execution:
-  type: compute
-  environment:
-    OMPI_ALLOW_RUN_AS_ROOT: "1"
-    OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+```dockerfile
+ENV OMPI_ALLOW_RUN_AS_ROOT=1
+ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 ```
 
-这两个变量缺一不可：第一个解除禁止，第二个是 OpenMPI 要求的二次确认。
+这样 `nodespec.yaml` 中使用 `execution: {}` 即可，无需每个节点重复声明。
 
 > **适用范围**：任何在 nodespec 中通过 OpenMPI 并行的节点，不限于 ORCA。
 > 这是 MiQroForge 在 Kubernetes 上运行 MPI 程序的**平台级规范**。
@@ -90,7 +87,7 @@ ORCA 产生的 `.gbw` 波函数文件通常为几十 MB 到几百 MB，**不能*
 ```
 Kubernetes Pod 启动
   │
-  ├── /mf/profile/   ← ConfigMap 挂载 (run.sh, input.orca.j2)
+  ├── /mf/profile/   ← ConfigMap 挂载 (run.sh, input.orca.template)
   ├── /mf/input/     ← Argo 注入 onboard 参数（每个参数一个文件）
   │     ├── method          # "B3LYP"
   │     ├── basis_set       # "def2-SVP"
@@ -100,7 +97,7 @@ Kubernetes Pod 启动
   ├── bash /mf/profile/run.sh
   │     ├── 读取 /mf/input/* 中的参数
   │     ├── 写出 /mf/workdir/input.xyz（格式标准化）
-  │     ├── 渲染 input.orca.j2 → /mf/workdir/input.inp
+  │     ├── 渲染 input.orca.template → /mf/workdir/input.inp
   │     ├── 运行 mpirun -np $N_CORES /opt/orca/orca input.inp
   │     └── 解析输出 → 写入 /mf/output/*
   │
@@ -111,8 +108,8 @@ Kubernetes Pod 启动
 
 ## 添加新 ORCA 节点的检查清单
 
-- [ ] `nodespec.yaml` 的 `execution.environment` 包含两个 OMPI 变量
-- [ ] `profile/input.orca.j2` 使用 `* xyzfile` 而非内联坐标（如需几何输入）
+- [ ] 确认基础镜像 Dockerfile 已设置 `OMPI_ALLOW_RUN_AS_ROOT` 和 `OMPI_ALLOW_RUN_AS_ROOT_CONFIRM`
+- [ ] `profile/input.orca.template` 使用 `* xyzfile` 而非内联坐标（如需几何输入）
 - [ ] `profile/run.sh` 使用 `#!/usr/bin/env bash` + `set -euo pipefail`
 - [ ] 运行 `bash scripts/mf2.sh nodes reindex` 重建索引
 - [ ] 运行 `pytest tests/unit/ -v` 确认测试通过

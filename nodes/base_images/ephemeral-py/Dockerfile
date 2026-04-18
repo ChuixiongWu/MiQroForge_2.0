@@ -23,5 +23,6 @@ RUN pip install --no-cache-dir \
     requests \
     jsonschema
 
-# 运行时工作目录（Argo 覆盖）
+# MiQroForge 工作目录约定
+RUN mkdir -p /mf/profile /mf/input /mf/output /mf/workdir
 WORKDIR /mf/workdir

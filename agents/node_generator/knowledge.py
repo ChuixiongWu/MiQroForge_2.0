@@ -79,19 +79,39 @@ def load_reference_nodes(
     except Exception:
         return []
 
-    # 筛选匹配的节点
-    candidates = []
+    # 三级 fallback 筛选：
+    # 1. 同软件 + 同语义类型 → 最佳参考
+    # 2. 不同软件 + 同语义类型 → 跨软件 fallback
+    # 3. 同软件 + 不同语义类型 → 补充参考
+    # 4. 不同软件 + 不同语义类型 → 兜底
+    same_software = []
+    other_software = []
     for entry in index.entries:
-        if target_software and (entry.software or "").lower() != target_software.lower():
-            continue
-        # 排除自身（如果同语义类型）
-        candidates.append(entry)
+        if target_software and (entry.software or "").lower() == target_software.lower():
+            same_software.append(entry)
+        else:
+            other_software.append(entry)
 
-    # 优先选同语义类型的
+    candidates = []
     if semantic_type:
-        same_semantic = [c for c in candidates if c.semantic_type == semantic_type]
-        others = [c for c in candidates if c.semantic_type != semantic_type]
-        candidates = same_semantic + others
+        # 1) 同软件 + 同语义
+        candidates.extend(
+            e for e in same_software if e.semantic_type == semantic_type
+        )
+        # 2) 不同软件 + 同语义（跨软件 fallback）
+        candidates.extend(
+            e for e in other_software if e.semantic_type == semantic_type
+        )
+        # 3) 同软件 + 不同语义
+        candidates.extend(
+            e for e in same_software if e.semantic_type != semantic_type
+        )
+        # 4) 不同软件 + 不同语义
+        candidates.extend(
+            e for e in other_software if e.semantic_type != semantic_type
+        )
+    else:
+        candidates = same_software + other_software
 
     references = []
     for entry in candidates[:max_refs]:

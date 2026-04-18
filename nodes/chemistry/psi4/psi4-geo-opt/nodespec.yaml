@@ -1,0 +1,168 @@
+# ===========================================================================
+# psi4-geo-opt — Psi4 Geometry Optimization
+#
+# 使用 Psi4 进行几何结构优化（找能量极小点）。
+# ===========================================================================
+
+metadata:
+  name: psi4-geo-opt
+  version: 1.0.0
+  display_name: Psi4 Geometry Optimization
+  description: >
+    Performs a geometry optimization using Psi4 to find the minimum-energy
+    molecular structure. Supports various optimization algorithms and
+    convergence criteria.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: geometry-optimization
+  base_image_ref: psi4-1.10
+  tags:
+    software: psi4
+    version: "1.10"
+    method:
+      - DFT
+      - HF
+      - geometry-optimization
+    domain:
+      - molecular
+    capabilities:
+      - geometry-optimization
+    keywords:
+      - psi4
+      - optimization
+      - geometry
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: >
+      Molecular geometry in standard XYZ format (Angstrom).
+
+stream_outputs:
+  - name: optimized_xyz
+    display_name: Optimized Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    description: Optimized molecular geometry in XYZ format.
+
+  - name: total_energy
+    display_name: Final Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total electronic energy at the optimized geometry.
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: method
+    display_name: Electronic Structure Method
+    kind: string
+    default: B3LYP
+    description: "Psi4 method keyword, e.g. B3LYP, PBE0, HF, MP2"
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: cc-pVDZ
+    description: "Basis set name, e.g. cc-pVDZ, cc-pVTZ, 6-31G*"
+
+  - name: reference
+    display_name: SCF Reference
+    kind: enum
+    default: rhf
+    allowed_values:
+      - rhf
+      - uhf
+      - rohf
+
+  - name: scf_type
+    display_name: SCF Algorithm
+    kind: enum
+    default: pk
+    allowed_values:
+      - pk
+      - direct
+      - df
+
+  - name: mem_gb
+    display_name: Memory (GB)
+    kind: float
+    default: 4.0
+    min_value: 1.0
+    max_value: 256.0
+    description: >
+      Psi4 内存限制（psi4.set_memory）。应小于 K8s Pod 分配的 resources.memory_gb，
+      以留出 OS/Python/缓存的余量。
+
+  - name: max_iter
+    display_name: Max Optimization Steps
+    kind: integer
+    default: 100
+    min_value: 10
+    max_value: 500
+
+  - name: geom_max_force
+    display_name: Force Convergence Threshold
+    kind: float
+    default: 3.0e-4
+    description: "Maximum force convergence criterion (Hartree/Bohr)."
+
+onboard_outputs:
+  - name: final_energy
+    display_name: Final Energy (Ha)
+    kind: float
+    unit: Ha
+    description: Energy at the optimized geometry.
+
+  - name: opt_cycles
+    display_name: Optimization Cycles
+    kind: integer
+    description: Number of geometry optimization steps taken.
+
+  - name: opt_converged
+    display_name: Optimization Converged
+    kind: boolean
+    description: Whether the geometry optimization converged.
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "Geometry optimization must converge."
+
+resources:
+  cpu_cores: 4
+  memory_gb: 8.0
+  estimated_walltime_hours: 1.0
+  scratch_disk_gb: 10.0
+  parallel_tasks: 4
+  resource_bindings:
+    - cpu_cores
+    - parallel_tasks
+
+execution: {}
+
+semantic_identity: >-
+  Geometry optimization using Psi4 open-source quantum chemistry software.
+  Produces optimized molecular geometry and final energy.
+
+distinguishing_ports:
+  - optimized_xyz
+  - total_energy
+
+rag_summary: ""

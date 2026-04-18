@@ -1,0 +1,66 @@
+# ===========================================================================
+# cp2k-h2o-geo-opt-mf.yaml — H2O Geometry Optimization (CP2K, Molecular)
+#
+# MiQroForge 2.0 工作流定义：
+#   geom-input → geo-opt
+#
+# 使用 CP2K 对 H2O 分子进行几何优化（固定晶胞）。
+# 注意：CP2K 主要面向周期性体系，分子计算需要设置足够大的晶胞
+# 以避免周期像之间的相互作用。
+#
+# 前提：
+#   1. CP2K 镜像已构建：bash nodes/base_images/cp2k/build.sh
+#   2. 镜像已推送到 harbor.era.local/miqroforge2.0/cp2k:2025.2
+#
+# Quality Gate：
+#   - geo-opt.opt_converged (must_pass)
+#
+# 运行：
+#   bash scripts/mf2.sh validate workflows/examples/cp2k-h2o-geo-opt-mf.yaml
+#   bash scripts/mf2.sh compile  workflows/examples/cp2k-h2o-geo-opt-mf.yaml
+#   bash scripts/mf2.sh run      workflows/examples/cp2k-h2o-geo-opt-mf.yaml
+# ===========================================================================
+
+mf_version: "1.0"
+name: cp2k-h2o-geo-opt
+description: >
+  H2O molecule geometry optimization using CP2K in a large vacuum box.
+  Demonstrates CP2K molecular DFT with GPW method.
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      inline_geometry: |
+        3
+        Water molecule
+        O   0.000000   0.000000   0.117176
+        H   0.000000   0.756950  -0.468705
+        H   0.000000  -0.756950  -0.468705
+
+  - id: geo-opt
+    nodespec_path: nodes/chemistry/cp2k/cp2k-geo-opt/nodespec.yaml
+    onboard_params:
+      # 足够大的真空盒子，避免周期像相互作用
+      cell_abc: "10.0 10.0 10.0 90 90 90"
+      xc_functional: PBE
+      basis_set: DZVP-MOLOPT-SR-GTH
+      cutoff: 300
+      rel_cutoff: 50
+      max_scf: 100
+      eps_scf: 1.0e-6
+      smearing: none
+      electronic_temperature: 0
+      opt_algorithm: BFGS
+      max_opt_iter: 200
+      opt_max_force: 4.5e-4
+      charge: 0
+      multiplicity: 1
+      n_cores: 4
+
+connections:
+  - from: geom-input.xyz_geometry
+    to: geo-opt.xyz_geometry

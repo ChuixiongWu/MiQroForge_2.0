@@ -1,0 +1,160 @@
+# ===========================================================================
+# psi4-single-point — Psi4 Single-Point Energy Calculation
+#
+# 使用 Psi4 进行单点能量计算（HF, DFT, MP2, CCSD 等）。
+# Psi4 是开源量子化学程序，无 license 限制。
+# ===========================================================================
+
+metadata:
+  name: psi4-single-point
+  version: 1.0.0
+  display_name: Psi4 Single-Point Energy
+  description: >
+    Performs a single-point electronic energy calculation using Psi4.
+    Supports HF, DFT, MP2, and CCSD methods. Open-source alternative
+    to ORCA/Gaussian for molecular quantum chemistry.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: single-point-energy
+  base_image_ref: psi4-1.10
+  tags:
+    software: psi4
+    version: "1.10"
+    method:
+      - DFT
+      - HF
+      - MP2
+      - CCSD
+      - single-point
+    domain:
+      - molecular
+      - thermochemistry
+    capabilities:
+      - single-point-energy
+    keywords:
+      - psi4
+      - single-point
+      - energy
+      - dft
+      - open-source
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: >
+      Molecular geometry in standard XYZ format (Angstrom).
+
+stream_outputs:
+  - name: total_energy
+    display_name: Total Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total electronic energy at the given geometry.
+
+  - name: wavefunction_data
+    display_name: Wavefunction Data
+    io_type:
+      category: software_data_package
+      ecosystem: psi4
+      data_type: wavefunction
+    description: Psi4 wavefunction data (JSON serialized).
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: method
+    display_name: Electronic Structure Method
+    kind: string
+    default: B3LYP
+    description: "Psi4 method keyword, e.g. B3LYP, PBE0, HF, MP2, CCSD(T)"
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: cc-pVDZ
+    description: "Basis set name, e.g. cc-pVDZ, cc-pVTZ, 6-31G*"
+
+  - name: reference
+    display_name: SCF Reference
+    kind: enum
+    default: rhf
+    allowed_values:
+      - rhf
+      - uhf
+      - rohf
+
+  - name: scf_type
+    display_name: SCF Algorithm
+    kind: enum
+    default: pk
+    allowed_values:
+      - pk
+      - direct
+      - df
+
+  - name: mem_gb
+    display_name: Memory (GB)
+    kind: float
+    default: 4.0
+    min_value: 1.0
+    max_value: 256.0
+    description: >
+      Psi4 内存限制（psi4.set_memory）。应小于 K8s Pod 分配的 resources.memory_gb，
+      以留出 OS/Python/缓存的余量。
+
+onboard_outputs:
+  - name: scf_energy
+    display_name: SCF Energy (Ha)
+    kind: float
+    unit: Ha
+    description: Final SCF energy.
+
+  - name: scf_iterations
+    display_name: SCF Iterations
+    kind: integer
+    description: Number of SCF cycles to convergence.
+
+  - name: scf_converged
+    display_name: SCF Converged
+    kind: boolean
+    description: Whether the SCF calculation converged successfully.
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "SCF must converge for the energy to be meaningful."
+
+resources:
+  cpu_cores: 4
+  memory_gb: 8.0
+  estimated_walltime_hours: 0.5
+  scratch_disk_gb: 10.0
+  parallel_tasks: 4
+  resource_bindings:
+    - cpu_cores
+    - parallel_tasks
+
+execution: {}
+
+semantic_identity: >-
+  Single-point electronic energy calculation using Psi4 open-source
+  quantum chemistry software. Produces total energy.
+
+distinguishing_ports:
+  - total_energy
+
+rag_summary: ""
