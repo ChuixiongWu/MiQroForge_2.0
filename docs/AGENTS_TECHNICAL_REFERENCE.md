@@ -814,23 +814,14 @@ for _ in range(max_tool_calls):
 
 ### Sandbox Execution (`node_generator/sandbox.py`)
 
-#### Mode Selection
-```python
-def _resolve_sandbox_mode() -> str:
-    # auto → docker if available, else subprocess
-    # Can override via MF_SANDBOX_MODE env var
-```
+Sandbox 执行环境为 Docker-only（需 Docker daemon 运行）。
 
-#### Docker Mode (preferred)
+#### Docker Mode
 - Image: `ephemeral-py:3.11` (pre-installed: numpy, matplotlib, scipy, pandas, pyyaml, jinja2, requests)
-- Mounts: `-v {sandbox_dir}:/sandbox`
+- Mounts: `-v {sandbox_dir}:/sandbox`, `-v {input_dir}:/mf/input`, `-v {output_dir}:/mf/output`, `-v {workspace_dir}:/mf/workspace`
 - Environment: `MF_INPUT_DIR`, `MF_OUTPUT_DIR`, `MF_WORKSPACE_DIR` + custom overrides
 - Timeout: 60 seconds per execution
-
-#### Subprocess Mode (fallback)
-- Runs on host Python (`sys.executable`)
-- Path handling: symlink `/mf/input → tmpdir/input` (if permissions allow)
-- Fallback: rewrite `/mf/` paths in script to temp directory paths
+- Docker 不可用时 `_ensure_docker()` 直接抛出 RuntimeError，无 fallback
 
 #### Tool Factories
 ```python

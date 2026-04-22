@@ -24,6 +24,7 @@ class OnBoardParamResponse(BaseModel):
     max_value: Optional[float] = None
     unit: Optional[str] = None
     multiple_input: bool = False
+    resource_param: bool = False
 
 
 class OnBoardOutputResponse(BaseModel):
@@ -54,8 +55,14 @@ class NodeSummaryResponse(BaseModel):
     domains: list[str] = []
     capabilities: list[str] = []
     keywords: list[str] = []
+    deprecated: bool = False
     resources_cpu: float = 0.0
     resources_memory_gb: float = 0.0
+    resources_mem_gb: Optional[float] = None
+    resources_gpu: float = 0.0
+    resources_walltime_hours: float = 0.0
+    resources_scratch_disk_gb: float = 0.0
+    resources_parallel_tasks: int = 1
     stream_inputs: list[PortSummaryResponse] = []
     stream_outputs: list[PortSummaryResponse] = []
     onboard_inputs_count: int = 0

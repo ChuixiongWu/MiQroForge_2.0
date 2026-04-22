@@ -45,11 +45,11 @@ class TestGaussianNodeLoading:
         for spec in gaussian_nodes.values():
             assert spec.metadata.node_type == NodeType.COMPUTE
 
-    def test_resource_bindings_present(self, gaussian_nodes):
-        """Gaussian 用 %nprocshared 而非 MPI，但应声明 cpu_cores 绑定。"""
+    def test_parametrize_present(self, gaussian_nodes):
+        """Gaussian 用 %nprocshared 而非 MPI，但应声明 cpu_cores 参数化。"""
         for spec in gaussian_nodes.values():
             assert isinstance(spec.resources, ComputeResources)
-            assert "cpu_cores" in spec.resources.resource_bindings
+            assert "cpu_cores" in spec.resources.parametrize
 
 
 class TestGaussianSinglePoint:

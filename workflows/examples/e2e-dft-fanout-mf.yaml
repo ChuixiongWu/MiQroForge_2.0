@@ -1,0 +1,47 @@
+# e2e-dft-fanout-mf.yaml — DFT algorithm fan-out test
+# Tests: orca-dft, gaussian-dft, psi4-dft + shared_param translation
+mf_version: "1.0"
+name: e2e-dft-fanout
+description: "DFT fan-out: H2O → orca-dft (B3LYP), gaussian-dft (PBE0), psi4-dft (B3LYP)"
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      inline_geometry: |
+        3
+        Water
+        O   0.000000   0.000000   0.117176
+        H   0.000000   0.756950  -0.468705
+        H   0.000000  -0.756950  -0.468705
+
+  - id: orca-dft
+    nodespec_path: nodes/chemistry/orca/orca-dft/nodespec.yaml
+    onboard_params:
+      functional: B3LYP
+      basis_set: def2-SVP
+      dispersion: D3BJ
+
+  - id: gaussian-dft
+    nodespec_path: nodes/chemistry/gaussian/gaussian-dft/nodespec.yaml
+    onboard_params:
+      functional: PBE0
+      basis_set: 6-31G*
+      dispersion: D3
+
+  - id: psi4-dft
+    nodespec_path: nodes/chemistry/psi4/psi4-dft/nodespec.yaml
+    onboard_params:
+      functional: B3LYP
+      basis_set: cc-pVDZ
+
+connections:
+  - from: geom-input.xyz_geometry
+    to: orca-dft.xyz_geometry
+  - from: geom-input.xyz_geometry
+    to: gaussian-dft.xyz_geometry
+  - from: geom-input.xyz_geometry
+    to: psi4-dft.xyz_geometry

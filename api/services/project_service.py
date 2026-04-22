@@ -99,6 +99,13 @@ class ProjectService:
             return 0
         return sum(1 for d in runs_dir.iterdir() if d.is_dir())
 
+    @staticmethod
+    def _parse_ts(iso: str) -> float:
+        try:
+            return datetime.fromisoformat(iso).timestamp()
+        except (ValueError, TypeError):
+            return 0.0
+
     def _count_conversations(self, project_dir: Path) -> int:
         conv_dir = project_dir / "conversations"
         if not conv_dir.is_dir():
@@ -133,6 +140,8 @@ class ProjectService:
             project_dir = self.projects_root / pid
             if project_dir.is_dir():
                 results.append(self._build_meta(p, project_dir))
+        # Sort by order ascending, then updated_at descending
+        results.sort(key=lambda p: (p.get("order", 0), -(self._parse_ts(p.get("updated_at", "")))))
         return results
 
     def create_project(self, name: str, description: str = "", icon: str = "") -> dict[str, Any]:
@@ -150,6 +159,10 @@ class ProjectService:
         if not files_link.exists():
             files_link.symlink_to(files_real)
 
+        # Compute order: max existing order + 1
+        reg = self._read_registry()
+        max_order = max((p.get("order", 0) for p in reg["projects"]), default=-1) + 1
+
         meta_raw: dict[str, Any] = {
             "id": pid,
             "name": name,
@@ -157,6 +170,7 @@ class ProjectService:
             "icon": icon,
             "created_at": now,
             "updated_at": now,
+            "order": max_order,
         }
         meta = self._build_meta(meta_raw, project_dir)
         (project_dir / "project.json").write_text(
@@ -184,7 +198,8 @@ class ProjectService:
         return self._build_meta(raw, project_dir)
 
     def update_project(
-        self, project_id: str, name: str | None = None, description: str | None = None, icon: str | None = None
+        self, project_id: str, name: str | None = None, description: str | None = None,
+        icon: str | None = None, order: int | None = None,
     ) -> dict[str, Any] | None:
         project_dir = self.projects_root / project_id
         pj = project_dir / "project.json"
@@ -201,6 +216,8 @@ class ProjectService:
             raw["description"] = description
         if icon is not None:
             raw["icon"] = icon
+        if order is not None:
+            raw["order"] = order
         raw["updated_at"] = _now_iso()
 
         meta = self._build_meta(raw, project_dir)
@@ -212,6 +229,10 @@ class ProjectService:
         project_dir = self.projects_root / project_id
         if not project_dir.is_dir():
             return False
+        # 清理 workspace 文件目录
+        files_dir = self.settings.userdata_root / "workspace" / ".files" / project_id
+        if files_dir.is_dir():
+            shutil.rmtree(files_dir)
         shutil.rmtree(project_dir)
         self._remove_registry_entry(project_id)
         return True
@@ -242,6 +263,29 @@ class ProjectService:
         pj.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
         self._update_registry_entry(meta)
         return meta
+
+    def reorder_projects(self, ordered_ids: list[str]) -> None:
+        """Update order field for each project based on position in list."""
+        for idx, pid in enumerate(ordered_ids):
+            project_dir = self.projects_root / pid
+            pj = project_dir / "project.json"
+            if not pj.exists():
+                continue
+            try:
+                raw = json.loads(pj.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            raw["order"] = idx
+            pj.write_text(json.dumps(raw, indent=2, ensure_ascii=False))
+            self._update_registry_entry(raw)
+
+    def batch_delete_projects(self, project_ids: list[str]) -> list[str]:
+        """Delete multiple projects. Returns list of successfully deleted IDs."""
+        deleted: list[str] = []
+        for pid in project_ids:
+            if self.delete_project(pid):
+                deleted.append(pid)
+        return deleted
 
     # ── Canvas ─────────────────────────────────────────────────────────────
 

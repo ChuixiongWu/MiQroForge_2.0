@@ -19,6 +19,7 @@ metadata:
   author: MiQroForge Team
   semantic_type: single-point-energy
   base_image_ref: orca-6.1
+  deprecated: true
   tags:
     software: orca
     version: "6.1"
@@ -132,13 +133,14 @@ onboard_outputs:
 
 resources:
   cpu_cores: 4
-  memory_gb: 8.0
+  mem_gb: 8.0
   estimated_walltime_hours: 0.5
   scratch_disk_gb: 10.0
   parallel_tasks: 4
-  resource_bindings:
+  parametrize:
     - cpu_cores
     - parallel_tasks
+    - estimated_walltime_hours
 
 execution: {}
 

@@ -85,7 +85,7 @@ onboard_outputs:
   description: Whether structure is a valid minimum for downstream use.
 resources:
   cpu_cores: 1
-  memory_gb: 0.25
+  mem_gb: 0.25
   estimated_walltime_hours: 0.005
   gpu_count: 0
 execution:

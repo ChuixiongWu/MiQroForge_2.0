@@ -1,94 +1,70 @@
-PolyForm Noncommercial License 1.0.0
+License text copyright (c) 2020 MariaDB Corporation Ab, All Rights Reserved.
+"Business Source License" is a trademark of MariaDB Corporation Ab.
 
-Copyright (c) 2025 MiQroForge Contributors
+Parameters
 
-This license is based on the PolyForm Noncommercial License 1.0.0.
-<https://polyformproject.org/licenses/noncommercial/1.0.0>
+Licensor:             MiQroForge Contributors
+Licensed Work:        MiQroForge 2.0. The Licensed Work is (c) 2025
+                      MiQroForge Contributors.
+Additional Use Grant: You may make production use of the Licensed Work for
+                      academic research, educational purposes, and personal
+                      non-commercial study at educational institutions and
+                      non-profit research organizations. This includes use in
+                      published academic papers, course materials, and internal
+                      research projects that do not generate revenue.
 
-Acceptance
+                      Any commercial use—including but not limited to
+                      integration into commercial products, use in
+                      revenue-generating services, or use by for-profit
+                      organizations—requires a separate commercial license
+                      from the Licensor.
+Change Date:          Three years from the date the Licensed Work is published.
+Change License:       Apache License, Version 2.0
 
-In order to get any license under these terms, you must agree
-to them as both strict obligations and conditions to all
-your licenses.
+For information about alternative licensing arrangements for the Licensed Work,
+please contact the MiQroForge Contributors.
 
-Copyright License
+Notice
 
-The licensor grants you a copyright license for the software
-to do everything you might do with the software that would
-otherwise infringe the licensor's copyright in it for any
-permitted purpose.
+Business Source License 1.1
 
-Noncommercial Purposes
+Terms
 
-Any noncommercial purpose is a permitted purpose. Academic
-research, personal study, and non-commercial open-source
-development are examples of permitted purposes.
+The Licensor hereby grants you the right to copy, modify, create derivative
+works, redistribute, and make non-production use of the Licensed Work. The
+Licensor may make an Additional Use Grant, above, permitting limited production use.
 
-Commercial Purposes
+Effective on the Change Date, or the fourth anniversary of the first publicly
+available distribution of a specific version of the Licensed Work under this
+License, whichever comes first, the Licensor hereby grants you rights under
+the terms of the Change License, and the rights granted in the paragraph
+above terminate.
 
-Contact the licensor for a commercial license before using
-this software for any commercial purpose. A commercial purpose
-is any purpose primarily intended for commercial advantage or
-monetary compensation.
+If your use of the Licensed Work does not comply with the requirements
+currently in effect as described in this License, you must purchase a
+commercial license from the Licensor, its affiliated entities, or authorized
+resellers, or you must refrain from using the Licensed Work.
 
-Notices
+All copies of the original and modified Licensed Work, and derivative works
+of the Licensed Work, are subject to this License. This License applies
+separately for each version of the Licensed Work and the Change Date may vary
+for each version of the Licensed Work released by Licensor.
 
-You must ensure that anyone who gets a copy of any part of
-the software from you also gets a copy of these terms or the
-URL for them above, as well as copies of any plain-text lines
-beginning with Required Notice: that the licensor provided
-with the software. For example:
+You must conspicuously display this License on each original or modified copy
+of the Licensed Work. If you receive the Licensed Work in original or
+modified form from a third party, the terms and conditions set forth in this
+License apply to your use of that work.
 
-Required Notice: Copyright (c) 2025 MiQroForge Contributors
+Any use of the Licensed Work in violation of this License will automatically
+terminate your rights under this License for the current and all other
+versions of the Licensed Work.
 
-No Other Rights
+This License does not grant you any right in any trademark or logo of
+Licensor or its affiliates (provided that you may use a trademark or logo of
+Licensor as expressly required by this License).
 
-These terms do not allow you to sublicense or transfer any of
-your licenses to anyone else, or prevent the licensor from
-granting licenses to anyone else. These terms do not imply
-any other licenses.
-
-Patent Defense
-
-If you make any written claim that the software infringes or
-contributes to infringement of any patent, your patent license
-for the software granted under these terms ends immediately. If
-your employer makes such a claim, your patent license ends
-immediately for work on behalf of your employer.
-
-Violations
-
-The first time you are notified in writing that you have
-violated any of these terms, or done anything with the software
-not covered by your licenses, your licenses can nonetheless
-continue if you come into compliance within 32 days after
-receiving notice. Otherwise, all your licenses end permanently.
-
-No Liability
-
-As far as the law allows, the software comes as is, without
-any warranty or condition, and the licensor will not be liable
-to you for any damages arising out of these terms or the use
-or nature of the software, under any kind of legal claim.
-
-Definitions
-
-The licensor is the individual or entity offering these terms,
-and the software is the software the licensor makes available
-under these terms.
-
-You refers to the individual or entity agreeing to these terms.
-
-Your company is any legal entity, sole proprietorship, or other
-kind that you work for, plus all organizations that have control
-over, are under the control of, or are under common control with
-that entity. Control means ownership of substantially all the
-assets of an entity, or the power to direct its management and
-policies by vote, contract, or otherwise. Control can be direct
-or indirect.
-
-Your licenses are all the licenses granted to you for the
-software under these terms.
-
-Use means anything you do with the software requiring one of
-your licenses.
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSED WORK IS PROVIDED ON
+AN "AS IS" BASIS. LICENSOR HEREBY DISCLAIMS ALL WARRANTIES AND CONDITIONS,
+EXPRESS OR IMPLIED, INCLUDING (WITHOUT LIMITATION) WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND
+TITLE.

@@ -256,17 +256,17 @@ class NodeSpec(BaseModel):
                     "lightweight 节点的 execution 必须为 LightweightExecutionConfig"
                 )
 
-        # resource_bindings 自动注入 + 校验（仅 compute 节点可用）
-        if isinstance(self.resources, ComputeResources) and self.resources.resource_bindings:
-            valid_resource_fields = set(ComputeResources.model_fields.keys()) - {"type", "resource_bindings"}
+        # parametrize 自动注入 + 校验（仅 compute 节点可用）
+        if isinstance(self.resources, ComputeResources) and self.resources.parametrize:
+            valid_resource_fields = set(ComputeResources.model_fields.keys()) - {"type", "parametrize"}
             onboard_input_names = {p.name for p in self.onboard_inputs}
             numeric_kinds = {OnBoardInputKind.INTEGER, OnBoardInputKind.FLOAT}
             defaults_config = get_resource_defaults()
 
-            for res_field in self.resources.resource_bindings:
+            for res_field in self.resources.parametrize:
                 if res_field not in valid_resource_fields:
                     raise ValueError(
-                        f"resource_bindings 中 {res_field!r} 不是 ComputeResources 的有效字段。"
+                        f"parametrize 中 {res_field!r} 不是 ComputeResources 的有效字段。"
                         f"合法字段：{sorted(valid_resource_fields)}"
                     )
                 # 从 resource_defaults.yaml 解析 param_name，默认与字段同名
@@ -283,12 +283,12 @@ class NodeSpec(BaseModel):
 
             # 校验所有绑定的 onboard input kind 必须为数值类型
             onboard_input_map = {p.name: p for p in self.onboard_inputs}
-            for res_field in self.resources.resource_bindings:
+            for res_field in self.resources.parametrize:
                 param_name = defaults_config.get(res_field, {}).get("param_name", res_field)
                 param = onboard_input_map[param_name]
                 if param.kind not in numeric_kinds:
                     raise ValueError(
-                        f"resource_bindings 绑定的 onboard input {param_name!r} "
+                        f"parametrize 绑定的 onboard input {param_name!r} "
                         f"kind 必须为 integer 或 float，当前为 {param.kind.value!r}"
                     )
 
@@ -335,7 +335,7 @@ class NodeSpec(BaseModel):
         static_value: Any,
         defaults_config: dict[str, dict[str, Any]],
     ) -> OnBoardInput:
-        """根据 resource_bindings 自动生成 OnBoardInput。
+        """根据 parametrize 自动生成 OnBoardInput。
 
         优先级：resource_defaults.yaml 配置 > 硬编码推断。
         ``default`` 值来自 ComputeResources 中的静态声明（如 cpu_cores: 4）。
@@ -360,6 +360,7 @@ class NodeSpec(BaseModel):
             max_value=cfg.get("max_value"),
             unit=cfg.get("unit"),
             description=cfg.get("description", ""),
+            resource_param=True,
         )
 
     @property

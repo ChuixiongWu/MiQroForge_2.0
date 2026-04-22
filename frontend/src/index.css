@@ -10,6 +10,7 @@
     --mf-bg-card:   244 240 226;       /* slightly darker cream */
     --mf-bg-input:  236 231 215;       /* warm input bg */
     --mf-bg-hover:  228 222 203;       /* hover state */
+    --mf-bg-surface: 236 231 215;      /* inset/recessed — matches input bg */
     --mf-text-primary:   45 36 25;     /* warm dark brown */
     --mf-text-secondary: 100 87 70;    /* medium warm brown */
     --mf-text-muted:     155 142 122;  /* light warm brown */
@@ -24,6 +25,7 @@
     --mf-bg-card:   31 41 55;          /* gray-800 */
     --mf-bg-input:  31 41 55;          /* gray-800 */
     --mf-bg-hover:  55 65 81;          /* gray-700 */
+    --mf-bg-surface: 31 41 55;         /* inset/recessed — matches input bg (gray-800) */
     --mf-text-primary:   243 244 246;  /* gray-100 */
     --mf-text-secondary: 156 163 175;  /* gray-400 */
     --mf-text-muted:     107 114 128;  /* gray-500 */

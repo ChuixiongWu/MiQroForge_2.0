@@ -140,7 +140,7 @@ User Intent (natural language)
 
 **Ephemeral Mode Architecture**:
 - ReAct Agent inner loop: LLM bound with `sandbox_execute` + `pip_install` tools
-- Docker sandbox execution (`ephemeral-py:3.11` image) with subprocess fallback
+- Docker sandbox execution (`ephemeral-py:3.11` image, requires Docker daemon)
 - Visual evaluation for generated images (GPT-4o multimodal)
 - Outer loop: generate → evaluate → retry (max 2 rounds)
 - API endpoint: `POST /api/v1/agents/ephemeral`

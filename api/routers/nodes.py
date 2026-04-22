@@ -1,17 +1,23 @@
 """节点目录 API 路由。
 
-GET /api/v1/nodes                   — 列出所有节点
-GET /api/v1/nodes/search            — 搜索节点
-GET /api/v1/nodes/semantic-registry — 返回完整语义类型注册表
-GET /api/v1/nodes/semantic-types    — 按语义类型分组列出节点
-GET /api/v1/nodes/units             — 返回 KNOWN_UNITS 物理单位注册表
-GET /api/v1/nodes/{name}            — 节点详情
-POST /api/v1/nodes/reindex          — 重新生成索引
+GET  /api/v1/nodes                   — 列出所有节点
+GET  /api/v1/nodes/search            — 搜索节点
+GET  /api/v1/nodes/semantic-registry — 返回完整语义类型注册表
+GET  /api/v1/nodes/semantic-types    — 按语义类型分组列出节点
+GET  /api/v1/nodes/units             — 返回 KNOWN_UNITS 物理单位注册表
+GET  /api/v1/nodes/preferences       — 读取全局节点偏好设置
+PUT  /api/v1/nodes/preferences       — 写入全局节点偏好设置
+GET  /api/v1/nodes/{name}            — 节点详情
+POST /api/v1/nodes/reindex           — 重新生成索引
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import yaml
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from api.config import Settings, get_settings
 from api.models.nodes import (
@@ -51,12 +57,18 @@ def _entry_to_summary(entry: NodeIndexEntry) -> NodeSummaryResponse:
         base_image_ref=entry.base_image_ref,
         nodespec_path=entry.nodespec_path,
         software=entry.software,
+        deprecated=entry.deprecated,
         methods=entry.methods,
         domains=entry.domains,
         capabilities=entry.capabilities,
         keywords=entry.keywords,
         resources_cpu=entry.resources_cpu,
         resources_memory_gb=entry.resources_memory_gb,
+        resources_mem_gb=entry.resources_mem_gb,
+        resources_gpu=entry.resources_gpu,
+        resources_walltime_hours=entry.resources_walltime_hours,
+        resources_scratch_disk_gb=entry.resources_scratch_disk_gb,
+        resources_parallel_tasks=entry.resources_parallel_tasks,
         stream_inputs=[
             PortSummaryResponse(**p.model_dump()) for p in entry.stream_inputs
         ],
@@ -167,6 +179,15 @@ def list_semantic_types(
     return SemanticTypesResponse(total=len(groups), groups=groups)
 
 
+@router.get("/shared-params", summary="返回共享参数表（functionals / basis_sets / dispersions）")
+def get_shared_params() -> dict:
+    """返回完整的 shared_params.yaml，供前端 Reference 页面显示。"""
+    from nodes.schemas.shared_params import load_shared_params
+
+    shared = load_shared_params()
+    return shared.model_dump(mode="json")
+
+
 @router.get("/units", summary="返回 KNOWN_UNITS 物理单位注册表")
 def get_units() -> dict:
     """返回所有已注册的物理单位，按量纲分组。
@@ -195,6 +216,65 @@ def get_units() -> dict:
     }
 
 
+# ─── Node Preferences (global) ────────────────────────────────────────────────
+
+class NodePreferenceEntry(BaseModel):
+    collapsed_params: list[str] = []
+    hidden_params: list[str] = []
+
+
+class NodePreferencesResponse(BaseModel):
+    version: str = "1.0"
+    show_deprecated: bool = False
+    node_preferences: dict[str, NodePreferenceEntry] = {}
+
+
+class NodePreferencesUpdate(BaseModel):
+    show_deprecated: bool = False
+    node_preferences: dict[str, NodePreferenceEntry] = {}
+
+
+def _prefs_path(settings: Settings = Depends(get_settings)) -> Path:
+    return settings.userdata_root / "node_preferences.yaml"
+
+
+@router.get("/preferences", response_model=NodePreferencesResponse, summary="读取全局节点偏好设置")
+def get_node_preferences(path: Path = Depends(_prefs_path)) -> NodePreferencesResponse:
+    if not path.exists():
+        return NodePreferencesResponse()
+    with path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return NodePreferencesResponse(
+        version=data.get("version", "1.0"),
+        show_deprecated=data.get("show_deprecated", False),
+        node_preferences={
+            k: NodePreferenceEntry(**v) for k, v in data.get("node_preferences", {}).items()
+        },
+    )
+
+
+@router.put("/preferences", response_model=NodePreferencesResponse, summary="写入全局节点偏好设置")
+def put_node_preferences(
+    body: NodePreferencesUpdate,
+    path: Path = Depends(_prefs_path),
+) -> NodePreferencesResponse:
+    data = {
+        "version": "1.0",
+        "show_deprecated": body.show_deprecated,
+        "node_preferences": {
+            k: v.model_dump() for k, v in body.node_preferences.items()
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    return NodePreferencesResponse(
+        version="1.0",
+        show_deprecated=body.show_deprecated,
+        node_preferences=body.node_preferences,
+    )
+
+
 @router.get("/{name}", response_model=NodeDetailResponse, summary="节点详情")
 def get_node(
     name: str,
@@ -219,6 +299,7 @@ def get_node(
             max_value=p.max_value,
             unit=p.unit,
             multiple_input=p.multiple_input,
+            resource_param=p.resource_param,
         )
         for p in entry.onboard_inputs
     ]

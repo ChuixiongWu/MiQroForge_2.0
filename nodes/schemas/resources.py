@@ -32,9 +32,15 @@ class ComputeResources(BaseModel):
         ..., ge=1,
         description="所需 CPU 核数。",
     )
-    memory_gb: float = Field(
+    mem_gb: float = Field(
         ..., gt=0,
-        description="所需内存（GiB）。",
+        description="应用层内存（GiB），传递给计算软件（如 Gaussian %mem、Psi4 set_memory）。"
+                    "Pod 内存 = mem_gb + mem_overhead。",
+    )
+    mem_overhead: float = Field(
+        default=0.0, ge=0,
+        description="Pod 内存超出应用层内存的部分（GiB）。用于软件 overhead（如 Psi4 需要额外 4GB）。"
+                    "大多数节点不需要，省略即默认为 0。",
     )
     estimated_walltime_hours: float = Field(
         ..., gt=0,
@@ -56,11 +62,11 @@ class ComputeResources(BaseModel):
         default=1, ge=1,
         description="MPI 并行任务数。",
     )
-    resource_bindings: Optional[list[str]] = Field(
+    parametrize: Optional[list[str]] = Field(
         default=None,
         description=(
-            "需要动态绑定到 onboard input 的资源字段列表。"
-            "如 ['cpu_cores', 'parallel_tasks']。"
+            "需要参数化的资源字段列表，用户可在前端覆盖。"
+            "如 ['cpu_cores', 'mem_gb']。"
             "每个字段的 onboard input 名称与默认属性由 resource_defaults.yaml 统一定义。"
             "编译器会从 onboard_params 读取实际值并覆盖静态资源声明。"
         ),

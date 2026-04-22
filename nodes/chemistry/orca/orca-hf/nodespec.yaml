@@ -1,0 +1,134 @@
+# ===========================================================================
+# orca-hf — Hartree-Fock Single-Point Energy Calculation
+#
+# 使用 ORCA 进行 Hartree-Fock 单点能量计算。
+# ===========================================================================
+
+metadata:
+  name: orca-hf
+  version: 1.0.0
+  display_name: ORCA HF Single-Point Energy
+  description: >
+    Performs a Hartree-Fock (HF) single-point electronic energy calculation
+    using ORCA. Computes the total energy at a fixed molecular geometry.
+    Requires an XYZ geometry as stream input.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: single-point-energy
+  base_image_ref: orca-6.1
+  tags:
+    software: orca
+    version: "6.1"
+    method:
+      - HF
+      - single-point
+    domain:
+      - molecular
+      - thermochemistry
+    capabilities:
+      - single-point-energy
+      - population-analysis
+    keywords:
+      - orca
+      - hartree-fock
+      - hf
+      - single-point
+      - energy
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: >
+      Molecular geometry in standard XYZ format (Angstrom).
+      Typically from geometry-file-input or another geometry source.
+
+stream_outputs:
+  - name: gbw_file
+    display_name: GBW Wavefunction File
+    io_type:
+      category: software_data_package
+      ecosystem: orca
+      data_type: gbw-file
+    description: ORCA binary wavefunction file (GBW). Used as input for subsequent calculations.
+
+  - name: total_energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total electronic energy at the given geometry.
+
+  - name: mulliken_report
+    display_name: Mulliken Population Report
+    io_type:
+      category: report_object
+      format: json
+      content_schema: '{"charges": [float], "spin_populations": [float], "atom_labels": [str]}'
+      description: Mulliken population analysis results.
+    description: JSON report of Mulliken charges and spin populations.
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: def2-SVP
+    description: "Basis set name, e.g. def2-SVP, def2-TZVP, 6-31G*"
+    _shared_param: basis_sets
+
+onboard_outputs:
+  - name: scf_energy
+    display_name: SCF Energy (Ha)
+    kind: float
+    unit: Ha
+    description: Final SCF energy.
+
+  - name: scf_iterations
+    display_name: SCF Iterations
+    kind: integer
+    description: Number of SCF cycles to convergence.
+
+  - name: scf_converged
+    display_name: SCF Converged
+    kind: boolean
+    description: Whether the SCF calculation converged successfully.
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "SCF must converge for the energy to be meaningful."
+
+resources:
+  cpu_cores: 4
+  mem_gb: 8.0
+  estimated_walltime_hours: 0.5
+  scratch_disk_gb: 10.0
+  parallel_tasks: 4
+  parametrize:
+    - cpu_cores
+    - parallel_tasks
+    - estimated_walltime_hours
+
+execution: {}
+
+semantic_identity: >-
+  Hartree-Fock single-point energy calculation using ORCA.
+
+distinguishing_ports:
+  - gbw_file
+  - total_energy
+
+rag_summary: ""

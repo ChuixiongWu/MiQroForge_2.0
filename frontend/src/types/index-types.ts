@@ -21,6 +21,7 @@ export interface OnBoardParamResponse {
   max_value?: number
   unit?: string
   multiple_input?: boolean
+  resource_param?: boolean
 }
 
 export interface OnBoardOutputResponse {
@@ -44,9 +45,18 @@ export interface NodeSummaryResponse {
   semantic_type?: string
   semantic_display_name?: string
   software?: string
+  methods: string[]
+  domains: string[]
+  capabilities: string[]
   keywords: string[]
+  deprecated: boolean
   resources_cpu: number
   resources_memory_gb: number
+  resources_mem_gb?: number | null
+  resources_gpu: number
+  resources_walltime_hours: number
+  resources_scratch_disk_gb: number
+  resources_parallel_tasks: number
   stream_inputs: PortSummaryResponse[]
   stream_outputs: PortSummaryResponse[]
   onboard_inputs_count: number

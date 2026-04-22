@@ -123,7 +123,7 @@ GEO_OPT_SPEC = dict(
     ],
     resources=dict(
         cpu_cores=4,
-        memory_gb=8.0,
+        mem_gb=8.0,
         estimated_walltime_hours=1.0,
     ),
     execution=dict(
@@ -226,7 +226,7 @@ FREQ_SPEC = dict(
     ],
     resources=dict(
         cpu_cores=4,
-        memory_gb=8.0,
+        mem_gb=8.0,
         estimated_walltime_hours=0.5,
     ),
     execution=dict(

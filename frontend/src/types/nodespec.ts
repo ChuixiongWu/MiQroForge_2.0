@@ -32,6 +32,7 @@ export interface OnBoardParam {
   max?: number
   unit?: string
   multiple_input?: boolean
+  resource_param?: boolean
 }
 
 export interface OnBoardOutput {
@@ -49,9 +50,12 @@ export interface OnBoardOutput {
 
 export interface ResourceSpec {
   cpu: number
-  memory_gb: number
+  mem_gb: number
+  mem_overhead: number
   gpu: number
   estimated_walltime_hours: number
+  scratch_disk_gb: number
+  parallel_tasks: number
 }
 
 // ─── NodeSpec ───────────────────────────────────────────────────────────────

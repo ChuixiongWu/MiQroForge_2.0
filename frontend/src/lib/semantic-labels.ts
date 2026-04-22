@@ -2,10 +2,12 @@
 
 // Fallback hardcoded labels (used before API data loads)
 export const SEMANTIC_LABELS: Record<string, string> = {
-  'geometry-optimization': 'Geometry Optimization',
-  'frequency-analysis': 'Frequency Analysis',
-  'thermo-extraction': 'Thermo Extraction',
-  'single-point-energy': 'Single-Point Energy',
+  'geometry-optimization': 'Geo Optimization',
+  'frequency-analysis': 'Frequency',
+  'thermo-extraction': 'Thermo Extract',
+  'single-point-energy': 'Single Energy [mol]',
+  'crystal-single-point-energy': 'Single Energy [crystal]',
+  'cell-optimization': 'Cell Optimization',
 }
 
 // Runtime registry data loaded from API
@@ -45,6 +47,8 @@ export const SEMANTIC_ICONS: Record<string, string> = {
   'frequency-analysis': '〜',
   'thermo-extraction': '🌡',
   'single-point-energy': '⚡',
+  'crystal-single-point-energy': '💎',
+  'cell-optimization': '📦',
 }
 
 export function semanticIcon(st: string): string {
@@ -57,4 +61,5 @@ export interface PickerOption {
   nodeName: string
   software: string | null
   label: string   // display_name
+  methods?: string[]  // algorithm tags for sub-grouping
 }

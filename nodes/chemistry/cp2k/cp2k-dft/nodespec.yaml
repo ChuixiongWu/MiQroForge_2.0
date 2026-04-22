@@ -1,0 +1,171 @@
+# cp2k-dft — CP2K DFT Single-Point (Periodic Systems)
+metadata:
+  name: cp2k-dft
+  version: 1.0.0
+  display_name: CP2K DFT Single-Point
+  description: >
+    DFT single-point energy calculation for periodic systems using CP2K
+    (GPW/GAPW method). Supports PBC, plane-wave cutoff, and electronic
+    smearing for metals.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: crystal-single-point-energy
+  base_image_ref: cp2k-2025.2
+  tags:
+    software: cp2k
+    version: "2025.2"
+    method:
+      - DFT
+      - single-point
+    domain:
+      - periodic
+      - solid-state
+    capabilities:
+      - single-point-energy
+      - periodic-dft
+    keywords:
+      - cp2k
+      - dft
+      - periodic
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: Atomic positions in XYZ format.
+
+stream_outputs:
+  - name: total_energy
+    display_name: Total Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total electronic energy.
+
+  - name: cell_parameters
+    display_name: Cell Parameters
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    description: Cell vectors.
+
+onboard_inputs:
+  - name: charge
+    display_name: System Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: cell_abc
+    display_name: Cell Parameters (a b c alpha beta gamma)
+    kind: string
+    default: "5.43 5.43 5.43 90 90 90"
+
+  - name: functional
+    display_name: Exchange-Correlation Functional
+    kind: enum
+    default: PBE
+    allowed_values:
+      - PBE
+      - PBE0
+      - B3LYP
+      - LDA
+      - BLYP
+      - TPSS
+      - SCAN
+      - HSE06
+    _shared_param: functionals
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: DZVP-MOLOPT-SR-GTH
+    _shared_param: basis_sets
+
+  - name: cutoff
+    display_name: Plane-Wave Cutoff (Ry)
+    kind: integer
+    default: 400
+    min_value: 100
+    max_value: 2000
+    unit: Ry
+
+  - name: rel_cutoff
+    display_name: Relative Cutoff (Ry)
+    kind: integer
+    default: 50
+    min_value: 20
+    max_value: 200
+
+  - name: max_scf
+    display_name: Max SCF Cycles
+    kind: integer
+    default: 50
+    min_value: 5
+    max_value: 500
+
+  - name: eps_scf
+    display_name: SCF Convergence Threshold
+    kind: float
+    default: 1.0e-6
+
+  - name: smearing
+    display_name: Electronic Smearing
+    kind: enum
+    default: "fermi_dirac"
+    allowed_values:
+      - "none"
+      - "fermi_dirac"
+
+  - name: electronic_temperature
+    display_name: Electronic Temperature (K)
+    kind: integer
+    default: 300
+    min_value: 0
+    max_value: 10000
+
+onboard_outputs:
+  - name: scf_energy
+    display_name: Final Energy (Ha)
+    kind: float
+    unit: Ha
+
+  - name: scf_converged
+    display_name: SCF Converged
+    kind: boolean
+    quality_gate: true
+    gate_default: must_pass
+
+resources:
+  cpu_cores: 4
+  mem_gb: 16.0
+  estimated_walltime_hours: 1.0
+  scratch_disk_gb: 20.0
+  parallel_tasks: 4
+  parametrize:
+    - cpu_cores
+    - parallel_tasks
+    - estimated_walltime_hours
+    - scratch_disk_gb
+
+execution: {}
+
+semantic_identity: >-
+  DFT single-point energy calculation for periodic systems using CP2K.
+
+distinguishing_ports:
+  - total_energy
+  - cell_parameters
+
+rag_summary: ""

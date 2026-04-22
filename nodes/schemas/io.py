@@ -234,7 +234,7 @@ class OnBoardInputKind(str, Enum):
 
     - ``integer`` — 整数。用于计数类参数，如核数、最大迭代次数、电荷（含负数）。
                    关联字段：``min_value``、``max_value``（可选，用于 UI 范围校验）。
-                   ``resource_bindings`` 绑定的参数必须是 ``integer`` 或 ``float``。
+                   ``parametrize`` 绑定的参数必须是 ``integer`` 或 ``float``。
 
     - ``float``   — 浮点数。用于物理量参数，如温度（298.15 K）、压力（1.0 atm）、能量阈值。
                    关联字段：``min_value``、``max_value``、``unit``（仅供 UI 显示）。
@@ -282,13 +282,15 @@ class OnBoardInput(BaseModel):
 
     kind 选型速查：
     - ``string``   自由单行文本（ORCA 方法名、文件名等）
-    - ``integer``  整数（核数、电荷、迭代次数）；可被 resource_bindings 绑定
-    - ``float``    浮点数（温度、压力、阈值）；可被 resource_bindings 绑定
+    - ``integer``  整数（核数、电荷、迭代次数）；可被 parametrize 绑定
+    - ``float``    浮点数（温度、压力、阈值）；可被 parametrize 绑定
     - ``boolean``  开关（true/false）
     - ``enum``     固定选项集，**必须**同时填 allowed_values
     - ``textarea`` 多行文本（XYZ 坐标、内联脚本）
 
     """
+
+    model_config = {"populate_by_name": True}
 
     name: str = Field(
         ...,
@@ -347,6 +349,19 @@ class OnBoardInput(BaseModel):
             "True 时前端可将此参数翻转为多值模式，"
             "编译器据此生成 Argo withParam 扇出执行。"
         ),
+    )
+    shared_param: Optional[str] = Field(
+        default=None,
+        alias="_shared_param",
+        description=(
+            "编译时共享参数表的类别名（如 'functionals'、'basis_sets'、'dispersions'）。"
+            "设置后，编译器在生成 mf_node_params.sh 时会将参数的 canonical 值"
+            "翻译为对应计算软件的原生关键字。"
+        ),
+    )
+    resource_param: bool = Field(
+        default=False,
+        description="是否由资源 parametrize 自动生成的参数。前端应将其显示在资源区域而非参数表单中。",
     )
 
     @model_validator(mode="after")

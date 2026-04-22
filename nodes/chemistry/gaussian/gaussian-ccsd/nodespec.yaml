@@ -1,0 +1,124 @@
+# gaussian-ccsd — Gaussian 16 CCSD Single-Point
+metadata:
+  name: gaussian-ccsd
+  version: 1.0.0
+  display_name: Gaussian CCSD Single-Point
+  description: >
+    CCSD single-point energy calculation using Gaussian 16.
+    Coupled cluster with singles and doubles.
+    Produces formatted checkpoint file and total energy.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: single-point-energy
+  base_image_ref: g16
+  tags:
+    software: gaussian
+    version: "16"
+    method:
+      - CCSD
+      - single-point
+    domain:
+      - molecular
+    capabilities:
+      - single-point-energy
+    keywords:
+      - gaussian
+      - ccsd
+      - coupled-cluster
+      - post-hf
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: Molecular geometry in standard XYZ format (Angstrom).
+
+stream_outputs:
+  - name: fchk_file
+    display_name: Formatted Checkpoint File
+    io_type:
+      category: software_data_package
+      ecosystem: gaussian
+      data_type: formatted-checkpoint
+    description: Gaussian formatted checkpoint file (.fchk).
+
+  - name: total_energy
+    display_name: Total Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total CCSD electronic energy.
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: "6-31G*"
+    _shared_param: basis_sets
+
+  - name: population
+    display_name: Population Analysis
+    kind: enum
+    default: Full
+    allowed_values:
+      - Full
+      - None
+      - Minimal
+
+  - name: frozen_core
+    display_name: Frozen Core
+    kind: boolean
+    default: true
+    description: "Use frozen core approximation"
+
+onboard_outputs:
+  - name: scf_energy
+    display_name: SCF Energy (Ha)
+    kind: float
+    unit: Ha
+
+  - name: scf_converged
+    display_name: SCF Converged
+    kind: boolean
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "SCF must converge."
+
+resources:
+  cpu_cores: 4
+  mem_gb: 8.0
+  estimated_walltime_hours: 2.0
+  scratch_disk_gb: 10.0
+  parametrize:
+    - cpu_cores
+    - mem_gb
+    - estimated_walltime_hours
+
+execution:
+  environment:
+    GAUSS_SCRDIR: "/tmp"
+
+semantic_identity: >-
+  CCSD single-point energy calculation using Gaussian 16.
+
+distinguishing_ports:
+  - fchk_file
+  - total_energy
+
+rag_summary: ""

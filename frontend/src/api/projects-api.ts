@@ -18,6 +18,7 @@ export interface ProjectMeta {
   icon: string
   created_at: string
   updated_at: string
+  order: number
   canvas_node_count: number
   run_count: number
   conversation_count: number
@@ -38,6 +39,7 @@ export interface ProjectUpdateRequest {
   name?: string
   description?: string
   icon?: string
+  order?: number
 }
 
 export interface CanvasState {
@@ -104,6 +106,22 @@ export const projectsApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(name ? { name } : {}),
+    })
+  },
+
+  reorder(ids: string[]): Promise<{ reordered: number }> {
+    return fetchJSON(`${BASE}/projects/reorder`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    })
+  },
+
+  batchDelete(ids: string[]): Promise<{ deleted: string[] }> {
+    return fetchJSON(`${BASE}/projects/batch-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
     })
   },
 

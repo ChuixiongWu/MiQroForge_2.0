@@ -66,27 +66,29 @@ NodeSpec (node.py)
 | `gpu_type` | `str \| None` | GPU 型号要求，如 `nvidia-a100` |
 | `scratch_disk_gb` | `float ≥ 0`，默认 0 | 临时磁盘空间（GiB） |
 | `parallel_tasks` | `int ≥ 1`，默认 1 | MPI 并行任务数 |
-| `resource_bindings` | `dict \| None` | 资源字段→onboard input 名映射（见下方说明） |
+| `parametrize` | `list[str] \| None` | 需要参数化的资源字段列表（见下方说明） |
 
-#### resource_bindings — 资源动态绑定
+#### parametrize — 资源参数化
 
 **解决的问题**：`n_cores` 改为 8，ORCA PAL 用 8 核，但 Argo pod 仍只分配 4 核 → 资源争抢/OOM。
 
-**工作原理**：`resource_bindings` 是一个**资源字段名列表**，告诉编译器"编译时用 onboard input 的值覆盖对应的静态资源声明"。每个字段对应的 onboard input 名称（`param_name`）和默认属性由 `nodes/schemas/resource_defaults.yaml` 统一定义，nodespec 无需重复声明。
+**工作原理**：`parametrize` 是一个**资源字段名列表**，告诉编译器"编译时用 onboard input 的值覆盖对应的静态资源声明"。每个字段对应的 onboard input 名称（`param_name`）和默认属性由 `nodes/schemas/resource_defaults.yaml` 统一定义，nodespec 无需重复声明。
 
 ```yaml
 resources:
   type: compute
   cpu_cores: 4         # 静态默认值，同时作为自动注入的 n_cores 的 default
   memory_gb: 8.0
+  mem_gb: 8.0          # 应用层内存（如 Gaussian %mem）
   estimated_walltime_hours: 2.0
   parallel_tasks: 4
-  resource_bindings:
+  parametrize:
     - cpu_cores        # → resource_defaults.yaml 定义 param_name: n_cores
     - parallel_tasks   # → 同样映射到 n_cores，不重复注入
+    - mem_gb           # → resource_defaults.yaml 定义 param_name: mem_gb
 ```
 
-`resource_defaults.yaml` 定义了 `cpu_cores` 和 `parallel_tasks` 都使用 `param_name: n_cores`，所以两条 binding 只生成一个 `OnBoardInput(name="n_cores", kind=integer, default=4)`。
+`resource_defaults.yaml` 定义了 `cpu_cores` 和 `parallel_tasks` 都使用 `param_name: n_cores`，所以两条 binding 只生成一个 `OnBoardInput(name="n_cores", kind=integer, default=4, resource_param=True)`。
 
 如果需要自定义（如改 `max_value`），在 `onboard_inputs` 中手动声明同名参数，自动注入会跳过已存在的参数。
 
@@ -97,8 +99,9 @@ resources:
 4. Argo 提交 → pod 分配 8 核，ORCA PAL 也跑 8 进程，两边一致 ✓
 
 约束（Schema 在加载 nodespec.yaml 时自动校验）：
-- 列表中每项必须是 `ComputeResources` 的有效字段名（`cpu_cores`、`memory_gb`、`gpu_count` 等）
+- 列表中每项必须是 `ComputeResources` 的有效字段名（`cpu_cores`、`memory_gb`、`mem_gb`、`gpu_count` 等）
 - 被绑定的 onboard input 的 `kind` 必须为 `integer` 或 `float`
+- 自动注入的 onboard input 带有 `resource_param: true`，前端会将其显示在资源区域
 
 ### LightweightResources（轻量节点，均有默认值）
 
@@ -139,7 +142,7 @@ resources:
                                        → NO  → string
 ```
 
-> **注意**：`integer` 和 `float` 可被 `resource_bindings` 自动注入（如 `cpu_cores: n_cores` 会自动生成 `n_cores` 输入）。
+> **注意**：`integer` 和 `float` 可被 `parametrize` 自动注入（如 `cpu_cores: n_cores` 会自动生成 `n_cores` 输入）。
 > `boolean` 是 `OnBoardOutput` 中 `quality_gate: true` 的唯一合法 kind。
 
 ### `default` — 必填/可选规则
@@ -157,7 +160,7 @@ onboard_inputs:
     kind: textarea
     description: "分子坐标（XYZ 格式），或 workspace 文件名（如 h2o.xyz）"
 
-  # 注意：n_cores 不需要手动声明 — resource_bindings 会自动生成
+  # 注意：n_cores 不需要手动声明 — parametrize 会自动生成
   # 如果需要覆盖自动生成的属性（如改 max_value），可手动声明
 
   # 枚举，必须有 allowed_values
@@ -377,7 +380,7 @@ kubectl get pvc mf-workspace -n miqroforge-v2  # 应显示 Bound
    bash scripts/mf2.sh nodes reindex
    ```
 
-5. **添加 Schema 校验测试**（`tests/unit/test_orca_nodes.py` 可作参考）
+5. **添加 Schema 校验测试**（`tests/unit/test_orca_nodes.py`、`test_gaussian_nodes.py`、`test_psi4_nodes.py`、`test_cp2k_nodes.py` 可作参考）
 
 > **量子节点例外**：`nodes/quantum/` 中的节点始终由领域专家手动编写和审核，不引入 Agent 生成。
 

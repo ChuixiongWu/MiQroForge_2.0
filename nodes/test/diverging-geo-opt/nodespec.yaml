@@ -108,7 +108,7 @@ onboard_outputs:
 
 resources:
   cpu_cores: 1
-  memory_gb: 0.5
+  mem_gb: 0.5
   estimated_walltime_hours: 0.01
   gpu_count: 0
 

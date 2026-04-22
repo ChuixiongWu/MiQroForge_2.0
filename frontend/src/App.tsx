@@ -12,8 +12,10 @@ import { RunsPanel } from './components/runs/RunsPanel'
 import { FilesPanel } from './components/files/FilesPanel'
 import { SettingsPanel } from './components/settings/SettingsPanel'
 import { UnitsPage } from './components/docs/UnitsPage'
+import { SharedParamsPage } from './components/docs/SharedParamsPage'
 import { ChatPanel } from './components/chat/ChatPanel'
 import { ProjectGallery } from './pages/ProjectGallery'
+import { NodeRepository } from './pages/NodeRepository'
 import { useUIStore } from './stores/ui-store'
 import { useAgentStore } from './stores/agent-store'
 import { setSavedWorkflowsProjectId } from './stores/saved-workflows-store'
@@ -21,6 +23,7 @@ import { useProjectStore } from './stores/project-store'
 import { useWorkflowStore } from './stores/workflow-store'
 import { nodesApi } from './api/nodes-api'
 import { setSemanticRegistry } from './lib/semantic-labels'
+import { loadGlobalPrefs, setPreferenceProjectId } from './lib/node-preferences'
 import { useRunOverlayPolling } from './hooks/useRunOverlayPolling'
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts'
 
@@ -55,13 +58,6 @@ function CanvasLayout() {
   // Mount global keyboard shortcuts
   useGlobalShortcuts()
 
-  // Load semantic registry from API on startup
-  useEffect(() => {
-    nodesApi.semanticRegistry()
-      .then((data) => setSemanticRegistry(data.types))
-      .catch(() => { /* silently fall back to hardcoded labels */ })
-  }, [])
-
   // Load project and canvas data when projectId changes
   useEffect(() => {
     if (!projectId) return
@@ -69,6 +65,7 @@ function CanvasLayout() {
     let cancelled = false
     setSavedWorkflowsProjectId(projectId)
     useWorkflowStore.getState().setProjectId(projectId)
+    setPreferenceProjectId(projectId)
     ;(async () => {
       await loadProject(projectId)
       if (cancelled) return
@@ -143,19 +140,35 @@ function CanvasLayout() {
 
 // ─── App root ─────────────────────────────────────────────────────────────────
 
+function AppRoutes() {
+  // Load semantic registry + global prefs once at app startup (all routes)
+  useEffect(() => {
+    nodesApi.semanticRegistry()
+      .then((data) => setSemanticRegistry(data.types))
+      .catch(() => { /* silently fall back to hardcoded labels */ })
+    loadGlobalPrefs()
+  }, [])
+
+  return (
+    <Routes>
+      <Route path="/" element={<ProjectGallery />} />
+      <Route path="/project/:projectId" element={
+        <ReactFlowProvider>
+          <CanvasLayout />
+        </ReactFlowProvider>
+      } />
+      <Route path="/ref/units" element={<UnitsPage />} />
+      <Route path="/ref/shared-params" element={<SharedParamsPage />} />
+      <Route path="/node-repository" element={<NodeRepository />} />
+    </Routes>
+  )
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<ProjectGallery />} />
-          <Route path="/project/:projectId" element={
-            <ReactFlowProvider>
-              <CanvasLayout />
-            </ReactFlowProvider>
-          } />
-          <Route path="/ref/units" element={<UnitsPage />} />
-        </Routes>
+        <AppRoutes />
       </BrowserRouter>
     </QueryClientProvider>
   )

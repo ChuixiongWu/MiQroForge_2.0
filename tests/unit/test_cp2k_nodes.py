@@ -98,7 +98,7 @@ class TestCP2KSinglePoint:
         """CP2K 周期性 DFT 需要比 ORCA 分子 DFT 更多的内存。"""
         res = cp2k_nodes["single-point"].resources
         assert isinstance(res, ComputeResources)
-        assert res.memory_gb >= 16.0
+        assert res.mem_gb >= 16.0
 
 
 class TestCP2KGeoOpt:

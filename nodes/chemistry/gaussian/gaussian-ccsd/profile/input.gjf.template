@@ -1,0 +1,10 @@
+%chk=input.chk
+%mem=${mem_mb}MB
+%nprocshared=${n_cores}
+#p CCSD/${basis_set} Pop=${population} ${fc_kw}
+
+CCSD single-point energy calculation
+
+${charge} ${multiplicity}
+${geometry_lines}
+

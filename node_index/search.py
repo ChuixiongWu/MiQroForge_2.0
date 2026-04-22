@@ -32,7 +32,7 @@ def search_nodes(
         按相关性排序的 NodeIndexEntry 列表。
     """
     if not query.strip():
-        return list(index.entries[:max_results])
+        return list(index.entries)
 
     # 拆分关键词并转小写
     keywords = [kw.lower() for kw in query.strip().split() if kw]

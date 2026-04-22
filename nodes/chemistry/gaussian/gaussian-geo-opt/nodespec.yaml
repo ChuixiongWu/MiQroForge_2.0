@@ -101,16 +101,6 @@ onboard_inputs:
       - None
       - Minimal
 
-  - name: mem_gb
-    display_name: Memory (GB)
-    kind: float
-    default: 4.0
-    min_value: 1.0
-    max_value: 256.0
-    description: >
-      Gaussian 内存限制（%mem 指令）。应小于 K8s Pod 分配的 resources.memory_gb，
-      以留出 OS/Python/缓存的余量。
-
   - name: max_iter
     display_name: Max Optimization Steps
     kind: integer
@@ -140,11 +130,13 @@ onboard_outputs:
 
 resources:
   cpu_cores: 4
-  memory_gb: 8.0
+  mem_gb: 8.0
   estimated_walltime_hours: 1.5
   scratch_disk_gb: 10.0
-  resource_bindings:
+  parametrize:
     - cpu_cores
+    - mem_gb
+    - estimated_walltime_hours
 
 execution:
   environment:

@@ -13,8 +13,12 @@ types:
     description: "Harmonic vibrational frequency calculation at a stationary point."
     domain: computational-chemistry
   single-point-energy:
-    display_name: Single-Point Energy
-    description: "Electronic energy calculation at a fixed geometry."
+    display_name: "Single Energy [mol]"
+    description: "Electronic energy at a fixed molecular geometry. Supports HF, DFT, MP2, CCSD, CASCI, TD-DFT."
+    domain: computational-chemistry
+  crystal-single-point-energy:
+    display_name: "Single Energy [crystal]"
+    description: "Periodic DFT energy for crystal/slab/bulk with PBC. Plane-wave or GPW methods."
     domain: computational-chemistry
   cell-optimization:
     display_name: Cell Optimization

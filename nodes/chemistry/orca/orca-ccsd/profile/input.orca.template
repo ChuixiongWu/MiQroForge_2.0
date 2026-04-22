@@ -1,0 +1,8 @@
+! CCSD ${basis_set} ${fc_kw}Mulliken
+%pal nprocs $n_cores end
+%maxcore 2000
+%scf
+  maxiter 150
+end
+
+* xyzfile $charge $multiplicity input.xyz

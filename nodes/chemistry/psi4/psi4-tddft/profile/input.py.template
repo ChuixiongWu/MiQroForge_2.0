@@ -1,0 +1,35 @@
+import psi4
+
+psi4.set_memory('${mem_mb} MB')
+psi4.set_num_threads(${n_cores})
+
+mol = psi4.geometry("""
+${charge} ${multiplicity}
+${geometry_lines}
+symmetry c1
+""")
+
+# Build method string with optional dispersion correction
+method_str = '${functional}'
+dispersion = '${dispersion}'
+if dispersion and dispersion != 'none':
+    suffix_map = {'D3': '-d3', 'D3BJ': '-d3bj', 'D4': '-d4'}
+    method_str += suffix_map.get(dispersion, '')
+
+psi4.set_options({
+    'basis': '${basis_set}',
+    'reference': '${reference}',
+    'scf_type': '${scf_type}',
+    'roots_per_irrep': [${n_states}],
+})
+
+energy, wfn = psi4.properties(
+    f'{method_str}/${basis_set}',
+    molecule=mol,
+    properties=['tdscf_excitation_energies'],
+    return_wfn=True,
+)
+
+wfn.to_file('${output_dir}/wavefunction.json')
+
+print(f"FINAL ENERGY: {energy}")

@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { Plus, Package, BookOpen, Ruler, ExternalLink, Settings, Trash2 } from 'lucide-react'
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { ProjectCard } from '../components/gallery/ProjectCard'
 import { projectsApi } from '../api/projects-api'
 import type { ProjectMeta } from '../api/projects-api'
@@ -14,8 +16,12 @@ async function tryMigrateOldData(): Promise<boolean> {
   if (!hasOldKeys) return false
 
   // Check that there are no existing projects
-  const { projects } = await projectsApi.list()
-  if (projects.length > 0) {
+  let existing: ProjectMeta[] = []
+  try {
+    const resp = await projectsApi.list()
+    existing = resp.projects
+  } catch { return false }
+  if (existing.length > 0) {
     // Projects already exist — just clean up old keys
     for (const key of OLD_KEYS) localStorage.removeItem(key)
     return false
@@ -62,6 +68,60 @@ async function tryMigrateOldData(): Promise<boolean> {
   return true
 }
 
+// ─── Ref dropdown ────────────────────────────────────────────────────────────
+
+const REF_PAGES = [
+  { path: '/ref/shared-params', icon: <BookOpen size={13} />, label: 'Shared Params' },
+  { path: '/ref/units', icon: <Ruler size={13} />, label: 'Units Reference' },
+]
+
+function RefDropdown() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-mf-border rounded-md transition-colors ${
+          open
+            ? 'bg-blue-600 text-white border-blue-600'
+            : 'text-mf-text-secondary hover:text-mf-text-primary hover:bg-mf-hover'
+        }`}
+      >
+        <BookOpen size={14} /> Refs
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-48 bg-mf-panel border border-mf-border rounded-md shadow-lg z-50 py-1">
+          {REF_PAGES.map((page) => (
+            <a
+              key={page.path}
+              href={page.path}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs text-mf-text-secondary hover:text-mf-text-primary hover:bg-mf-hover transition-colors"
+            >
+              {page.icon}
+              {page.label}
+              <ExternalLink size={10} className="ml-auto text-mf-text-muted" />
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Gallery page ─────────────────────────────────────────────────────────────
 
 export function ProjectGallery() {
@@ -69,6 +129,12 @@ export function ProjectGallery() {
   const [projects, setProjects] = useState<ProjectMeta[]>([])
   const [loading, setLoading] = useState(true)
   const [migrated, setMigrated] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  )
 
   const fetchProjects = useCallback(async () => {
     try {
@@ -136,6 +202,38 @@ export function ProjectGallery() {
     } catch { /* ignore */ }
   }
 
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = projects.findIndex((p) => p.id === active.id)
+    const newIndex = projects.findIndex((p) => p.id === over.id)
+    const newOrder = arrayMove(projects, oldIndex, newIndex)
+    setProjects(newOrder)
+    try {
+      await projectsApi.reorder(newOrder.map((p) => p.id))
+    } catch { /* ignore */ }
+  }
+
+  const toggleSelect = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return
+    if (!confirm(`Delete ${selectedIds.size} project(s)? This cannot be undone.`)) return
+    const ids = Array.from(selectedIds)
+    try {
+      await projectsApi.batchDelete(ids)
+      setProjects((prev) => prev.filter((p) => !selectedIds.has(p.id)))
+      setSelectedIds(new Set())
+    } catch { /* ignore */ }
+  }
+
   return (
     <div className="min-h-screen bg-mf-base flex flex-col">
       {/* Header */}
@@ -146,12 +244,31 @@ export function ProjectGallery() {
           <span className="text-[10px] text-mf-text-muted border border-mf-border rounded px-1">2.0</span>
         </div>
         <div className="flex-1" />
+        <div className="flex items-center gap-3">
+          <RefDropdown />
+        <a
+          href="/node-repository"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-mf-text-secondary hover:text-mf-text-primary border border-mf-border rounded-md hover:bg-mf-hover transition-colors"
+        >
+          <Package size={14} /> Node Repository
+        </a>
+        <button
+          onClick={() => { setEditMode(!editMode); setSelectedIds(new Set()) }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-md transition-colors ${
+            editMode
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'text-mf-text-secondary hover:text-mf-text-primary border-mf-border hover:bg-mf-hover'
+          }`}
+        >
+          <Settings size={14} /> {editMode ? 'Done' : 'Edit'}
+        </button>
         <button
           onClick={handleCreate}
           className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-md transition-colors"
         >
           <Plus size={14} /> New Project
         </button>
+        </div>
       </div>
 
       {/* Migration banner */}
@@ -181,19 +298,40 @@ export function ProjectGallery() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {projects.map((p) => (
-              <ProjectCard
-                key={p.id}
-                project={p}
-                onOpen={() => navigate(`/project/${p.id}`)}
-                onRename={(name) => handleRename(p.id, name)}
-                onIconChange={(icon) => handleIconChange(p.id, icon)}
-                onDescriptionChange={(desc) => handleDescriptionChange(p.id, desc)}
-                onDuplicate={() => handleDuplicate(p.id)}
-                onDelete={() => handleDelete(p.id)}
-              />
-            ))}
+          <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={projects.map((p) => p.id)} strategy={rectSortingStrategy}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {projects.map((p) => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    onOpen={() => navigate(`/project/${p.id}`)}
+                    onRename={(name) => handleRename(p.id, name)}
+                    onIconChange={(icon) => handleIconChange(p.id, icon)}
+                    onDescriptionChange={(desc) => handleDescriptionChange(p.id, desc)}
+                    onDuplicate={() => handleDuplicate(p.id)}
+                    onDelete={() => handleDelete(p.id)}
+                    editMode={editMode}
+                    selected={selectedIds.has(p.id)}
+                    onSelect={(checked) => toggleSelect(p.id, checked)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        )}
+        {/* Batch delete bar */}
+        {editMode && selectedIds.size > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-mf-card border border-mf-border rounded-lg shadow-xl px-4 py-2.5 flex items-center gap-3 z-50">
+            <span className="text-xs text-mf-text-secondary">
+              {selectedIds.size} selected
+            </span>
+            <button
+              onClick={handleBatchDelete}
+              className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-red-400 hover:text-red-300 bg-red-900/30 hover:bg-red-900/50 border border-red-700/50 rounded transition-colors"
+            >
+              <Trash2 size={12} /> Delete Selected
+            </button>
           </div>
         )}
       </div>

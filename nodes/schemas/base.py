@@ -114,6 +114,13 @@ class NodeMetadata(BaseModel):
             "关联的 BaseImageRegistry 条目名称（仅 compute 节点必填）。"
         ),
     )
+    deprecated: bool = Field(
+        default=False,
+        description=(
+            "标记节点为已废弃。deprecated 节点在 Palette 中默认隐藏，"
+            "但已有的工作流仍可加载和校验。"
+        ),
+    )
 
     # ── 校验器 ──────────────────────────────────────────────────────────────
 

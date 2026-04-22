@@ -151,13 +151,14 @@ onboard_outputs:
 
 resources:
   cpu_cores: 4
-  memory_gb: 8.0
+  mem_gb: 8.0
   estimated_walltime_hours: 2.0
   scratch_disk_gb: 20.0
   parallel_tasks: 4
-  resource_bindings:
+  parametrize:
     - cpu_cores
     - parallel_tasks
+    - estimated_walltime_hours
 
 execution: {}
 

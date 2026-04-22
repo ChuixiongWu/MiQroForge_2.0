@@ -46,6 +46,10 @@ class OnBoardInputSummary(BaseModel):
         default=False,
         description="是否支持多输入模式（parallel sweep）。",
     )
+    resource_param: bool = Field(
+        default=False,
+        description="是否由资源 parametrize 自动生成的参数。",
+    )
 
 
 class OnBoardOutputSummary(BaseModel):
@@ -73,6 +77,7 @@ class NodeIndexEntry(BaseModel):
     base_image_ref: Optional[str] = Field(default=None, description="基础镜像引用")
     nodespec_path: str = Field(..., description="nodespec.yaml 相对于项目根目录的路径")
     source: str = Field(default="system", description="节点来源：system（系统内置）| user（AI 生成或用户自定义）")
+    deprecated: bool = Field(default=False, description="是否已废弃")
 
     # 标签
     software: Optional[str] = Field(default=None, description="底层计算软件")
@@ -86,6 +91,11 @@ class NodeIndexEntry(BaseModel):
     # 资源摘要（供节点卡片底栏显示）
     resources_cpu: float = Field(default=0.0, description="CPU 核数")
     resources_memory_gb: float = Field(default=0.0, description="内存 GiB")
+    resources_mem_gb: Optional[float] = Field(default=None, description="应用层内存 GiB")
+    resources_gpu: float = Field(default=0.0, description="GPU 数量")
+    resources_walltime_hours: float = Field(default=0.0, description="预估运行时长（小时）")
+    resources_scratch_disk_gb: float = Field(default=0.0, description="临时磁盘空间 GiB")
+    resources_parallel_tasks: int = Field(default=1, description="MPI 并行任务数")
 
     # Stream 端口摘要
     stream_inputs: list[PortSummary] = Field(default_factory=list)

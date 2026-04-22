@@ -211,6 +211,7 @@ def _spec_to_entry(
             max_value=p.max_value,
             unit=p.unit,
             multiple_input=p.multiple_input,
+            resource_param=p.resource_param,
         )
         for p in spec.onboard_inputs
     ]
@@ -230,6 +231,23 @@ def _spec_to_entry(
         for o in spec.onboard_outputs
     ]
 
+    # 资源摘要（ComputeResources 可能有额外字段）
+    from nodes.schemas.resources import ComputeResources, LightweightResources
+    res = spec.resources
+    res_mem_gb = getattr(res, "mem_gb", None)
+    res_mem_overhead = float(getattr(res, "mem_overhead", 0))
+    res_gpu = float(getattr(res, "gpu_count", 0))
+    res_walltime = float(getattr(res, "estimated_walltime_hours", 0))
+    res_scratch = float(getattr(res, "scratch_disk_gb", 0))
+    res_parallel = int(getattr(res, "parallel_tasks", 1))
+
+    # resources_memory_gb = pod memory: Compute uses mem_gb + mem_overhead;
+    # Lightweight still has memory_gb field directly
+    if isinstance(res, ComputeResources):
+        res_memory_gb = float(res_mem_gb) + res_mem_overhead if res_mem_gb is not None else 0.0
+    else:
+        res_memory_gb = float(res.memory_gb)
+
     return NodeIndexEntry(
         name=m.name,
         version=m.version,
@@ -240,6 +258,7 @@ def _spec_to_entry(
         base_image_ref=m.base_image_ref,
         nodespec_path=nodespec_path,
         source=source,
+        deprecated=m.deprecated,
         software=m.tags.software,
         semantic_type=m.semantic_type,
         semantic_display_name=semantic_display_name,
@@ -247,8 +266,13 @@ def _spec_to_entry(
         domains=m.tags.domain,
         capabilities=m.tags.capabilities,
         keywords=m.tags.keywords,
-        resources_cpu=float(spec.resources.cpu_cores),
-        resources_memory_gb=float(spec.resources.memory_gb),
+        resources_cpu=float(res.cpu_cores),
+        resources_memory_gb=res_memory_gb,
+        resources_mem_gb=float(res_mem_gb) if res_mem_gb is not None else None,
+        resources_gpu=res_gpu,
+        resources_walltime_hours=res_walltime,
+        resources_scratch_disk_gb=res_scratch,
+        resources_parallel_tasks=res_parallel,
         stream_inputs=stream_inputs,
         stream_outputs=stream_outputs,
         onboard_inputs=onboard_inputs,

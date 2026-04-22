@@ -1,7 +1,7 @@
 # ===========================================================================
-# Resource Defaults — auto-generated OnBoardInput definitions for resource_bindings
+# Resource Defaults — auto-generated OnBoardInput definitions for parametrize
 #
-# When a nodespec declares resource_bindings as a list of resource field names,
+# When a nodespec declares parametrize as a list of resource field names,
 # the system automatically generates a corresponding OnBoardInput for each.
 #
 # Key   = resource field name in ComputeResources (e.g. cpu_cores, memory_gb)
@@ -23,15 +23,16 @@ cpu_cores:
     Number of CPU cores allocated to this computation.
     Determines both pod resource request and parallel processes (PALn).
 
-memory_gb:
-  param_name: memory_gb
-  display_name: Memory (GB)
+mem_overhead:
+  param_name: mem_overhead
+  display_name: Memory Overhead (GB)
   kind: float
-  min_value: 0.5
-  max_value: 512.0
+  min_value: 0.0
+  max_value: 256.0
   unit: GB
   description: >
-    Memory in GiB allocated to the computation pod.
+    Extra pod memory beyond app memory (mem_gb + overhead = pod allocation).
+    Most nodes use 0; Psi4 uses ~4 GB for Python/C++/scratch overhead.
 
 gpu_count:
   param_name: gpu_count
@@ -57,3 +58,23 @@ scratch_disk_gb:
   max_value: 1000.0
   unit: GB
   description: Temporary disk space in GiB for intermediate files.
+
+mem_gb:
+  param_name: mem_gb
+  display_name: App Memory (GB)
+  kind: float
+  min_value: 0.5
+  max_value: 512.0
+  unit: GB
+  description: >
+    Application-level memory passed to the computation software
+    (e.g. Gaussian %mem, Psi4 set_memory).
+
+estimated_walltime_hours:
+  param_name: walltime_hours
+  display_name: Walltime (hours)
+  kind: float
+  min_value: 0.01
+  max_value: 720.0
+  unit: hours
+  description: Estimated maximum wall-clock time.

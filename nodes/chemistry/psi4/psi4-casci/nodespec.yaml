@@ -1,0 +1,156 @@
+# ===========================================================================
+# psi4-casci — Psi4 CASCI Single-Point
+#
+# 使用 Psi4 进行 CASSCF/CASCI 单点能量计算（多参考方法）。
+# Psi4 使用 DETCI 模块实现 CASSCF，包含完整的活性空间 CI。
+# ===========================================================================
+
+metadata:
+  name: psi4-casci
+  version: 1.0.0
+  display_name: Psi4 CASCI Single-Point
+  description: >
+    CASCI (Complete Active Space Configuration Interaction) single-point
+    energy calculation using Psi4 via the DETCI/CASSCF module.
+    Supports customizable active space definition.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: single-point-energy
+  base_image_ref: psi4-1.10
+  tags:
+    software: psi4
+    version: "1.10"
+    method:
+      - CASCI
+      - single-point
+      - multireference
+    domain:
+      - molecular
+      - thermochemistry
+    capabilities:
+      - single-point-energy
+      - multireference
+    keywords:
+      - psi4
+      - casci
+      - casscf
+      - multireference
+      - active-space
+      - open-source
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: Molecular geometry in standard XYZ format (Angstrom).
+
+stream_outputs:
+  - name: total_energy
+    display_name: Total Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total CASCI/CASSCF electronic energy.
+
+  - name: wavefunction_data
+    display_name: Wavefunction Data
+    io_type:
+      category: software_data_package
+      ecosystem: psi4
+      data_type: wavefunction
+    description: Psi4 wavefunction data (JSON serialized).
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: cc-pVDZ
+    _shared_param: basis_sets
+
+  - name: reference
+    display_name: SCF Reference
+    kind: enum
+    default: rhf
+    allowed_values:
+      - rhf
+      - uhf
+      - rohf
+
+  - name: scf_type
+    display_name: SCF Algorithm
+    kind: enum
+    default: pk
+    allowed_values:
+      - pk
+      - direct
+      - df
+
+  - name: active_electrons
+    display_name: Active Electrons
+    kind: integer
+    default: 2
+    min_value: 0
+    description: Number of active electrons for the CASCI active space.
+
+  - name: active_orbitals
+    display_name: Active Orbitals
+    kind: integer
+    default: 2
+    min_value: 1
+    description: Number of active orbitals for the CASCI active space.
+
+onboard_outputs:
+  - name: scf_energy
+    display_name: SCF Energy (Ha)
+    kind: float
+    unit: Ha
+
+  - name: scf_iterations
+    display_name: SCF Iterations
+    kind: integer
+
+  - name: scf_converged
+    display_name: SCF Converged
+    kind: boolean
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "SCF must converge for the CASCI energy to be meaningful."
+
+resources:
+  cpu_cores: 4
+  mem_gb: 4.0
+  mem_overhead: 4.0
+  estimated_walltime_hours: 1.0
+  scratch_disk_gb: 10.0
+  parallel_tasks: 4
+  parametrize:
+    - cpu_cores
+    - parallel_tasks
+    - mem_gb
+    - estimated_walltime_hours
+
+execution: {}
+
+semantic_identity: >-
+  CASCI single-point energy calculation using Psi4 via the DETCI/CASSCF module.
+
+distinguishing_ports:
+  - total_energy
+
+rag_summary: ""

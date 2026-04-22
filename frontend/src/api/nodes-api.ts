@@ -40,4 +40,16 @@ export const nodesApi = {
   semanticRegistry(): Promise<SemanticRegistryResponse> {
     return fetchJSON(`${BASE}/nodes/semantic-registry`)
   },
+
+  getPreferences(): Promise<{ version: string; node_preferences: Record<string, { collapsed_params: string[]; hidden_params: string[] }> }> {
+    return fetchJSON(`${BASE}/nodes/preferences`)
+  },
+
+  putPreferences(body: { node_preferences: Record<string, { collapsed_params: string[]; hidden_params: string[] }> }): Promise<{ version: string; node_preferences: Record<string, { collapsed_params: string[]; hidden_params: string[] }> }> {
+    return fetchJSON(`${BASE}/nodes/preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  },
 }

@@ -21,7 +21,7 @@ import { nodesApi } from '../../api/nodes-api'
 import {
   CheckCircle, AlertCircle,
   FileDown, FileUp, Trash2, Save, FolderOpen, ExternalLink, Settings, Activity, PlayCircle,
-  BookOpen, Ruler, MessageSquare,
+  MessageSquare,
 } from 'lucide-react'
 import type { RightPanel } from '../../stores/ui-store'
 import type { RunPhase } from '../../types/index-types'
@@ -437,8 +437,6 @@ export function TopBar() {
             {item.icon} {item.label}
           </button>
         ))}
-        <div className="w-px h-4 bg-mf-border mx-0.5" />
-        <RefMenu />
       </div>
 
       {/* Argo UI link — only shown when backend provides the URL */}
@@ -456,62 +454,6 @@ export function TopBar() {
             Argo UI
           </a>
         </>
-      )}
-    </div>
-  )
-}
-
-// ─── Ref dropdown menu ───────────────────────────────────────────────────────
-
-const REF_PAGES = [
-  { path: '/ref/units', icon: <Ruler size={13} />, label: 'Units Reference' },
-]
-
-function RefMenu() {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
-          open
-            ? 'bg-blue-600 text-white'
-            : 'text-mf-text-muted hover:text-mf-text-primary hover:bg-mf-hover'
-        }`}
-        title="Reference pages (open in new tab)"
-      >
-        <BookOpen size={14} /> Ref
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-full mt-1 w-48 bg-mf-panel border border-mf-border rounded-md shadow-lg z-50 py-1">
-          {REF_PAGES.map((page) => (
-            <a
-              key={page.path}
-              href={page.path}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs text-mf-text-secondary hover:text-mf-text-primary hover:bg-mf-hover transition-colors"
-            >
-              {page.icon}
-              {page.label}
-              <ExternalLink size={10} className="ml-auto text-mf-text-muted" />
-            </a>
-          ))}
-        </div>
       )}
     </div>
   )

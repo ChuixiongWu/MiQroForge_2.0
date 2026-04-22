@@ -1,0 +1,10 @@
+%chk=input.chk
+%mem=${mem_mb}MB
+%nprocshared=${n_cores}
+#p TD(NStates=${n_states}) ${method_kw}/${basis_set} ${disp_kw}Pop=${population}
+
+TD-DFT excited-state calculation
+
+${charge} ${multiplicity}
+${geometry_lines}
+

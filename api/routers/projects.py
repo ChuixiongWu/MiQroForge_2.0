@@ -15,10 +15,12 @@ from api.models.projects import (
     ConversationCreateRequest,
     ConversationDetail,
     ConversationMeta,
+    ProjectBatchDeleteRequest,
     ProjectCreateRequest,
     ProjectDuplicateRequest,
     ProjectListResponse,
     ProjectMeta,
+    ProjectReorderRequest,
     ProjectUpdateRequest,
     SnapshotListResponse,
     SnapshotMeta,
@@ -66,7 +68,7 @@ def get_project(project_id: str):
 @router.patch("/{project_id}", response_model=ProjectMeta)
 def update_project(project_id: str, req: ProjectUpdateRequest):
     svc = _get_svc()
-    meta = svc.update_project(project_id, name=req.name, description=req.description, icon=req.icon)
+    meta = svc.update_project(project_id, name=req.name, description=req.description, icon=req.icon, order=req.order)
     if meta is None:
         raise HTTPException(404, f"Project '{project_id}' not found")
     return meta
@@ -89,6 +91,20 @@ def duplicate_project(project_id: str, req: ProjectDuplicateRequest | None = Non
     if meta is None:
         raise HTTPException(404, f"Project '{project_id}' not found")
     return meta
+
+
+@router.put("/reorder")
+def reorder_projects(req: ProjectReorderRequest):
+    svc = _get_svc()
+    svc.reorder_projects(req.ids)
+    return {"reordered": len(req.ids)}
+
+
+@router.post("/batch-delete")
+def batch_delete_projects(req: ProjectBatchDeleteRequest):
+    svc = _get_svc()
+    deleted = svc.batch_delete_projects(req.ids)
+    return {"deleted": deleted}
 
 
 # ── Canvas ────────────────────────────────────────────────────────────────────

@@ -1,0 +1,10 @@
+%chk=input.chk
+%mem=${mem_mb}MB
+%nprocshared=${n_cores}
+#p HF/${basis_set} Pop=${population}
+
+Hartree-Fock single-point
+
+${charge} ${multiplicity}
+${geometry_lines}
+

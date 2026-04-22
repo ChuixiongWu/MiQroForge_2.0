@@ -92,7 +92,7 @@ onboard_outputs:
   gate_description: "Geometry optimization must converge before frequency analysis."
 resources:
   cpu_cores: 1
-  memory_gb: 0.5
+  mem_gb: 0.5
   estimated_walltime_hours: 0.01
   gpu_count: 0
 execution:

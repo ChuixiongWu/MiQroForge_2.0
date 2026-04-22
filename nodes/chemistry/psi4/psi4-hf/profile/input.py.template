@@ -1,0 +1,22 @@
+import psi4
+
+psi4.set_memory('${mem_mb} MB')
+psi4.set_num_threads(${n_cores})
+
+mol = psi4.geometry("""
+${charge} ${multiplicity}
+${geometry_lines}
+symmetry c1
+""")
+
+psi4.set_options({
+    'basis': '${basis_set}',
+    'reference': '${reference}',
+    'scf_type': '${scf_type}',
+})
+
+energy, wfn = psi4.energy('hf/${basis_set}', molecule=mol, return_wfn=True)
+
+wfn.to_file('${output_dir}/wavefunction.json')
+
+print(f"FINAL ENERGY: {energy}")

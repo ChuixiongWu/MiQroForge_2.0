@@ -81,7 +81,7 @@ def cmd_reindex() -> int:
     return 0
 
 
-def cmd_list() -> int:
+def cmd_list(include_deprecated: bool = False) -> int:
     """列出所有索引中的节点。"""
     from .scanner import load_index
 
@@ -93,11 +93,20 @@ def cmd_list() -> int:
         print(f"  {RED}✘ {e}{NC}", file=sys.stderr)
         return 1
 
-    print(f"\n{BLUE}{BOLD}══ MF Node Catalog ({index.total_nodes} nodes) ══{NC}\n")
+    entries_all = index.entries
+    if not include_deprecated:
+        entries_all = [e for e in entries_all if not e.deprecated]
+
+    dep_count = sum(1 for e in index.entries if e.deprecated)
+    header_count = f"{len(entries_all)} nodes"
+    if dep_count and not include_deprecated:
+        header_count += f" ({dep_count} deprecated hidden)"
+
+    print(f"\n{BLUE}{BOLD}══ MF Node Catalog ({header_count}) ══{NC}\n")
 
     # 按 category 分组
     by_cat: dict[str, list] = {}
-    for entry in index.entries:
+    for entry in entries_all:
         by_cat.setdefault(entry.category, []).append(entry)
 
     for cat, entries in sorted(by_cat.items()):
@@ -107,11 +116,13 @@ def cmd_list() -> int:
             n_out = len(entry.stream_outputs)
             n_param = len(entry.onboard_inputs)
             type_badge = f"{CYAN}compute{NC}" if entry.node_type == "compute" else f"{GREEN}light{NC}"
+            dep_badge = f"  {RED}[deprecated]{NC}" if entry.deprecated else ""
             print(
                 f"    {BOLD}{entry.name}{NC} v{entry.version}"
                 f"  [{type_badge}]"
                 f"  {n_in}→{n_out} ports"
                 f"  {n_param} params"
+                f"{dep_badge}"
             )
             if entry.description:
                 desc = entry.description[:80]
@@ -123,7 +134,7 @@ def cmd_list() -> int:
     return 0
 
 
-def cmd_search(query: str) -> int:
+def cmd_search(query: str, include_deprecated: bool = False) -> int:
     """搜索节点。"""
     from .scanner import load_index
     from .search import search_nodes
@@ -137,6 +148,9 @@ def cmd_search(query: str) -> int:
         return 1
 
     results = search_nodes(index, query)
+
+    if not include_deprecated:
+        results = [r for r in results if not r.deprecated]
 
     print(f"\n{BLUE}{BOLD}══ Search: \"{query}\" — {len(results)} results ══{NC}\n")
 
@@ -199,6 +213,8 @@ def cmd_info(name: str) -> int:
     print(f"  {BOLD}Version:{NC}     {entry.version}")
     print(f"  {BOLD}Type:{NC}        {type_badge}")
     print(f"  {BOLD}Category:{NC}    {entry.category}")
+    if entry.deprecated:
+        print(f"  {BOLD}Status:{NC}      {RED}DEPRECATED{NC}")
     if entry.base_image_ref:
         print(f"  {BOLD}Base Image:{NC}  {entry.base_image_ref}")
     print(f"  {BOLD}Spec Path:{NC}   {entry.nodespec_path}")
@@ -258,29 +274,36 @@ def main() -> None:
 
 {BOLD}Usage:{NC}
   python -m node_index.cli reindex          重新扫描生成 node_index.yaml
-  python -m node_index.cli list             列出所有节点
-  python -m node_index.cli search <query>   搜索节点
+  python -m node_index.cli list [-d]        列出所有节点
+  python -m node_index.cli search <query> [-d]  搜索节点
   python -m node_index.cli info <name>      显示节点详情
+
+{BOLD}Options:{NC}
+  -d, --include-deprecated    包含已废弃的节点
 """)
         sys.exit(0)
 
-    cmd = sys.argv[1]
+    # 解析全局 flag
+    include_deprecated = "-d" in sys.argv or "--include-deprecated" in sys.argv
+    args = [a for a in sys.argv[1:] if a not in ("-d", "--include-deprecated")]
+
+    cmd = args[0] if args else ""
 
     if cmd == "reindex":
         sys.exit(cmd_reindex())
     elif cmd == "list":
-        sys.exit(cmd_list())
+        sys.exit(cmd_list(include_deprecated=include_deprecated))
     elif cmd == "search":
-        if len(sys.argv) < 3:
+        if len(args) < 2:
             print(f"  {RED}✘ 用法: python -m node_index.cli search <query>{NC}")
             sys.exit(1)
-        query = " ".join(sys.argv[2:])
-        sys.exit(cmd_search(query))
+        query = " ".join(args[1:])
+        sys.exit(cmd_search(query, include_deprecated=include_deprecated))
     elif cmd == "info":
-        if len(sys.argv) < 3:
+        if len(args) < 2:
             print(f"  {RED}✘ 用法: python -m node_index.cli info <name>{NC}")
             sys.exit(1)
-        sys.exit(cmd_info(sys.argv[2]))
+        sys.exit(cmd_info(args[1]))
     else:
         print(f"  {RED}✘ 未知命令: {cmd}{NC}")
         sys.exit(1)

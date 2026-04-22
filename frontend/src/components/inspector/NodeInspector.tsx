@@ -7,8 +7,9 @@ import type { NodeRunStatus } from '../../stores/run-overlay-store'
 import { PORT_COLORS, portCategoryLabel } from '../../lib/port-type-utils'
 import type { OnBoardOutput } from '../../types/nodespec'
 import { phaseEmoji, phaseBadgeClass, formatElapsed } from '../../lib/phase-utils'
-import { X, Cpu, MemoryStick, Clock } from 'lucide-react'
+import { X, Cpu, MemoryStick, Clock, Settings, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import { filesApi, projectFilesApi } from '../../api/files-api'
+import { getNodePrefs, saveNodePrefs, classifyParams, onGlobalPrefsChange, type NodePreference, type ParamVisibility } from '../../lib/node-preferences'
 
 // ─── Parameter form ───────────────────────────────────────────────────────────
 
@@ -16,8 +17,11 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
   const node = useWorkflowStore((s) => s.nodes.find((n) => n.id === nodeId))
   const updateNodeParams = useWorkflowStore((s) => s.updateNodeParams)
 
-  const inputs = node?.data.onboard_inputs ?? []
+  const allInputs = node?.data.onboard_inputs ?? []
+  // Filter out resource params — they are shown in the Resources section
+  const inputs = allInputs.filter((p) => !p.resource_param)
   const storedParams = node?.data.onboard_params ?? {}
+  const nodeName = node?.data.name ?? ''
 
   // Bug fix #1: fall back to nodespec defaults when onboard_params is empty
   // (happens when a second node of the same type is placed — store may not have
@@ -34,6 +38,43 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
   }, [nodeId])  // recompute only when the node changes (component is already keyed by nodeId)
 
   const { register, handleSubmit } = useForm({ defaultValues: defaults })
+
+  // ── Preference state ──
+  const [prefs, setPrefs] = React.useState<NodePreference>(() => getNodePrefs(nodeName))
+  const [showPrefPanel, setShowPrefPanel] = React.useState(false)
+
+  // Reload prefs when node changes or global prefs update
+  React.useEffect(() => {
+    setPrefs(getNodePrefs(nodeName))
+    setShowPrefPanel(false)
+  }, [nodeName])
+
+  React.useEffect(() => {
+    return onGlobalPrefsChange(() => {
+      if (nodeName) setPrefs(getNodePrefs(nodeName))
+    })
+  }, [nodeName])
+
+  const updatePref = (paramName: string, visibility: ParamVisibility) => {
+    setPrefs((prev) => {
+      const next: NodePreference = {
+        collapsedParams: prev.collapsedParams.filter((n) => n !== paramName),
+        hiddenParams: prev.hiddenParams.filter((n) => n !== paramName),
+      }
+      if (visibility === 'collapsed') next.collapsedParams.push(paramName)
+      else if (visibility === 'hidden') next.hiddenParams.push(paramName)
+      saveNodePrefs(nodeName, next)
+      return next
+    })
+  }
+
+  const visibility = React.useMemo(
+    () => classifyParams(inputs.map((p) => p.name), prefs),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [inputs.length, prefs],
+  )
+
+  const [showAllCollapsed, setShowAllCollapsed] = React.useState(false)
 
   // Track which params are in multi-input mode
   // Auto-activate if stored value is an array, or if node has parallel_sweep / sweep_values data
@@ -82,131 +123,228 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
     updateNodeParams(nodeId, data)
   }
 
-  return (
-    <form onChange={handleSubmit(onSubmit)} className="space-y-2 px-3 py-2">
-      {inputs.map((param) => (
-        <div key={param.name}>
-          <label className="block text-[11px] text-mf-text-secondary mb-0.5">
-            {param.display_name}
-            {param.default == null && <span className="text-red-400 ml-0.5">*</span>}
-            {param.unit && <span className="text-mf-text-muted ml-1">({param.unit})</span>}
-            {param.multiple_input && (
-              <button
-                type="button"
-                onClick={() => toggleMultiMode(param.name)}
-                title={multiMode[param.name]
-                  ? 'Switch back to single value mode'
-                  : 'Enable parallel sweep — enter multiple values (one per line) to fan-out execution'}
-                className={`text-[10px] ml-2 px-1.5 py-0.5 rounded border transition-colors ${
-                  multiMode[param.name]
-                    ? 'border-purple-500/60 bg-purple-900/40 text-purple-300 hover:bg-purple-900/60'
-                    : 'border-purple-700/30 bg-purple-950/30 text-purple-500 hover:border-purple-500/50 hover:text-purple-400'
-                }`}
-              >
-                {multiMode[param.name] ? '\u21A9 Single' : '\u26A1 Sweep'}
-              </button>
-            )}
-          </label>
+  // ── Render a single param row ──
+  const renderParam = (param: typeof inputs[number]) => (
+    <div key={param.name}>
+      <label className="block text-[11px] text-mf-text-secondary mb-0.5">
+        {param.display_name}
+        {param.default == null && <span className="text-red-400 ml-0.5">*</span>}
+        {param.unit && <span className="text-mf-text-muted ml-1">({param.unit})</span>}
+        {param.multiple_input && (
+          <button
+            type="button"
+            onClick={() => toggleMultiMode(param.name)}
+            title={multiMode[param.name]
+              ? 'Switch back to single value mode'
+              : 'Enable parallel sweep — enter multiple values (one per line) to fan-out execution'}
+            className={`text-[10px] ml-2 px-1.5 py-0.5 rounded border transition-colors ${
+              multiMode[param.name]
+                ? 'border-purple-500/60 bg-purple-900/40 text-purple-300 hover:bg-purple-900/60'
+                : 'border-purple-700/30 bg-purple-950/30 text-purple-500 hover:border-purple-500/50 hover:text-purple-400'
+            }`}
+          >
+            {multiMode[param.name] ? '\u21A9 Single' : '\u26A1 Sweep'}
+          </button>
+        )}
+      </label>
 
-          {param.multiple_input && multiMode[param.name] ? (
-            // Sweep mode: Values + Pattern
-            <div className="space-y-1.5">
-              {/* Values textarea */}
-              <div>
-                <label className="block text-[10px] text-purple-400/80 mb-0.5">Values</label>
-                <textarea
-                  rows={3}
-                  {...register(`${param.name}__sweep_values`)}
-                  placeholder={'0.5\n0.6\n0.7'}
-                  defaultValue={
-                    node?.data.sweep_values
-                      ? (node.data.sweep_values as unknown[]).join('\n')
-                      : Array.isArray(storedParams[param.name])
-                        ? (storedParams[param.name] as string[]).join('\n')
-                        : ''
-                  }
-                  className="w-full px-2 py-1 bg-mf-input border border-purple-700/40 rounded text-xs text-mf-text-primary focus:outline-none focus:border-purple-500 font-mono resize-y"
-                />
-                <p className="text-[10px] text-mf-text-muted mt-0.5">
-                  One value per line or comma-separated.
-                </p>
-              </div>
-              {/* Pattern input */}
-              <div>
-                <label className="block text-[10px] text-purple-400/80 mb-0.5">Pattern</label>
-                <input
-                  type="text"
-                  {...register(param.name)}
-                  placeholder={param.name === 'geometry_file' ? 'h2_{{item}}.xyz' : '{{item}}'}
-                  defaultValue={
-                    typeof storedParams[param.name] === 'string' && String(storedParams[param.name]).includes('{{item}}')
-                      ? String(storedParams[param.name])
-                      : '{{item}}'
-                  }
-                  className="w-full px-2 py-1 bg-mf-input border border-purple-700/40 rounded text-xs text-mf-text-primary focus:outline-none focus:border-purple-500 font-mono"
-                />
-                <p className="text-[10px] text-mf-text-muted mt-0.5">
-                  Expression with {'{{item}}'}, replaced per sweep value.
-                </p>
-              </div>
-              {(hasSweep || hasSweepValues) && (
-                <p className="text-[10px] text-purple-400/70">
-                  Sweep: {(node?.data.sweep_values ?? node?.data.parallel_sweep?.values ?? []).length} values configured
-                </p>
-              )}
-            </div>
-          ) : param.type === 'textarea' ? (
+      {param.multiple_input && multiMode[param.name] ? (
+        // Sweep mode: Values + Pattern
+        <div className="space-y-1.5">
+          {/* Values textarea */}
+          <div>
+            <label className="block text-[10px] text-purple-400/80 mb-0.5">Values</label>
             <textarea
-              rows={5}
-              {...register(param.name)}
-              placeholder={String(param.default ?? '')}
-              className="w-full px-2 py-1 bg-mf-input border border-mf-border rounded text-xs text-mf-text-primary focus:outline-none focus:border-gray-400 font-mono resize-y"
+              rows={3}
+              {...register(`${param.name}__sweep_values`)}
+              placeholder={'0.5\n0.6\n0.7'}
+              defaultValue={
+                node?.data.sweep_values
+                  ? (node.data.sweep_values as unknown[]).join('\n')
+                  : Array.isArray(storedParams[param.name])
+                    ? (storedParams[param.name] as string[]).join('\n')
+                    : ''
+              }
+              className="w-full px-2 py-1 bg-mf-input border border-purple-700/40 rounded text-xs text-mf-text-primary focus:outline-none focus:border-purple-500 font-mono resize-y"
             />
-          ) : param.type === 'boolean' ? (
+            <p className="text-[10px] text-mf-text-muted mt-0.5">
+              One value per line or comma-separated.
+            </p>
+          </div>
+          {/* Pattern input */}
+          <div>
+            <label className="block text-[10px] text-purple-400/80 mb-0.5">Pattern</label>
             <input
-              type="checkbox"
+              type="text"
               {...register(param.name)}
-              className="accent-blue-500"
+              placeholder={param.name === 'geometry_file' ? 'h2_{{item}}.xyz' : '{{item}}'}
+              defaultValue={
+                typeof storedParams[param.name] === 'string' && String(storedParams[param.name]).includes('{{item}}')
+                  ? String(storedParams[param.name])
+                  : '{{item}}'
+              }
+              className="w-full px-2 py-1 bg-mf-input border border-purple-700/40 rounded text-xs text-mf-text-primary focus:outline-none focus:border-purple-500 font-mono"
             />
-          ) : param.type === 'enum' && param.enum_values ? (
-            <select
-              {...register(param.name)}
-              className="w-full px-2 py-1 bg-mf-input border border-mf-border rounded text-xs text-mf-text-primary focus:outline-none focus:border-gray-400"
-            >
-              {param.enum_values.map((v) => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
-          ) : (
-            // Bug fix #2: use setValueAs for numeric types so values are stored as
-            // numbers rather than strings (HTML inputs always yield strings by default)
-            <input
-              type={param.type === 'integer' || param.type === 'float' ? 'number' : 'text'}
-              step={param.type === 'float' ? 'any' : undefined}
-              {...register(param.name, {
-                setValueAs: (v: string) => {
-                  if (param.type === 'integer') {
-                    const n = parseInt(v, 10)
-                    return isNaN(n) ? v : n
-                  }
-                  if (param.type === 'float') {
-                    const n = parseFloat(v)
-                    return isNaN(n) ? v : n
-                  }
-                  return v
-                },
-              })}
-              placeholder={String(param.default ?? '')}
-              className="w-full px-2 py-1 bg-mf-input border border-mf-border rounded text-xs text-mf-text-primary focus:outline-none focus:border-gray-400 font-mono"
-            />
-          )}
-
-          {param.description && (
-            <p className="text-[10px] text-mf-text-muted mt-0.5">{param.description}</p>
+            <p className="text-[10px] text-mf-text-muted mt-0.5">
+              Expression with {'{{item}}'}, replaced per sweep value.
+            </p>
+          </div>
+          {(hasSweep || hasSweepValues) && (
+            <p className="text-[10px] text-purple-400/70">
+              Sweep: {(node?.data.sweep_values ?? node?.data.parallel_sweep?.values ?? []).length} values configured
+            </p>
           )}
         </div>
-      ))}
-    </form>
+      ) : param.type === 'textarea' ? (
+        <textarea
+          rows={5}
+          {...register(param.name)}
+          placeholder={String(param.default ?? '')}
+          className="w-full px-2 py-1 bg-mf-input border border-mf-border rounded text-xs text-mf-text-primary focus:outline-none focus:border-gray-400 font-mono resize-y"
+        />
+      ) : param.type === 'boolean' ? (
+        <input
+          type="checkbox"
+          {...register(param.name)}
+          className="accent-blue-500"
+        />
+      ) : param.type === 'enum' && param.enum_values ? (
+        <select
+          {...register(param.name)}
+          className="w-full px-2 py-1 bg-mf-input border border-mf-border rounded text-xs text-mf-text-primary focus:outline-none focus:border-gray-400"
+        >
+          {param.enum_values.map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+      ) : (
+        // Bug fix #2: use setValueAs for numeric types so values are stored as
+        // numbers rather than strings (HTML inputs always yield strings by default)
+        <input
+          type={param.type === 'integer' || param.type === 'float' ? 'number' : 'text'}
+          step={param.type === 'float' ? 'any' : undefined}
+          {...register(param.name, {
+            setValueAs: (v: string) => {
+              if (param.type === 'integer') {
+                const n = parseInt(v, 10)
+                return isNaN(n) ? v : n
+              }
+              if (param.type === 'float') {
+                const n = parseFloat(v)
+                return isNaN(n) ? v : n
+              }
+              return v
+            },
+          })}
+          placeholder={String(param.default ?? '')}
+          className="w-full px-2 py-1 bg-mf-input border border-mf-border rounded text-xs text-mf-text-primary focus:outline-none focus:border-gray-400 font-mono"
+        />
+      )}
+
+      {param.description && (
+        <p className="text-[10px] text-mf-text-muted mt-0.5">{param.description}</p>
+      )}
+    </div>
+  )
+
+  // Partition params by visibility
+  const visibleParams = inputs.filter((p) => visibility[p.name] === 'visible')
+  const collapsedParams = inputs.filter((p) => visibility[p.name] === 'collapsed')
+  const hiddenParams = inputs.filter((p) => visibility[p.name] === 'hidden')
+
+  return (
+    <div>
+      {/* Preference gear button */}
+      <div className="flex items-center justify-end px-3 py-1">
+        <button
+          type="button"
+          onClick={() => setShowPrefPanel(!showPrefPanel)}
+          title="Parameter display preferences"
+          className="text-mf-text-muted hover:text-mf-text-primary transition-colors p-0.5"
+        >
+          <Settings size={12} />
+        </button>
+      </div>
+
+      {/* Preference panel */}
+      {showPrefPanel && (
+        <div className="mx-3 mb-2 p-2 bg-mf-surface border border-mf-border rounded text-[10px] space-y-1">
+          <div className="text-mf-text-secondary font-medium mb-1">Parameter visibility</div>
+          {inputs.map((param) => {
+            const vis = visibility[param.name]
+            return (
+              <div key={param.name} className="flex items-center gap-1">
+                <span className="text-mf-text-secondary flex-1 truncate">{param.display_name}</span>
+                <button
+                  type="button"
+                  onClick={() => updatePref(param.name, 'visible')}
+                  className={`px-1 py-0.5 rounded ${vis === 'visible' ? 'bg-blue-900/40 text-blue-300' : 'text-mf-text-muted hover:text-mf-text-secondary'}`}
+                  title="Show"
+                >
+                  <Eye size={10} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updatePref(param.name, 'collapsed')}
+                  className={`px-1 py-0.5 rounded ${vis === 'collapsed' ? 'bg-amber-900/40 text-amber-300' : 'text-mf-text-muted hover:text-mf-text-secondary'}`}
+                  title="Collapse"
+                >
+                  <ChevronDown size={10} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updatePref(param.name, 'hidden')}
+                  className={`px-1 py-0.5 rounded ${vis === 'hidden' ? 'bg-red-900/40 text-red-300' : 'text-mf-text-muted hover:text-mf-text-secondary'}`}
+                  title="Hide"
+                >
+                  <EyeOff size={10} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <form onChange={handleSubmit(onSubmit)} className="space-y-2 px-3 py-2">
+        {/* Visible params */}
+        {visibleParams.map(renderParam)}
+
+        {/* Collapsed params */}
+        {collapsedParams.length > 0 && (
+          showAllCollapsed ? (
+            <div className="rounded bg-mf-surface border border-mf-border/30 px-1 py-1">
+              <button
+                type="button"
+                onClick={() => setShowAllCollapsed(false)}
+                className="text-[10px] text-mf-text-muted hover:text-mf-text-secondary flex items-center gap-0.5 mb-1 px-2"
+              >
+                <ChevronRight size={10} />
+                Collapse {collapsedParams.length} advanced params
+              </button>
+              {collapsedParams.map(renderParam)}
+            </div>
+          ) : (
+            <div className="rounded bg-mf-surface border border-mf-border/30 px-1 py-1">
+              <button
+                type="button"
+                onClick={() => setShowAllCollapsed(true)}
+                className="text-[10px] text-mf-text-muted hover:text-mf-text-secondary flex items-center gap-0.5 px-2"
+              >
+                <ChevronDown size={10} />
+                {collapsedParams.length} advanced param{collapsedParams.length > 1 ? 's' : ''}
+              </button>
+            </div>
+          )
+        )}
+
+        {/* Hidden count indicator */}
+        {hiddenParams.length > 0 && (
+          <p className="text-[10px] text-mf-text-muted/50 italic">
+            {hiddenParams.length} hidden param{hiddenParams.length > 1 ? 's' : ''} (click gear to show)
+          </p>
+        )}
+      </form>
+    </div>
   )
 }
 
@@ -522,11 +660,119 @@ function RunSummarySection({
 
 // ─── Section ──────────────────────────────────────────────────────────────────
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, bgClass }: { title: string; children: React.ReactNode; bgClass?: string }) {
   return (
-    <div className="border-b border-mf-border/50">
+    <div className={`border-b border-mf-border/50 ${bgClass ?? ''}`}>
       <div className="mf-panel-section-header">{title}</div>
       {children}
+    </div>
+  )
+}
+
+// ─── Resource params editor ──────────────────────────────────────────────────
+
+function ResourceParamsEditor({
+  nodeId,
+  resources,
+}: {
+  nodeId: string
+  resources: NonNullable<MFNodeData['resources']>
+}) {
+  const node = useWorkflowStore((s) => s.nodes.find((n) => n.id === nodeId))
+  const updateNodeParams = useWorkflowStore((s) => s.updateNodeParams)
+  const [expanded, setExpanded] = React.useState(false)
+
+  // Get resource param inputs (auto-generated from parametrize)
+  const resourceInputs = (node?.data.onboard_inputs ?? []).filter((p) => p.resource_param)
+  const storedParams = node?.data.onboard_params ?? {}
+
+  // Map resource params to summary fields — use user edits when available
+  const cpuParam = resourceInputs.find(p =>
+    p.display_name?.toLowerCase().includes('core') || p.display_name?.toLowerCase().includes('cpu')
+  )
+  const memParam = resourceInputs.find(p =>
+    p.name === 'mem_gb' || p.display_name?.toLowerCase().includes('memory')
+  )
+  const effectiveCpu = cpuParam
+    ? ((storedParams[cpuParam.name] as number) ?? resources.cpu)
+    : resources.cpu
+  const effectiveMem = memParam
+    ? ((storedParams[memParam.name] as number) ?? resources.mem_gb)
+    : resources.mem_gb
+
+  // Pod memory = effective mem + overhead
+  const effectivePodMem = effectiveMem + resources.mem_overhead
+
+  return (
+    <div className="px-3 py-1.5">
+      {/* Summary — reacts to parametrize edits */}
+      <div className="flex gap-4 text-xs text-mf-text-secondary">
+        <span className="flex items-center gap-1"><Cpu size={11} />{effectiveCpu} CPU</span>
+        <span className="flex items-center gap-1"><MemoryStick size={11} />{effectiveMem} GiB</span>
+        <span className="flex items-center gap-1"><Clock size={11} />{resources.estimated_walltime_hours}h</span>
+      </div>
+
+      {/* Resource params — collapsible box matching collapsed params style */}
+      {(resourceInputs.length > 0 || resources.mem_overhead > 0) && (
+        expanded ? (
+          <div className="mt-1.5 bg-mf-surface border border-mf-border/30 rounded px-2 py-2 space-y-1.5">
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              className="text-[10px] text-mf-text-muted hover:text-mf-text-secondary flex items-center gap-0.5 mb-1"
+            >
+              <ChevronRight size={10} />
+              Hide resource params
+            </button>
+            {/* Pod memory breakdown */}
+            {resources.mem_overhead > 0 && (
+              <div className="text-[10px] text-mf-text-muted pb-1 border-b border-mf-border/20">
+                Pod memory: {effectiveMem} + {resources.mem_overhead} overhead = {effectivePodMem} GiB
+              </div>
+            )}
+
+            {/* Editable resource params */}
+            {resourceInputs.map((param) => {
+              const current = storedParams[param.name] ?? param.default ?? ''
+              return (
+                <div key={param.name} className="flex items-center gap-2">
+                  <label className="text-[11px] text-mf-text-secondary w-20 flex-shrink-0 truncate" title={param.display_name}>
+                    {param.display_name}
+                  </label>
+                  <input
+                    type="number"
+                    step={param.type === 'float' ? 'any' : undefined}
+                    value={current as string | number}
+                    onChange={(e) => {
+                      const val = param.type === 'integer'
+                        ? parseInt(e.target.value, 10) || 0
+                        : parseFloat(e.target.value) || 0
+                      updateNodeParams(nodeId, { [param.name]: val })
+                    }}
+                    min={param.min}
+                    max={param.max}
+                    className="w-20 px-1.5 py-0.5 bg-mf-input border border-mf-border rounded text-xs text-mf-text-primary focus:outline-none focus:border-gray-400 font-mono"
+                  />
+                  {param.unit && (
+                    <span className="text-[10px] text-mf-text-muted">{param.unit}</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="mt-1.5 bg-mf-surface border border-mf-border/30 rounded px-2 py-1">
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="text-[10px] text-mf-text-muted hover:text-mf-text-secondary flex items-center gap-0.5"
+            >
+              <ChevronDown size={10} />
+              {resourceInputs.length} resource param{resourceInputs.length !== 1 ? 's' : ''}
+            </button>
+          </div>
+        )
+      )}
     </div>
   )
 }
@@ -615,11 +861,10 @@ export function NodeInspector() {
         {/* Resources */}
         {res && (
           <Section title="Resources">
-            <div className="px-3 py-1.5 flex gap-4 text-xs text-mf-text-secondary">
-              <span className="flex items-center gap-1"><Cpu size={11} />{res.cpu} CPU</span>
-              <span className="flex items-center gap-1"><MemoryStick size={11} />{res.memory_gb} GiB</span>
-              <span className="flex items-center gap-1"><Clock size={11} />{res.estimated_walltime_hours}h</span>
-            </div>
+            <ResourceParamsEditor
+              nodeId={node.id}
+              resources={res}
+            />
           </Section>
         )}
 

@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useState, useCallback } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import type { Node, NodeProps } from '@xyflow/react'
 import type { MFNodeData } from '../../stores/workflow-store'
@@ -183,6 +183,30 @@ const PendingNodeCard = memo(({ data, selected }: { data: MFNodeData; selected: 
   const semanticType = data.semantic_type as string | undefined
   const rationale = data.semantic_rationale as string | undefined
 
+  // Sub-group by algorithm if >5 options and all have methods
+  const shouldSubGroup = options.length > 5 && options.every((o) => o.methods && o.methods.length > 0)
+  const [expandedAlgos, setExpandedAlgos] = useState<Set<string>>(new Set())
+
+  let algoGroups: { algo: string; opts: PickerOption[] }[] | null = null
+  if (shouldSubGroup) {
+    const map: Record<string, PickerOption[]> = {}
+    for (const o of options) {
+      const algo = (o.methods?.[0] ?? 'other').toUpperCase()
+      if (!map[algo]) map[algo] = []
+      map[algo].push(o)
+    }
+    algoGroups = Object.keys(map).sort().map((a) => ({ algo: a, opts: map[a] }))
+  }
+
+  const toggleAlgo = useCallback((algo: string) => {
+    setExpandedAlgos((prev) => {
+      const next = new Set(prev)
+      if (next.has(algo)) next.delete(algo)
+      else next.add(algo)
+      return next
+    })
+  }, [])
+
   return (
     <div
       className={`bg-mf-card rounded-lg shadow-xl select-none${selected ? ' ring-1 ring-amber-400' : ''}`}
@@ -216,20 +240,52 @@ const PendingNodeCard = memo(({ data, selected }: { data: MFNodeData; selected: 
       {/* Software options */}
       <div className="border-t border-amber-900/30 py-0.5">
         {options.length > 0 ? (
-          options.map((opt) => (
-            <button
-              key={opt.nodeName}
-              onClick={() => onSelect?.(opt.nodeName)}
-              className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-mf-hover/60 transition-colors flex items-center justify-between gap-2 group nodrag"
-            >
-              <span className="text-blue-400 group-hover:text-blue-300 font-medium truncate">
-                {opt.software ?? opt.label}
-              </span>
-              <span className="text-[10px] text-mf-text-muted font-mono shrink-0">
-                {opt.nodeName}
-              </span>
-            </button>
-          ))
+          algoGroups ? (
+            // Two-level: algorithm groups → implementations
+            algoGroups.map(({ algo, opts }) => (
+              <div key={algo}>
+                <button
+                  onClick={() => toggleAlgo(algo)}
+                  className="w-full text-left px-2.5 py-1 text-[10px] hover:bg-mf-hover/40 transition-colors flex items-center justify-between nodrag"
+                >
+                  <span className="text-mf-text-secondary font-medium flex items-center gap-1">
+                    {expandedAlgos.has(algo) ? '▾' : '▸'} {algo}
+                  </span>
+                  <span className="text-mf-text-muted">{opts.length}</span>
+                </button>
+                {expandedAlgos.has(algo) && opts.map((opt) => (
+                  <button
+                    key={opt.nodeName}
+                    onClick={() => onSelect?.(opt.nodeName)}
+                    className="w-full text-left px-4 py-1.5 text-xs hover:bg-mf-hover/60 transition-colors flex items-center justify-between gap-2 group nodrag"
+                  >
+                    <span className="text-blue-400 group-hover:text-blue-300 font-medium truncate">
+                      {opt.software ?? opt.label}
+                    </span>
+                    <span className="text-[10px] text-mf-text-muted font-mono shrink-0">
+                      {opt.nodeName}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ))
+          ) : (
+            // Flat list (few options)
+            options.map((opt) => (
+              <button
+                key={opt.nodeName}
+                onClick={() => onSelect?.(opt.nodeName)}
+                className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-mf-hover/60 transition-colors flex items-center justify-between gap-2 group nodrag"
+              >
+                <span className="text-blue-400 group-hover:text-blue-300 font-medium truncate">
+                  {opt.software ?? opt.label}
+                </span>
+                <span className="text-[10px] text-mf-text-muted font-mono shrink-0">
+                  {opt.nodeName}
+                </span>
+              </button>
+            ))
+          )
         ) : (
           <div className="px-2.5 py-1.5 text-[10px] text-mf-text-muted italic">
             No implementations found
@@ -298,7 +354,7 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
   }
   const paramCount  = data.onboard_inputs?.length ?? 0
   const cpu = data.resources?.cpu
-  const mem = data.resources?.memory_gb
+  const mem = data.resources?.mem_gb
   const qualityGates = (data.onboard_outputs as OnBoardOutput[] | undefined)?.filter(
     (o) => o.quality_gate,
   ) ?? []

@@ -1,0 +1,183 @@
+# ===========================================================================
+# psi4-tddft — Psi4 TD-DFT Excited-State Calculation
+#
+# 使用 Psi4 进行 TD-DFT 激发态计算，输出激发能和波函数数据。
+# ===========================================================================
+
+metadata:
+  name: psi4-tddft
+  version: 1.0.0
+  display_name: Psi4 TD-DFT Excited-State
+  description: >
+    Time-dependent DFT (TD-DFT) excited-state calculation using Psi4.
+    Produces vertical excitation energies for the requested number of states.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: single-point-energy
+  base_image_ref: psi4-1.10
+  tags:
+    software: psi4
+    version: "1.10"
+    method:
+      - TD-DFT
+      - excited-state
+      - single-point
+    domain:
+      - molecular
+      - spectroscopy
+    capabilities:
+      - single-point-energy
+      - excited-states
+    keywords:
+      - psi4
+      - tddft
+      - excited-state
+      - absorption
+      - open-source
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: Molecular geometry in standard XYZ format (Angstrom).
+
+stream_outputs:
+  - name: total_energy
+    display_name: Ground-State Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Ground-state DFT electronic energy.
+
+  - name: wavefunction_data
+    display_name: Wavefunction Data
+    io_type:
+      category: software_data_package
+      ecosystem: psi4
+      data_type: wavefunction
+    description: Psi4 wavefunction data (JSON serialized).
+
+  - name: excitation_energies
+    display_name: Excitation Energies
+    io_type:
+      category: report_object
+      format: json
+    description: >
+      Vertical excitation energies (Hartree) as a JSON array,
+      one entry per excited state.
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: functional
+    display_name: Exchange-Correlation Functional
+    kind: enum
+    default: B3LYP
+    allowed_values:
+      - B3LYP
+      - PBE
+      - PBE0
+      - LDA
+      - BLYP
+      - TPSS
+      - SCAN
+      - HSE06
+    _shared_param: functionals
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: cc-pVDZ
+    _shared_param: basis_sets
+
+  - name: dispersion
+    display_name: Dispersion Correction
+    kind: enum
+    default: "none"
+    allowed_values:
+      - "none"
+      - D3
+      - D3BJ
+      - D4
+    _shared_param: dispersions
+
+  - name: reference
+    display_name: SCF Reference
+    kind: enum
+    default: rhf
+    allowed_values:
+      - rhf
+      - uhf
+      - rohf
+
+  - name: scf_type
+    display_name: SCF Algorithm
+    kind: enum
+    default: pk
+    allowed_values:
+      - pk
+      - direct
+      - df
+
+  - name: n_states
+    display_name: Number of Excited States
+    kind: integer
+    default: 3
+    min_value: 1
+    max_value: 50
+    description: Number of excited states to compute via TD-DFT.
+
+onboard_outputs:
+  - name: scf_energy
+    display_name: SCF Energy (Ha)
+    kind: float
+    unit: Ha
+
+  - name: scf_iterations
+    display_name: SCF Iterations
+    kind: integer
+
+  - name: scf_converged
+    display_name: SCF Converged
+    kind: boolean
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "SCF must converge for the TD-DFT calculation to be meaningful."
+
+resources:
+  cpu_cores: 4
+  mem_gb: 4.0
+  mem_overhead: 4.0
+  estimated_walltime_hours: 1.0
+  scratch_disk_gb: 10.0
+  parallel_tasks: 4
+  parametrize:
+    - cpu_cores
+    - parallel_tasks
+    - mem_gb
+    - estimated_walltime_hours
+
+execution: {}
+
+semantic_identity: >-
+  TD-DFT excited-state calculation using Psi4.
+
+distinguishing_ports:
+  - total_energy
+  - excitation_energies
+
+rag_summary: ""

@@ -15,8 +15,9 @@ metadata:
   node_type: compute
   category: chemistry
   author: MiQroForge Team
-  semantic_type: single-point-energy
+  semantic_type: crystal-single-point-energy
   base_image_ref: cp2k-2025.2
+  deprecated: true
   tags:
     software: cp2k
     version: "2025.2"
@@ -168,13 +169,15 @@ onboard_outputs:
 
 resources:
   cpu_cores: 4
-  memory_gb: 16.0
+  mem_gb: 16.0
   estimated_walltime_hours: 1.0
   scratch_disk_gb: 20.0
   parallel_tasks: 4
-  resource_bindings:
+  parametrize:
     - cpu_cores
     - parallel_tasks
+    - estimated_walltime_hours
+    - scratch_disk_gb
 
 execution: {}
 

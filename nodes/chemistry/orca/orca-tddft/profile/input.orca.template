@@ -1,0 +1,11 @@
+! ${functional} ${basis_set} ${disp_kw}Mulliken
+%pal nprocs $n_cores end
+%maxcore 2000
+%scf
+  maxiter 150
+end
+%tddft
+  nroots ${n_states}
+end
+
+* xyzfile $charge $multiplicity input.xyz

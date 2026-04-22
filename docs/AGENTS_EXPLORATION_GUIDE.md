@@ -58,7 +58,7 @@ agents/
     ├── evaluator.py              # Dual-mode evaluator (formal: Schema; ephemeral: exec + vision)
     ├── graph.py                  # LangGraph assembly with mode routing
     ├── knowledge.py              # Load reference nodes + available images
-    ├── sandbox.py                # Sandbox execution (Docker-first / subprocess fallback)
+    ├── sandbox.py                # Sandbox execution (Docker container isolation)
     └── prompts/
         ├── nodegen_system.jinja2              # Formal: System message
         ├── nodegen_generate.jinja2            # Formal: Generation prompt

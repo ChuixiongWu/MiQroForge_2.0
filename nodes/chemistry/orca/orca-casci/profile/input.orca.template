@@ -1,0 +1,12 @@
+! CASCI ${basis_set} Mulliken
+%pal nprocs $n_cores end
+%maxcore 2000
+%scf
+  maxiter 150
+end
+%casscf
+  nel ${active_electrons}
+  norb ${active_orbitals}
+end
+
+* xyzfile $charge $multiplicity input.xyz

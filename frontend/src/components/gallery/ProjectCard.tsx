@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { Copy, Trash2, MoreVertical, Pencil, FileText } from 'lucide-react'
+import { Copy, Trash2, MoreVertical, Pencil, FileText, GripVertical } from 'lucide-react'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import type { ProjectMeta } from '../../api/projects-api'
 
 // ─── Common emoji sets ──────────────────────────────────────────────────────────
@@ -54,6 +56,9 @@ interface ProjectCardProps {
   onDescriptionChange: (description: string) => void
   onDuplicate: () => void
   onDelete: () => void
+  editMode?: boolean
+  selected?: boolean
+  onSelect?: (checked: boolean) => void
 }
 
 function timeAgo(iso: string): string {
@@ -70,7 +75,16 @@ function timeAgo(iso: string): string {
 
 export function ProjectCard({
   project, onOpen, onRename, onIconChange, onDescriptionChange, onDuplicate, onDelete,
+  editMode = false, selected = false, onSelect,
 }: ProjectCardProps) {
+  const {
+    attributes, listeners, setNodeRef, transform, transition, isDragging,
+  } = useSortable({ id: project.id, disabled: !editMode })
+  const sortableStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
   const [menuOpen, setMenuOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [nameVal, setNameVal] = useState(project.name)
@@ -144,11 +158,38 @@ export function ProjectCard({
 
   return (
     <div
-      className="group relative flex flex-col bg-mf-panel border border-mf-border rounded-lg hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer"
-      onClick={() => { if (!editing && !descEditing) onOpen() }}
+      ref={setNodeRef}
+      style={sortableStyle}
+      className={`group relative flex flex-col bg-mf-panel border rounded-lg transition-all ${
+        editMode
+          ? 'border-mf-border hover:border-blue-500/30'
+          : 'border-mf-border hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/5 cursor-pointer'
+      } ${selected ? 'ring-2 ring-blue-500' : ''}`}
+      onClick={() => { if (!editMode && !editing && !descEditing) onOpen() }}
     >
+      {/* Edit mode: checkbox + drag handle */}
+      {editMode && (
+        <div className="absolute top-2 left-2 z-10 flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(e) => { e.stopPropagation(); onSelect?.(e.target.checked) }}
+            onClick={(e) => e.stopPropagation()}
+            className="accent-blue-500 w-3.5 h-3.5 cursor-pointer"
+          />
+          <button
+            {...attributes}
+            {...listeners}
+            className="p-0.5 text-mf-text-muted hover:text-mf-text-secondary cursor-grab active:cursor-grabbing"
+            title="Drag to reorder"
+          >
+            <GripVertical size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Header icon + menu */}
-      <div className="flex items-start justify-between p-4 pb-2">
+      <div className={`flex items-start justify-between ${editMode ? 'pt-8' : 'pt-4'} px-4 pb-2`}>
         <div className="flex items-center gap-2.5">
           {/* Emoji icon — click to open picker */}
           <div className="relative" ref={emojiRef}>
@@ -208,7 +249,8 @@ export function ProjectCard({
           )}
         </div>
 
-        {/* Context menu */}
+        {/* Context menu — hidden in edit mode */}
+        {!editMode && (
         <div ref={menuRef} className="relative">
           <button
             onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
@@ -246,6 +288,7 @@ export function ProjectCard({
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Stats + description */}
@@ -283,12 +326,14 @@ export function ProjectCard({
         <span className="text-[10px] text-mf-text-muted">
           Updated {timeAgo(project.updated_at)}
         </span>
-        <button
-          onClick={(e) => { e.stopPropagation(); onOpen() }}
-          className="text-[11px] text-blue-400 hover:text-blue-300 font-medium"
-        >
-          Open
-        </button>
+        {!editMode && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpen() }}
+            className="text-[11px] text-blue-400 hover:text-blue-300 font-medium"
+          >
+            Open
+          </button>
+        )}
       </div>
     </div>
   )

@@ -15,6 +15,7 @@ class ProjectMeta(BaseModel):
     icon: str = ""
     created_at: str
     updated_at: str
+    order: int = 0
     canvas_node_count: int = 0
     run_count: int = 0
     conversation_count: int = 0
@@ -30,10 +31,19 @@ class ProjectUpdateRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=120)
     description: str | None = None
     icon: str | None = None
+    order: int | None = None
 
 
 class ProjectDuplicateRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=120)
+
+
+class ProjectReorderRequest(BaseModel):
+    ids: list[str]
+
+
+class ProjectBatchDeleteRequest(BaseModel):
+    ids: list[str]
 
 
 class ProjectListResponse(BaseModel):

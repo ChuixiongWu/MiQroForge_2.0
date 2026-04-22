@@ -1,6 +1,6 @@
 """Resource defaults — 加载 resource_defaults.yaml 配置。
 
-当 ``resource_bindings`` 引用的参数在 ``onboard_inputs`` 中不存在时，
+当 ``parametrize`` 引用的参数在 ``onboard_inputs`` 中不存在时，
 系统会根据此配置自动生成对应的 ``OnBoardInput``。
 """
 

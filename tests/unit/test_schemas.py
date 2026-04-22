@@ -227,7 +227,7 @@ class TestComputeResources:
     def test_valid_creation(self):
         r = ComputeResources(
             cpu_cores=8,
-            memory_gb=32.0,
+            mem_gb=32.0,
             estimated_walltime_hours=2.0,
             gpu_count=1,
             gpu_type="nvidia-a100",
@@ -238,7 +238,7 @@ class TestComputeResources:
     def test_defaults(self):
         r = ComputeResources(
             cpu_cores=4,
-            memory_gb=16.0,
+            mem_gb=16.0,
             estimated_walltime_hours=1.0,
         )
         assert r.gpu_count == 0
@@ -250,7 +250,7 @@ class TestComputeResources:
         with pytest.raises(ValidationError):
             ComputeResources(
                 cpu_cores=0,
-                memory_gb=16.0,
+                mem_gb=16.0,
                 estimated_walltime_hours=1.0,
             )
 
@@ -258,7 +258,7 @@ class TestComputeResources:
         with pytest.raises(ValidationError):
             ComputeResources(
                 cpu_cores=4,
-                memory_gb=-1.0,
+                mem_gb=-1.0,
                 estimated_walltime_hours=1.0,
             )
 
@@ -663,7 +663,7 @@ def _make_compute_nodespec(**overrides) -> dict:
         resources=dict(
             type="compute",
             cpu_cores=8,
-            memory_gb=32.0,
+            mem_gb=32.0,
             estimated_walltime_hours=2.0,
         ),
         execution=dict(
@@ -765,7 +765,7 @@ class TestNodeSpec:
         data["resources"] = {
             "type": "compute",
             "cpu_cores": 4,
-            "memory_gb": 16.0,
+            "mem_gb": 16.0,
             "estimated_walltime_hours": 1.0,
         }
         with pytest.raises(ValidationError, match="LightweightResources"):
@@ -923,7 +923,7 @@ onboard_outputs:
 resources:
   type: compute
   cpu_cores: 16
-  memory_gb: 64.0
+  mem_gb: 64.0
   estimated_walltime_hours: 4.0
   gpu_count: 0
 

@@ -117,7 +117,7 @@ class TestOrcaSinglePoint:
         res = orca_nodes["single-point"].resources
         assert isinstance(res, ComputeResources)
         assert res.cpu_cores == 4
-        assert res.memory_gb == 8.0
+        assert res.mem_gb == 8.0
 
     def test_onboard_params_include_method_and_basis(self, orca_nodes):
         spec = orca_nodes["single-point"]
@@ -333,27 +333,27 @@ class TestOrcaWorkflowConnections:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# resource_bindings 测试
+# parametrize 测试
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TestResourceBindings:
-    """验证 3 个 compute 节点的 resource_bindings 配置正确。"""
+class TestParametrize:
+    """验证 3 个 compute 节点的 parametrize 配置正确。"""
 
-    def test_compute_nodes_have_resource_bindings(self, orca_nodes):
-        """3 个 compute 节点都应声明 resource_bindings。"""
+    def test_compute_nodes_have_parametrize(self, orca_nodes):
+        """3 个 compute 节点都应声明 parametrize。"""
         for name in ["single-point", "geo-opt", "freq"]:
             spec = orca_nodes[name]
-            assert spec.resources.resource_bindings is not None, (
-                f"节点 {name} 缺少 resource_bindings"
+            assert spec.resources.parametrize is not None, (
+                f"节点 {name} 缺少 parametrize"
             )
 
-    def test_resource_bindings_is_list(self, orca_nodes):
-        """resource_bindings 必须是资源字段名的列表。"""
+    def test_parametrize_is_list(self, orca_nodes):
+        """parametrize 必须是资源字段名的列表。"""
         for name in ["single-point", "geo-opt", "freq"]:
-            bindings = orca_nodes[name].resources.resource_bindings
-            assert isinstance(bindings, list), f"{name}: resource_bindings 不是 list"
-            assert "cpu_cores" in bindings, f"{name}: cpu_cores 未绑定"
-            assert "parallel_tasks" in bindings, f"{name}: parallel_tasks 未绑定"
+            bindings = orca_nodes[name].resources.parametrize
+            assert isinstance(bindings, list), f"{name}: parametrize 不是 list"
+            assert "cpu_cores" in bindings, f"{name}: cpu_cores 未参数化"
+            assert "parallel_tasks" in bindings, f"{name}: parallel_tasks 未参数化"
 
     def test_bindings_inject_n_cores(self, orca_nodes):
         """cpu_cores 和 parallel_tasks 均绑定到同一个 n_cores onboard input。"""

@@ -41,6 +41,7 @@ export function buildNodeData(detail: NodeDetailResponse): MFNodeData {
       max: p.max_value,
       unit: p.unit,
       multiple_input: p.multiple_input,
+      resource_param: p.resource_param,
     })),
     onboard_outputs: (detail.onboard_outputs ?? []).map((o) => ({
       name: o.name,
@@ -59,9 +60,12 @@ export function buildNodeData(detail: NodeDetailResponse): MFNodeData {
     ),
     resources: {
       cpu: detail.resources_cpu ?? 0,
-      memory_gb: detail.resources_memory_gb ?? 0,
-      gpu: 0,
-      estimated_walltime_hours: 0,
+      mem_gb: detail.resources_mem_gb ?? 0,
+      mem_overhead: Math.max(0, (detail.resources_memory_gb ?? 0) - (detail.resources_mem_gb ?? 0)),
+      gpu: detail.resources_gpu ?? 0,
+      estimated_walltime_hours: detail.resources_walltime_hours ?? 0,
+      scratch_disk_gb: detail.resources_scratch_disk_gb ?? 0,
+      parallel_tasks: detail.resources_parallel_tasks ?? 1,
     },
   }
 }

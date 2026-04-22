@@ -181,8 +181,8 @@ class TestScanner:
         assert entry.stream_inputs[0].name == "xyz_geometry"
         # stream_outputs: gbw_file, optimized_xyz, total_energy (opt_converged migrated to quality gate)
         assert len(entry.stream_outputs) == 3
-        # onboard_inputs: 8 params（xyz_geometry 已迁移到 stream input）
-        assert len(entry.onboard_inputs) == 8
+        # onboard_inputs: 8 computational params + 1 auto-injected walltime_hours (from parametrize)
+        assert len(entry.onboard_inputs) == 9
         assert all(p.name for p in entry.onboard_inputs)
         # resources available in index
         assert entry.resources_cpu > 0
@@ -226,8 +226,8 @@ class TestScanner:
         """onboard_inputs 完整定义被索引，拖入画布无需读取 nodespec.yaml。"""
         index = scan_nodes(project_root)
         entry = next(e for e in index.entries if e.name == "orca-geo-opt")
-        # xyz_geometry 已迁移到 stream_inputs，剩余 8 个 onboard params
-        assert len(entry.onboard_inputs) == 8
+        # xyz_geometry 已迁移到 stream_inputs，剩余 8 个 onboard params + 1 auto-injected walltime_hours
+        assert len(entry.onboard_inputs) == 9
         for p in entry.onboard_inputs:
             assert p.kind in ("string", "integer", "float", "boolean", "enum", "textarea")
             assert p.display_name

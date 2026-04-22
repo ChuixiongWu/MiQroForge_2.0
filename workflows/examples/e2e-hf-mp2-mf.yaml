@@ -1,0 +1,49 @@
+# e2e-hf-mp2-mf.yaml — HF + MP2 algorithm fan-out test
+# Tests: orca-hf, gaussian-hf, orca-mp2, gaussian-mp2 + new STO-3G basis set
+mf_version: "1.0"
+name: e2e-hf-mp2
+description: "HF/MP2 fan-out: H2O → orca-hf, gaussian-hf, orca-mp2, gaussian-mp2"
+namespace: miqroforge-v2
+
+global_params: {}
+
+nodes:
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      inline_geometry: |
+        3
+        Water
+        O   0.000000   0.000000   0.117176
+        H   0.000000   0.756950  -0.468705
+        H   0.000000  -0.756950  -0.468705
+
+  - id: orca-hf
+    nodespec_path: nodes/chemistry/orca/orca-hf/nodespec.yaml
+    onboard_params:
+      basis_set: STO-3G
+
+  - id: gaussian-hf
+    nodespec_path: nodes/chemistry/gaussian/gaussian-hf/nodespec.yaml
+    onboard_params:
+      basis_set: STO-3G
+
+  - id: orca-mp2
+    nodespec_path: nodes/chemistry/orca/orca-mp2/nodespec.yaml
+    onboard_params:
+      basis_set: def2-SVP
+
+  - id: gaussian-mp2
+    nodespec_path: nodes/chemistry/gaussian/gaussian-mp2/nodespec.yaml
+    onboard_params:
+      basis_set: 6-31G
+
+connections:
+  - from: geom-input.xyz_geometry
+    to: orca-hf.xyz_geometry
+  - from: geom-input.xyz_geometry
+    to: gaussian-hf.xyz_geometry
+  - from: geom-input.xyz_geometry
+    to: orca-mp2.xyz_geometry
+  - from: geom-input.xyz_geometry
+    to: gaussian-mp2.xyz_geometry

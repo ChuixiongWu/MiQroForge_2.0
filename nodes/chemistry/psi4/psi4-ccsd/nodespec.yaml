@@ -1,0 +1,142 @@
+# ===========================================================================
+# psi4-ccsd — Psi4 CCSD Single-Point
+#
+# 使用 Psi4 进行 CCSD 单点能量计算，支持冻结芯轨道。
+# ===========================================================================
+
+metadata:
+  name: psi4-ccsd
+  version: 1.0.0
+  display_name: Psi4 CCSD Single-Point
+  description: >
+    Coupled-cluster CCSD single-point energy calculation using Psi4.
+    Supports frozen-core approximation for efficient post-HF calculations.
+  node_type: compute
+  category: chemistry
+  author: MiQroForge Team
+  semantic_type: single-point-energy
+  base_image_ref: psi4-1.10
+  tags:
+    software: psi4
+    version: "1.10"
+    method:
+      - CCSD
+      - single-point
+    domain:
+      - molecular
+      - thermochemistry
+    capabilities:
+      - single-point-energy
+    keywords:
+      - psi4
+      - ccsd
+      - coupled-cluster
+      - open-source
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: Molecular geometry in standard XYZ format (Angstrom).
+
+stream_outputs:
+  - name: total_energy
+    display_name: Total Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: Total CCSD electronic energy.
+
+  - name: wavefunction_data
+    display_name: Wavefunction Data
+    io_type:
+      category: software_data_package
+      ecosystem: psi4
+      data_type: wavefunction
+    description: Psi4 wavefunction data (JSON serialized).
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: cc-pVDZ
+    _shared_param: basis_sets
+
+  - name: reference
+    display_name: SCF Reference
+    kind: enum
+    default: rhf
+    allowed_values:
+      - rhf
+      - uhf
+      - rohf
+
+  - name: scf_type
+    display_name: SCF Algorithm
+    kind: enum
+    default: pk
+    allowed_values:
+      - pk
+      - direct
+      - df
+
+  - name: frozen_core
+    display_name: Frozen Core
+    kind: boolean
+    default: true
+    description: Freeze core electrons in CCSD correlation treatment.
+
+onboard_outputs:
+  - name: scf_energy
+    display_name: SCF Energy (Ha)
+    kind: float
+    unit: Ha
+
+  - name: scf_iterations
+    display_name: SCF Iterations
+    kind: integer
+
+  - name: scf_converged
+    display_name: SCF Converged
+    kind: boolean
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "SCF must converge for the CCSD energy to be meaningful."
+
+resources:
+  cpu_cores: 4
+  mem_gb: 4.0
+  mem_overhead: 4.0
+  estimated_walltime_hours: 3.0
+  scratch_disk_gb: 10.0
+  parallel_tasks: 4
+  parametrize:
+    - cpu_cores
+    - parallel_tasks
+    - mem_gb
+    - estimated_walltime_hours
+
+execution: {}
+
+semantic_identity: >-
+  CCSD single-point energy calculation using Psi4.
+
+distinguishing_ports:
+  - total_energy
+
+rag_summary: ""

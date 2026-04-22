@@ -20,6 +20,7 @@ export default {
           card:  'rgb(var(--mf-bg-card) / <alpha-value>)',
           input: 'rgb(var(--mf-bg-input) / <alpha-value>)',
           hover: 'rgb(var(--mf-bg-hover) / <alpha-value>)',
+          surface: 'rgb(var(--mf-bg-surface) / <alpha-value>)',
         },
         'mf-text': {
           primary:   'rgb(var(--mf-text-primary) / <alpha-value>)',

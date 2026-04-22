@@ -1,0 +1,151 @@
+# ===========================================================================
+# Shared Parameter Table — canonical name → software-native keyword mapping
+#
+# 编译器在 _generate_node_params_sh() 中检测 _shared_param 字段，
+# 查此表将 canonical name 翻译为软件原生关键字后写入 mf_node_params.sh。
+#
+# 注意：HF/MP2/CCSD 等算法是节点级别的区分（不同参数结构），
+# 不在此表中。此表只管理同算法内的选择（泛函、基组、色散校正）。
+# ===========================================================================
+version: "1.0"
+
+# ── DFT 泛函 ─────────────────────────────────────────────────────────────
+functionals:
+  B3LYP:
+    display_name: "B3LYP (hybrid)"
+    gaussian: "B3LYP"
+    psi4: "B3LYP"
+    orca: "B3LYP"
+    cp2k: "B3LYP"
+  PBE:
+    display_name: "PBE (GGA)"
+    gaussian: "PBE"
+    psi4: "PBE"
+    orca: "PBE"
+    cp2k: "PBE"
+  PBE0:
+    display_name: "PBE0 (hybrid GGA)"
+    gaussian: "PBE1PBE"      # Gaussian 的特殊关键字
+    psi4: "PBE0"
+    orca: "PBE0"
+    cp2k: "PBE0"
+  LDA:
+    display_name: "LDA"
+    gaussian: "LDA"
+    psi4: "LDA"
+    orca: "LDA"
+    cp2k: "LDA"
+  BLYP:
+    display_name: "BLYP (GGA)"
+    gaussian: "BLYP"
+    psi4: "BLYP"
+    orca: "BLYP"
+    cp2k: "BLYP"
+  TPSS:
+    display_name: "TPSS (meta-GGA)"
+    gaussian: "TPSS"
+    psi4: "TPSS"
+    orca: "TPSS"
+    cp2k: "TPSS"
+  SCAN:
+    display_name: "SCAN (meta-GGA)"
+    gaussian: "SCAN"
+    psi4: "SCAN"
+    orca: "SCAN"
+    cp2k: "SCAN"
+  HSE06:
+    display_name: "HSE06 (range-separated)"
+    gaussian: "HSEhPBE"      # Gaussian 的特殊关键字
+    psi4: "HSE06"
+    orca: "HSE06"
+    cp2k: "HSE06"
+
+# ── 基组 ─────────────────────────────────────────────────────────────────
+basis_sets:
+  "STO-3G":
+    display_name: "STO-3G (minimal)"
+    gaussian: "STO-3G"
+    psi4: "sto-3g"
+    orca: "STO-3G"
+    cp2k: null
+  "6-31G":
+    display_name: "6-31G"
+    gaussian: "6-31G"
+    psi4: "6-31G"
+    orca: "6-31G"
+    cp2k: null
+  "6-31G*":
+    display_name: "6-31G(d)"
+    gaussian: "6-31G*"
+    psi4: "6-31G*"
+    orca: "6-31G*"
+    cp2k: null
+  "6-311G**":
+    display_name: "6-311G(d,p)"
+    gaussian: "6-311G**"
+    psi4: "6-311G**"
+    orca: "6-311G**"
+    cp2k: null
+  "def2-SVP":
+    display_name: "def2-SVP"
+    gaussian: "Def2SVP"       # Gaussian 大小写规范
+    psi4: "def2-svp"          # Psi4 小写
+    orca: "def2-SVP"
+    cp2k: null
+  "def2-TZVP":
+    display_name: "def2-TZVP"
+    gaussian: "Def2TZVP"
+    psi4: "def2-tzvp"
+    orca: "def2-TZVP"
+    cp2k: null
+  "cc-pVDZ":
+    display_name: "cc-pVDZ"
+    gaussian: "cc-pVDZ"
+    psi4: "cc-pVDZ"
+    orca: "cc-pVDZ"
+    cp2k: null
+  "cc-pVTZ":
+    display_name: "cc-pVTZ"
+    gaussian: "cc-pVTZ"
+    psi4: "cc-pVTZ"
+    orca: "cc-pVTZ"
+    cp2k: null
+  "DZVP-MOLOPT-SR-GTH":
+    display_name: "DZVP-MOLOPT-SR-GTH"
+    gaussian: null
+    psi4: null
+    orca: null
+    cp2k: "DZVP-MOLOPT-SR-GTH"
+  "TZVP-MOLOPT-GTH":
+    display_name: "TZVP-MOLOPT-GTH"
+    gaussian: null
+    psi4: null
+    orca: null
+    cp2k: "TZVP-MOLOPT-GTH"
+
+# ── 色散校正 ─────────────────────────────────────────────────────────────
+dispersions:
+  none:
+    display_name: "No dispersion"
+    gaussian: null            # Gaussian 通过方法名附加（如 B3LYP-D3）
+    psi4: null
+    orca: "none"
+    cp2k: null
+  D3:
+    display_name: "DFT-D3"
+    gaussian: "GD3"
+    psi4: "dmp2"
+    orca: "D3"
+    cp2k: null
+  D3BJ:
+    display_name: "DFT-D3(BJ)"
+    gaussian: "GD3BJ"
+    psi4: "d3bj"
+    orca: "D3BJ"
+    cp2k: null
+  D4:
+    display_name: "DFT-D4"
+    gaussian: null
+    psi4: "d4"
+    orca: "D4"
+    cp2k: null

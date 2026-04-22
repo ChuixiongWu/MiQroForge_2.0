@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react'
 import { Search, RefreshCw, ChevronLeft, ChevronRight, ChevronDown, Zap } from 'lucide-react'
 import { useNodeCatalog } from '../../hooks/useNodeCatalog'
-import { useNodeCatalogStore, buildSemanticGroups } from '../../stores/node-catalog-store'
+import { useNodeCatalogStore, buildSemanticGroups, type SubGroup } from '../../stores/node-catalog-store'
 import { useUIStore } from '../../stores/ui-store'
 import { semanticIcon } from '../../lib/semantic-labels'
 import type { PickerOption } from '../../lib/semantic-labels'
@@ -67,18 +67,67 @@ function SoftwareRow({ node }: { node: NodeSummaryResponse }) {
   )
 }
 
+// ─── Sub-group row (algorithm level) ─────────────────────────────────────────
+
+interface SubGroupRowProps {
+  subGroup: SubGroup
+  expanded: boolean
+  onToggle: () => void
+}
+
+function SubGroupRow({ subGroup, expanded, onToggle }: SubGroupRowProps) {
+  return (
+    <div>
+      <div
+        onClick={onToggle}
+        className="flex items-center justify-between px-2.5 py-1.5 hover:bg-mf-hover cursor-pointer transition-colors select-none"
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-mf-text-muted">
+            {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+          </span>
+          <span className="text-xs font-medium text-mf-text-secondary truncate">
+            {subGroup.label}
+          </span>
+        </div>
+        <span className="text-[10px] text-mf-text-muted">
+          {subGroup.nodes.length} impl{subGroup.nodes.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      {expanded && (
+        <div className="ml-3">
+          {subGroup.nodes.map((n) => (
+            <SoftwareRow key={n.name} node={n} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Semantic type "node card" in palette ─────────────────────────────────────
 
 interface SemanticTypeCardProps {
   semanticType: string
   label: string
   nodes: NodeSummaryResponse[]
+  subGroups?: SubGroup[]
   expanded: boolean
   onToggle: () => void
 }
 
-function SemanticTypeCard({ semanticType, label, nodes, expanded, onToggle }: SemanticTypeCardProps) {
+function SemanticTypeCard({ semanticType, label, nodes, subGroups, expanded, onToggle }: SemanticTypeCardProps) {
   const icon = semanticIcon(semanticType)
+  const [expandedSubs, setExpandedSubs] = React.useState<Set<string>>(new Set())
+
+  const toggleSub = React.useCallback((algo: string) => {
+    setExpandedSubs((prev) => {
+      const next = new Set(prev)
+      if (next.has(algo)) next.delete(algo)
+      else next.add(algo)
+      return next
+    })
+  }, [])
 
   const onDragStart = useCallback(
     (e: React.DragEvent) => {
@@ -86,6 +135,7 @@ function SemanticTypeCard({ semanticType, label, nodes, expanded, onToggle }: Se
         nodeName: n.name,
         software: n.software ?? null,
         label: n.display_name,
+        methods: n.methods,
       }))
       e.dataTransfer.setData('application/mf-semantic-type', semanticType)
       e.dataTransfer.setData('application/mf-node-implementations', JSON.stringify(options))
@@ -126,12 +176,23 @@ function SemanticTypeCard({ semanticType, label, nodes, expanded, onToggle }: Se
           </span>
         </div>
 
-        {/* Expanded software submenu */}
+        {/* Expanded: sub-groups or flat list */}
         {expanded && (
           <div className="border-t border-mf-border/50 rounded-b-lg overflow-hidden">
-            {nodes.map((n) => (
-              <SoftwareRow key={n.name} node={n} />
-            ))}
+            {subGroups ? (
+              subGroups.map((sg) => (
+                <SubGroupRow
+                  key={sg.algorithm}
+                  subGroup={sg}
+                  expanded={expandedSubs.has(sg.algorithm)}
+                  onToggle={() => toggleSub(sg.algorithm)}
+                />
+              ))
+            ) : (
+              nodes.map((n) => (
+                <SoftwareRow key={n.name} node={n} />
+              ))
+            )}
           </div>
         )}
       </div>
@@ -221,6 +282,7 @@ export function NodePalette() {
             semanticType={g.semanticType}
             label={g.label}
             nodes={g.nodes}
+            subGroups={g.subGroups}
             expanded={expandedTypes.has(g.semanticType)}
             onToggle={() => toggleExpanded(g.semanticType)}
           />
