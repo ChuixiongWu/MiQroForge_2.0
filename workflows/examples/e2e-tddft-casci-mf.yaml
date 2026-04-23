@@ -1,8 +1,8 @@
-# e2e-tddft-casci-mf.yaml — TD-DFT + CASCI algorithm fan-out test
-# Tests: orca-tddft, gaussian-tddft, orca-casci, gaussian-casci
+# e2e-tddft-casscf-mf.yaml — TD-DFT + CASSCF algorithm fan-out test
+# Tests: orca-tddft, gaussian-tddft, orca-casscf, gaussian-casscf
 mf_version: "1.0"
-name: e2e-tddft-casci
-description: "TD-DFT/CASCI fan-out: H2O → orca-tddft, gaussian-tddft, orca-casci, gaussian-casci"
+name: e2e-tddft-casscf
+description: "TD-DFT/CASSCF fan-out: H2O → orca-tddft, gaussian-tddft, orca-casscf, gaussian-casscf"
 namespace: miqroforge-v2
 
 global_params: {}
@@ -32,15 +32,15 @@ nodes:
       basis_set: 6-31G*
       n_states: 5
 
-  - id: orca-casci
-    nodespec_path: nodes/chemistry/orca/orca-casci/nodespec.yaml
+  - id: orca-casscf
+    nodespec_path: nodes/chemistry/orca/orca-casscf/nodespec.yaml
     onboard_params:
       basis_set: STO-3G
       active_electrons: 2
       active_orbitals: 2
 
-  - id: gaussian-casci
-    nodespec_path: nodes/chemistry/gaussian/gaussian-casci/nodespec.yaml
+  - id: gaussian-casscf
+    nodespec_path: nodes/chemistry/gaussian/gaussian-casscf/nodespec.yaml
     onboard_params:
       basis_set: STO-3G
       active_electrons: 2
@@ -52,6 +52,6 @@ connections:
   - from: geom-input.xyz_geometry
     to: gaussian-tddft.xyz_geometry
   - from: geom-input.xyz_geometry
-    to: orca-casci.xyz_geometry
+    to: orca-casscf.xyz_geometry
   - from: geom-input.xyz_geometry
-    to: gaussian-casci.xyz_geometry
+    to: gaussian-casscf.xyz_geometry

@@ -27,8 +27,8 @@ mem_gb = '${mem_gb}'
 
 mem_mb = str(int(float(mem_gb) * 1024))
 
-# Frozen core keyword: if frozen_core is false, add Full to unfreeze all core orbitals
-fc_kw = '' if frozen_core == 'true' else 'Full'
+# Frozen core: MP2(full) to unfreeze core orbitals, empty for default frozen core
+fc_kw = '' if frozen_core.lower() == 'true' else '(full)'
 
 with open('${WORKDIR}/input.xyz') as f:
     lines = f.readlines()
@@ -67,12 +67,21 @@ if ! g16 < input.gjf > output.log 2>&1; then
 fi
 echo "[gaussian-mp2] Gaussian finished. Parsing output..."
 
-ENERGY=$(grep "SCF Done" output.log | tail -1 | awk '{print $5}' || echo "")
+# MP2 energy: prefer EUMP2 on the total energy line (RMP2/UMP2), not the correlation-only line
+ENERGY=$(grep -E "RMP2|UMP2|LMP2" output.log | grep "EUMP2" | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
 if [[ -z "$ENERGY" ]]; then
-    echo "[gaussian-mp2][ERROR] Could not extract energy from output!" >&2
+    ENERGY=$(grep "EUMP2" output.log | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
+fi
+if [[ -z "$ENERGY" ]]; then
+    ENERGY=$(grep "E(MP2)" output.log | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
+fi
+if [[ -z "$ENERGY" ]]; then
+    echo "[gaussian-mp2][ERROR] Could not extract MP2 energy from output!" >&2
     cat output.log >&2
     exit 1
 fi
+# Convert Fortran D-format (e.g. -0.353D+02) to E-format for downstream consumers
+ENERGY=$(echo "$ENERGY" | sed 's/D/E/g' | python3 -c "import sys; print(f'{float(sys.stdin.read().strip()):.10f}')")
 
 CONVERGED="true"
 if grep -q "Convergence criterion not met" output.log; then

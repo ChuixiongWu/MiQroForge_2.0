@@ -20,13 +20,13 @@ psi4.set_options({
     'basis': '${basis_set}',
     'reference': '${reference}',
     'scf_type': '${scf_type}',
-    'roots_per_irrep': [${n_states}],
+    'tdscf_states': [${n_states}],
 })
 
-energy, wfn = psi4.properties(
-    f'{method_str}/${basis_set}',
+# TD-DFT: td- prefix triggers run_tdscf_energy dispatch
+energy, wfn = psi4.energy(
+    f'td-{method_str}/${basis_set}',
     molecule=mol,
-    properties=['tdscf_excitation_energies'],
     return_wfn=True,
 )
 

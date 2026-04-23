@@ -1,0 +1,10 @@
+%chk=input.chk
+%mem=${mem_mb}MB
+%nprocshared=${n_cores}
+#p CASSCF(${active_electrons},${active_orbitals})/${basis_set} Pop=${population} ${ref_kw}
+
+CASSCF single-point energy calculation
+
+${charge} ${multiplicity}
+${geometry_lines}
+

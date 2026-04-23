@@ -12,6 +12,9 @@ metadata:
     Performs a CCSD (coupled-cluster singles and doubles) single-point
     electronic energy calculation using ORCA. Supports frozen-core and
     all-electron variants. Requires an XYZ geometry as stream input.
+    Note: ORCA MDCI module requires parallel_tasks to not exceed the
+    number of electron pairs in the system. For small molecules (e.g. H2),
+    set parallel_tasks=1.
   node_type: compute
   category: chemistry
   author: MiQroForge Team

@@ -1641,7 +1641,7 @@ def _build_dag_task(
             value = param.default
         else:
             continue
-        value = str(value)
+        value = str(value).lower() if isinstance(value, bool) else str(value)
         # _shared_param 翻译：canonical → 软件原生关键字
         if param.shared_param and software:
             value = _translate_shared_param(value, software, param.shared_param)

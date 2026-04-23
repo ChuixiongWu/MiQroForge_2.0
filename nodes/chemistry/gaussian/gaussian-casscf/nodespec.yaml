@@ -1,12 +1,13 @@
-# gaussian-casci — Gaussian 16 CASCI Single-Point
+# gaussian-casscf — Gaussian 16 CASSCF Single-Point
 metadata:
-  name: gaussian-casci
+  name: gaussian-casscf
   version: 1.0.0
-  display_name: Gaussian CASCI Single-Point
+  display_name: Gaussian CASSCF Single-Point
   description: >
-    CASCI single-point energy calculation using Gaussian 16.
-    Complete Active Space Configuration Interaction for multireference problems.
+    CASSCF single-point energy calculation using Gaussian 16.
+    Complete Active Space Self-Consistent Field for multireference problems.
     Produces formatted checkpoint file and total energy.
+    Note: CASSCF is memory-intensive; adjust mem_gb for larger active spaces.
   node_type: compute
   category: chemistry
   author: MiQroForge Team
@@ -16,7 +17,7 @@ metadata:
     software: gaussian
     version: "16"
     method:
-      - CASCI
+      - CASSCF
       - single-point
       - multireference
     domain:
@@ -25,7 +26,6 @@ metadata:
       - single-point-energy
     keywords:
       - gaussian
-      - casci
       - casscf
       - multireference
       - active-space
@@ -54,7 +54,7 @@ stream_outputs:
     io_type:
       category: physical_quantity
       unit: Ha
-    description: Total CASCI electronic energy.
+    description: Total CASSCF electronic energy.
 
 onboard_inputs:
   - name: charge
@@ -122,7 +122,8 @@ onboard_outputs:
 
 resources:
   cpu_cores: 4
-  mem_gb: 8.0
+  mem_gb: 32.0
+  mem_overhead: 4.0
   estimated_walltime_hours: 1.0
   scratch_disk_gb: 10.0
   parametrize:
@@ -135,7 +136,7 @@ execution:
     GAUSS_SCRDIR: "/tmp"
 
 semantic_identity: >-
-  CASCI single-point energy calculation using Gaussian 16.
+  CASSCF single-point energy calculation using Gaussian 16.
 
 distinguishing_ports:
   - fchk_file

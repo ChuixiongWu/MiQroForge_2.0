@@ -310,6 +310,26 @@ class ProjectService:
         except (json.JSONDecodeError, OSError):
             return None
 
+    # ── After-run Canvas ───────────────────────────────────────────────────
+
+    def save_afterrun_canvas(self, project_id: str, run_name: str, canvas: dict[str, Any]) -> bool:
+        run_dir = self.projects_root / project_id / "runs" / run_name
+        if not run_dir.is_dir():
+            run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "afterrun_canvas.json").write_text(
+            json.dumps(canvas, indent=2, ensure_ascii=False)
+        )
+        return True
+
+    def load_afterrun_canvas(self, project_id: str, run_name: str) -> dict[str, Any] | None:
+        f = self.projects_root / project_id / "runs" / run_name / "afterrun_canvas.json"
+        if not f.exists():
+            return None
+        try:
+            return json.loads(f.read_text())
+        except (json.JSONDecodeError, OSError):
+            return None
+
     # ── Conversations ──────────────────────────────────────────────────────
 
     def list_conversations(self, project_id: str) -> list[dict[str, Any]]:

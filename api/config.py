@@ -48,6 +48,14 @@ class Settings:
         self.llm_provider: str = os.environ.get("MF_LLM_PROVIDER", "openai")
         self.llm_model: str = os.environ.get("MF_LLM_MODEL", "gpt-4o")
 
+        # ── Argo TTL 策略 ───────────────────────────────────────────────────
+        self.argo_ttl_success_seconds: int = int(
+            os.environ.get("ARGO_TTL_SUCCESS_SECONDS", "2592000")  # 30 days
+        )
+        self.argo_ttl_failure_seconds: int = int(
+            os.environ.get("ARGO_TTL_FAILURE_SECONDS", "5184000")  # 60 days
+        )
+
         # 确保 userdata/ 子目录存在
         self._ensure_userdata_dirs()
 

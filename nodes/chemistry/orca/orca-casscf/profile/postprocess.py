@@ -1,4 +1,4 @@
-"""orca-casci post-processing: parse Mulliken charges from ORCA output."""
+"""orca-casscf post-processing: parse Mulliken charges from ORCA output."""
 import re
 import json
 
@@ -46,9 +46,9 @@ try:
     with open(f"{output_dir}/mulliken_report", "w") as f:
         json.dump(report, f, indent=2)
 
-    print(f"[orca-casci] Mulliken report: {len(charges)} atoms")
+    print(f"[orca-casscf] Mulliken report: {len(charges)} atoms")
 
 except Exception as e:
-    print(f"[orca-casci][WARN] Could not parse Mulliken charges: {e}")
+    print(f"[orca-casscf][WARN] Could not parse Mulliken charges: {e}")
     with open(f"{output_dir}/mulliken_report", "w") as f:
         json.dump({"charges": [], "spin_populations": [], "atom_labels": []}, f)

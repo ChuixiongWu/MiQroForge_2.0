@@ -105,6 +105,50 @@ class ArgoService:
         )
         return result.stdout or result.stderr or "(no logs)"
 
+    def get_pod_logs(self, pod_name: str, tail: int | None = None) -> str:
+        """获取指定 Pod 的完整日志（kubectl logs）。
+
+        Args:
+            pod_name: Argo 节点 ID 或实际 Pod 名称
+            tail: 如果指定，只返回最后 N 行
+
+        Returns:
+            日志内容，Pod 不存在时返回 None
+        """
+        # Try direct kubectl logs first
+        cmd = ["kubectl", "logs", pod_name, "--namespace", self.namespace, "-c", "main"]
+        if tail:
+            cmd.extend(["--tail", str(tail)])
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            return result.stdout or "(empty logs)"
+
+        # Pod name might be different from Argo node ID.
+        # Argo node ID = "{workflow}-{hash}", pod = "{workflow}-mf-{template}-{hash}"
+        # Try to find the actual pod by hash suffix.
+        parts = pod_name.rsplit("-", 1)
+        if len(parts) == 2:
+            workflow_name, hash_suffix = parts
+            pod_list = subprocess.run(
+                [
+                    "kubectl", "get", "pods", "--namespace", self.namespace,
+                    "-l", f"workflows.argoproj.io/workflow={workflow_name}",
+                    "-o", "jsonpath={.items[*].metadata.name}",
+                ],
+                capture_output=True, text=True, timeout=15,
+            )
+            if pod_list.returncode == 0:
+                for actual_pod in pod_list.stdout.split():
+                    if actual_pod.endswith(f"-{hash_suffix}"):
+                        cmd2 = ["kubectl", "logs", actual_pod, "--namespace", self.namespace, "-c", "main"]
+                        if tail:
+                            cmd2.extend(["--tail", str(tail)])
+                        result2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=30)
+                        if result2.returncode == 0:
+                            return result2.stdout or "(empty logs)"
+
+        return None  # Pod not found or inaccessible
+
     def _apply_configmap(self, cm: dict) -> None:
         """通过 kubectl apply 创建/更新 ConfigMap。"""
         with tempfile.NamedTemporaryFile(

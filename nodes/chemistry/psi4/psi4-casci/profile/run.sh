@@ -27,9 +27,21 @@ n_cores = '${n_cores}'
 charge = '${charge}'
 multiplicity = '${multiplicity}'
 mem_gb = '${mem_gb}'
+active_electrons = '${active_electrons}'
 active_orbitals = '${active_orbitals}'
 
 mem_mb = str(int(float(mem_gb) * 1024))
+
+# Compute frozen_docc: Psi4 does not auto-freeze like ORCA/Gaussian.
+# frozen_docc = (total_electrons - active_electrons) // 2
+# total_electrons from atomic numbers - charge
+ATOMIC_NUM = {'H':1,'He':2,'Li':3,'Be':4,'B':5,'C':6,'N':7,'O':8,'F':9,'Ne':10,
+              'Na':11,'Mg':12,'Al':13,'Si':14,'P':15,'S':16,'Cl':17,'Ar':18}
+with open('${WORKDIR}/input.xyz') as f:
+    xyz_lines = f.readlines()
+n_atoms = int(xyz_lines[0].strip())
+total_electrons = sum(ATOMIC_NUM.get(line.split()[0], 0) for line in xyz_lines[2:2+n_atoms]) - int(charge)
+frozen_docc = max(0, (total_electrons - int(active_electrons)) // 2)
 
 with open('${WORKDIR}/input.xyz') as f:
     lines = f.readlines()
@@ -48,6 +60,7 @@ result = tmpl.substitute(
     geometry_lines=geometry_lines,
     mem_mb=mem_mb,
     active_orbitals=active_orbitals,
+    frozen_docc=str(frozen_docc),
     output_dir='${OUTPUT_DIR}',
 )
 
@@ -95,6 +108,7 @@ echo "${ENERGY}"      > "${OUTPUT_DIR}/scf_energy"
 echo "${SCF_ITER:-0}" > "${OUTPUT_DIR}/scf_iterations"
 
 if [[ -f "${OUTPUT_DIR}/wavefunction.json" ]]; then
+    cp "${OUTPUT_DIR}/wavefunction.json" "${OUTPUT_DIR}/wavefunction_data"
     echo "[psi4-casci] Wavefunction data saved."
 else
     echo "[psi4-casci][WARN] Wavefunction file not found."

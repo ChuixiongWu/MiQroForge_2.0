@@ -127,6 +127,7 @@ echo "${ENERGY}"      > "${OUTPUT_DIR}/scf_energy"
 echo "${SCF_ITER:-0}" > "${OUTPUT_DIR}/scf_iterations"
 
 if [[ -f "${OUTPUT_DIR}/wavefunction.json" ]]; then
+    cp "${OUTPUT_DIR}/wavefunction.json" "${OUTPUT_DIR}/wavefunction_data"
     echo "[psi4-tddft] Wavefunction data saved."
 else
     echo "[psi4-tddft][WARN] Wavefunction file not found."

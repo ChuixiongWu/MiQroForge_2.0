@@ -1,7 +1,7 @@
 %chk=input.chk
 %mem=${mem_mb}MB
 %nprocshared=${n_cores}
-#p MP2/${basis_set} Pop=${population} ${fc_kw}
+#p MP2${fc_kw}/${basis_set} Pop=${population}
 
 MP2 single-point energy calculation
 

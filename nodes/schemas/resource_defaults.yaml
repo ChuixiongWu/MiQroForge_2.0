@@ -63,7 +63,7 @@ mem_gb:
   param_name: mem_gb
   display_name: App Memory (GB)
   kind: float
-  min_value: 0.5
+  min_value: 2.0
   max_value: 512.0
   unit: GB
   description: >

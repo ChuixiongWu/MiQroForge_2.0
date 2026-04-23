@@ -13,7 +13,7 @@ psi4.set_options({
     'basis': '${basis_set}',
     'reference': '${reference}',
     'scf_type': '${scf_type}',
-    'frozen_docc': [0],
+    'frozen_docc': [${frozen_docc}],
     'active': [${active_orbitals}],
 })
 

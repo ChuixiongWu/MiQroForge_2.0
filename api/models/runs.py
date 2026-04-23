@@ -11,6 +11,7 @@ class RunSummaryResponse(BaseModel):
     phase: str
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
+    duration_seconds: Optional[float] = None
     labels: dict[str, str] = {}
 
 

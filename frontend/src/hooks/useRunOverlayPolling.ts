@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { argoApi } from '../api/argo-api'
 import { useRunOverlayStore } from '../stores/run-overlay-store'
 import { useProjectStore } from '../stores/project-store'
+import { useWorkflowStore } from '../stores/workflow-store'
 
 const TERMINAL = new Set(['Succeeded', 'Failed', 'Error', 'PartialSuccess'])
 
@@ -11,7 +12,8 @@ const TERMINAL = new Set(['Succeeded', 'Failed', 'Error', 'PartialSuccess'])
  * Must be mounted at the App level so polling persists across panel changes.
  *
  * On reaching a terminal state, saves output parameters to runs/{name}/outputs.json
- * via the backend save-outputs endpoint (fire-and-forget).
+ * via the backend save-outputs endpoint (fire-and-forget), along with the current
+ * canvas state (afterrun_canvas.json).
  */
 export function useRunOverlayPolling() {
   const activeRunName = useRunOverlayStore((s) => s.activeRunName)
@@ -25,11 +27,36 @@ export function useRunOverlayPolling() {
       const detail = await argoApi.getRun(activeRunName!)
       updateFromArgo(detail.raw)
 
-      // Save outputs to runs/ when run first reaches a terminal state
+      // Save outputs + canvas to runs/ when run first reaches a terminal state
       if (TERMINAL.has(detail.phase) && savedRef.current !== activeRunName) {
         savedRef.current = activeRunName
         const projectId = useProjectStore.getState().currentProjectId ?? undefined
-        argoApi.saveOutputs(activeRunName!, projectId).catch(() => {})
+        const { meta, nodes, edges } = useWorkflowStore.getState()
+        const { nodeStatuses, workflowPhase } = useRunOverlayStore.getState()
+        const canvas = { meta, nodes, edges, nodeStatuses, workflowPhase }
+        argoApi.saveOutputs(activeRunName!, projectId, canvas).then((result) => {
+          // Update nodeStatuses with full error text from outputs.json
+          if (result.error_texts) {
+            const current = useRunOverlayStore.getState().nodeStatuses
+            let changed = false
+            const merged = { ...current }
+            for (const [canvasId, errorText] of Object.entries(result.error_texts)) {
+              if (merged[canvasId] && merged[canvasId].error !== errorText) {
+                merged[canvasId] = { ...merged[canvasId], error: errorText }
+                changed = true
+              }
+            }
+            if (changed) {
+              useRunOverlayStore.setState({ nodeStatuses: merged })
+              // Re-save afterrun_canvas with updated error text
+              const updatedCanvas = {
+                ...canvas,
+                nodeStatuses: useRunOverlayStore.getState().nodeStatuses,
+              }
+              argoApi.saveOutputs(activeRunName!, projectId, updatedCanvas).catch(() => {})
+            }
+          }
+        }).catch(() => {})
       }
 
       return detail

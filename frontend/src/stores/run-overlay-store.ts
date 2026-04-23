@@ -19,6 +19,10 @@ export interface NodeRunStatus {
   currentIndex: number
   /** Backward-compat: outputs of the current instance. */
   outputs: Record<string, string>
+  /** Error message from Argo for failed nodes (from node.message). */
+  error?: string
+  /** Argo node ID (= pod name) for log retrieval. */
+  podName?: string
 }
 
 interface RunOverlayState {
@@ -39,6 +43,7 @@ interface ArgoNode {
   templateName?: string
   displayName?: string
   phase?: string
+  message?: string
   startedAt?: string
   finishedAt?: string
   outputs?: {
@@ -73,9 +78,11 @@ function parseArgoNodes(raw: Record<string, unknown>): {
 
   // Collect instances per canvas node id
   const instancesMap: Record<string, NodeInstanceStatus[]> = {}
+  const errorMap: Record<string, string> = {}
+  const podNameMap: Record<string, string> = {}
   let hasOmitted = false
 
-  for (const argoNode of Object.values(rawNodes)) {
+  for (const [argoNodeId, argoNode] of Object.entries(rawNodes)) {
     const isCompute = argoNode.type === 'Pod'
     const isSkipped = argoNode.type === 'Skipped'
     if (!isCompute && !isSkipped) continue
@@ -87,6 +94,9 @@ function parseArgoNodes(raw: Record<string, unknown>): {
 
     const nodePhase = (argoNode.phase as RunPhase | undefined) ?? 'Unknown'
     if (nodePhase === 'Omitted') hasOmitted = true
+
+    // Store Argo node ID (= pod name) for log retrieval
+    if (isCompute) podNameMap[canvasId] = argoNodeId
 
     const outputs: Record<string, string> = {}
     for (const param of argoNode.outputs?.parameters ?? []) {
@@ -106,6 +116,11 @@ function parseArgoNodes(raw: Record<string, unknown>): {
       instancesMap[canvasId] = []
     }
     instancesMap[canvasId].push(instance)
+
+    // Capture error message from failed nodes
+    if ((nodePhase === 'Failed' || nodePhase === 'Error') && argoNode.message) {
+      errorMap[canvasId] = argoNode.message
+    }
   }
 
   // Build nodeStatuses with aggregated phase from instances
@@ -128,6 +143,8 @@ function parseArgoNodes(raw: Record<string, unknown>): {
       instances,
       currentIndex: 0,
       outputs: instances[0].outputs,
+      error: errorMap[canvasId],
+      podName: podNameMap[canvasId],
     }
   }
 

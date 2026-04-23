@@ -139,6 +139,7 @@ onboard_outputs:
 resources:
   cpu_cores: 4
   mem_gb: 8.0
+  mem_overhead: 2.0
   estimated_walltime_hours: 1.0
   scratch_disk_gb: 10.0
   parametrize:

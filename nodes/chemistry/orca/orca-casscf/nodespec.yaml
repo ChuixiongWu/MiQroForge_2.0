@@ -1,15 +1,15 @@
 # ===========================================================================
-# orca-casci — CASCI Single-Point Energy Calculation
+# orca-casscf — CASSCF Single-Point Energy Calculation
 #
-# 使用 ORCA 进行 CASCI 单点能量计算。
+# 使用 ORCA 进行 CASSCF 单点能量计算。
 # ===========================================================================
 
 metadata:
-  name: orca-casci
+  name: orca-casscf
   version: 1.0.0
-  display_name: ORCA CASCI Single-Point Energy
+  display_name: ORCA CASSCF Single-Point Energy
   description: >
-    Performs a CASCI (Complete Active Space Configuration Interaction)
+    Performs a CASSCF (Complete Active Space Self-Consistent Field)
     single-point electronic energy calculation using ORCA. Requires
     specification of active space (electrons and orbitals). Requires an
     XYZ geometry as stream input.
@@ -22,7 +22,7 @@ metadata:
     software: orca
     version: "6.1"
     method:
-      - CASCI
+      - CASSCF
       - single-point
       - multireference
     domain:
@@ -33,7 +33,7 @@ metadata:
       - population-analysis
     keywords:
       - orca
-      - casci
+      - casscf
       - multireference
       - active-space
       - single-point
@@ -142,7 +142,7 @@ resources:
 execution: {}
 
 semantic_identity: >-
-  CASCI single-point energy calculation using ORCA.
+  CASSCF single-point energy calculation using ORCA.
 
 distinguishing_ports:
   - gbw_file

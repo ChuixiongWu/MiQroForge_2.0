@@ -12,6 +12,10 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import subprocess
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -25,9 +29,62 @@ from api.routers import files
 from api.routers import agents
 from api.routers import projects
 
+logger = logging.getLogger(__name__)
+
 # 构建好的前端目录（npm run build 输出）
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 _serve_static = FRONTEND_DIST.exists()
+
+
+def _sync_argo_ttl() -> None:
+    """启动时同步 TTL 策略到 Argo workflow-controller ConfigMap（best-effort）。"""
+    settings = get_settings()
+    ns = settings.argo_namespace
+    ttl_success = settings.argo_ttl_success_seconds
+    ttl_failure = settings.argo_ttl_failure_seconds
+
+    patch = {
+        "data": {
+            "workflowDefaults": json.dumps({
+                "spec": {
+                    "ttlStrategy": {
+                        "secondsAfterSuccess": ttl_success,
+                        "secondsAfterFailure": ttl_failure,
+                    }
+                }
+            })
+        }
+    }
+
+    try:
+        result = subprocess.run(
+            [
+                "kubectl", "patch", "configmap", "workflow-controller-configmap",
+                "--namespace", ns,
+                "--type", "merge",
+                "-p", json.dumps(patch),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            logger.info(
+                "Argo TTL synced: success=%ds, failure=%ds", ttl_success, ttl_failure
+            )
+        else:
+            logger.warning(
+                "Argo TTL sync failed (non-fatal): %s", result.stderr.strip()
+            )
+    except Exception as exc:
+        logger.warning("Argo TTL sync failed (non-fatal): %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _sync_argo_ttl()
+    yield
+
 
 # ── 应用实例 ──────────────────────────────────────────────────────────────────
 
@@ -44,6 +101,7 @@ app = FastAPI(
     version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
