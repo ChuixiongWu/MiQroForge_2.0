@@ -37,7 +37,7 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeId])  // recompute only when the node changes (component is already keyed by nodeId)
 
-  const { register, handleSubmit } = useForm({ defaultValues: defaults })
+  const { register, handleSubmit, setValue } = useForm({ defaultValues: defaults })
 
   // ── Preference state ──
   const [prefs, setPrefs] = React.useState<NodePreference>(() => getNodePrefs(nodeName))
@@ -102,6 +102,20 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
       return { ...prev, [paramName]: next }
     })
   }
+
+  // Track which allow_other params are in "Custom..." mode
+  const [customMode, setCustomMode] = React.useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {}
+    for (const inp of inputs) {
+      if (inp.allow_other && inp.enum_values) {
+        const v = String(storedParams[inp.name] ?? inp.default ?? '')
+        if (v !== '' && !inp.enum_values.includes(v)) {
+          init[inp.name] = true
+        }
+      }
+    }
+    return init
+  })
 
   if (inputs.length === 0) {
     return <p className="text-xs text-mf-text-muted px-3 py-2">No parameters</p>
@@ -209,14 +223,55 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
           className="accent-blue-500"
         />
       ) : param.type === 'enum' && param.enum_values ? (
-        <select
-          {...register(param.name)}
-          className="w-full px-2 py-1 bg-mf-input border border-mf-border rounded text-xs text-mf-text-primary focus:outline-none focus:border-gray-400"
-        >
-          {param.enum_values.map((v) => (
-            <option key={v} value={v}>{v}</option>
-          ))}
-        </select>
+        param.allow_other ? (
+          // allow_other: select + conditional text input for custom values
+          (() => {
+            const curVal = String(storedParams[param.name] ?? param.default ?? '')
+            const isCustom = customMode[param.name]
+              || (curVal !== '' && !param.enum_values.includes(curVal))
+            return (
+              <div className="space-y-1">
+                <select
+                  value={isCustom ? '__custom__' : curVal}
+                  onChange={(e) => {
+                    if (e.target.value === '__custom__') {
+                      setCustomMode((m) => ({ ...m, [param.name]: true }))
+                      setValue(param.name, '')
+                    } else {
+                      setCustomMode((m) => ({ ...m, [param.name]: false }))
+                      setValue(param.name, e.target.value)
+                    }
+                  }}
+                  className="w-full px-2 py-1 bg-mf-input border border-mf-border rounded text-xs text-mf-text-primary focus:outline-none focus:border-gray-400"
+                >
+                  {param.enum_values.map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                  <option value="__custom__">Custom...</option>
+                </select>
+                {isCustom && (
+                  <input
+                    type="text"
+                    value={customMode[param.name] ? (storedParams[param.name] ?? '') : curVal}
+                    onChange={(e) => setValue(param.name, e.target.value)}
+                    placeholder="Type custom value..."
+                    className="w-full px-2 py-1 bg-mf-input border border-purple-500/50 rounded text-xs text-mf-text-primary focus:outline-none focus:border-purple-400 font-mono"
+                  />
+                )}
+              </div>
+            )
+          })()
+        ) : (
+          // strict enum: dropdown only
+          <select
+            {...register(param.name)}
+            className="w-full px-2 py-1 bg-mf-input border border-mf-border rounded text-xs text-mf-text-primary focus:outline-none focus:border-gray-400"
+          >
+            {param.enum_values.map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+        )
       ) : (
         // Bug fix #2: use setValueAs for numeric types so values are stored as
         // numbers rather than strings (HTML inputs always yield strings by default)

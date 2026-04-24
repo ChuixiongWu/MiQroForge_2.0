@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# psi4-mp2/profile/run.sh — MP2 单点能量
+# psi4-mp2/profile/run.sh — MP2/MP3/MP4 单点能量
 set -euo pipefail
 # MF2 init
 
-mf_banner "psi4-mp2" "MP2 single-point energy calculation"
+mf_banner "psi4-mp2" "MP2/MP3/MP4 single-point energy calculation"
 
-echo "[psi4-mp2] MP2/${basis_set} FC=${frozen_core} Ref=${reference} SCF=${scf_type} Charge=${charge} Mult=${multiplicity} Cores=${n_cores}"
+# ── 方法变体 ───────────────────────────────────────────────────────────────
+METHOD="${method_variant:-MP2}"
+
+echo "[psi4-mp2] ${METHOD}/${basis_set} FC=${frozen_core} Ref=${reference} SCF=${scf_type} Charge=${charge} Mult=${multiplicity} Cores=${n_cores}"
 
 # ── 读取 stream input: xyz_geometry ──────────────────────────────────────────
 XYZ_INPUT="${INPUT_DIR}/xyz_geometry"
@@ -20,6 +23,7 @@ echo "[psi4-mp2] Loaded input geometry: $(wc -l < "${WORKDIR}/input.xyz") lines"
 python3 << PYEOF
 from string import Template
 
+method = '${METHOD}'.lower()  # Psi4 uses lowercase: 'mp2', 'mp3', 'mp4'
 basis_set = '${basis_set}'
 reference = '${reference}'
 scf_type = '${scf_type}'
@@ -39,6 +43,7 @@ with open('/mf/profile/input.py.template') as f:
     tmpl = Template(f.read())
 
 result = tmpl.substitute(
+    method=method,
     basis_set=basis_set,
     reference=reference,
     scf_type=scf_type,
@@ -54,7 +59,7 @@ result = tmpl.substitute(
 with open('${WORKDIR}/input.py', 'w') as f:
     f.write(result)
 
-print(f"[psi4-mp2] Generated input.py ({mem_mb}MB, {n_cores} cores)")
+print(f"[psi4-mp2] Generated input.py for {method} ({mem_mb}MB, {n_cores} cores)")
 PYEOF
 
 echo "[psi4-mp2] Generated input.py:"
@@ -69,7 +74,7 @@ if ! psi4 input.py > output.log 2>&1; then
     tail -n 200 output.log >&2 || true
     exit "${ec}"
 fi
-echo "[psi4-mp2] Psi4 finished. Parsing output..."
+echo "[psi4-mp2] Psi4 finished (${METHOD}). Parsing output..."
 
 # ── 解析输出 ──────────────────────────────────────────────────────────────────
 ENERGY=$(grep "FINAL ENERGY:" output.log | tail -1 | awk '{print $NF}' || echo "")

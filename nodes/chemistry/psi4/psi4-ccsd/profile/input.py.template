@@ -19,7 +19,7 @@ psi4.set_options({
     'freeze_core': freeze_val,
 })
 
-energy, wfn = psi4.energy('ccsd/${basis_set}', molecule=mol, return_wfn=True)
+energy, wfn = psi4.energy('${method}/${basis_set}', molecule=mol, return_wfn=True)
 
 wfn.to_file('${output_dir}/wavefunction.json')
 

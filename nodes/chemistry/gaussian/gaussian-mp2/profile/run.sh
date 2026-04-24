@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# gaussian-mp2/profile/run.sh — MP2 单点能量
+# gaussian-mp2/profile/run.sh — MP2/MP3/MP4 单点能量
 set -euo pipefail
 # MF2 init
 
-mf_banner "gaussian-mp2" "MP2 single-point energy calculation"
+mf_banner "gaussian-mp2" "MP2/MP3/MP4 single-point energy calculation"
 
-echo "[gaussian-mp2] MP2/${basis_set} FC=${frozen_core} Pop=${population} Cores=${n_cores} Mem=${mem_gb}GB"
+# ── 方法变体 ───────────────────────────────────────────────────────────────
+METHOD="${method_variant:-MP2}"
+
+echo "[gaussian-mp2] ${METHOD}/${basis_set} FC=${frozen_core} Pop=${population} Cores=${n_cores} Mem=${mem_gb}GB"
 
 XYZ_INPUT="${INPUT_DIR}/xyz_geometry"
 if [[ ! -f "$XYZ_INPUT" ]]; then
@@ -17,6 +20,7 @@ cp "$XYZ_INPUT" "${WORKDIR}/input.xyz"
 python3 << PYEOF
 from string import Template
 
+method = '${METHOD}'
 basis_set = '${basis_set}'
 population = '${population}'
 frozen_core = '${frozen_core}'
@@ -38,6 +42,7 @@ with open('/mf/profile/input.gjf.template') as f:
     tmpl = Template(f.read())
 
 result = tmpl.substitute(
+    method=method,
     basis_set=basis_set,
     population=population,
     fc_kw=fc_kw,
@@ -51,7 +56,7 @@ result = tmpl.substitute(
 with open('${WORKDIR}/input.gjf', 'w') as f:
     f.write(result)
 
-print(f"[gaussian-mp2] Generated input.gjf ({mem_mb}MB, {n_cores} cores)")
+print(f"[gaussian-mp2] Generated input.gjf for {method} ({mem_mb}MB, {n_cores} cores)")
 PYEOF
 
 echo "[gaussian-mp2] Generated input.gjf:"
@@ -65,18 +70,32 @@ if ! g16 < input.gjf > output.log 2>&1; then
     tail -n 200 output.log >&2 || true
     exit "${ec}"
 fi
-echo "[gaussian-mp2] Gaussian finished. Parsing output..."
+echo "[gaussian-mp2] Gaussian finished (${METHOD}). Parsing output..."
 
-# MP2 energy: prefer EUMP2 on the total energy line (RMP2/UMP2), not the correlation-only line
-ENERGY=$(grep -E "RMP2|UMP2|LMP2" output.log | grep "EUMP2" | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
-if [[ -z "$ENERGY" ]]; then
-    ENERGY=$(grep "EUMP2" output.log | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
+# Energy extraction:
+#   Gaussian 16 prints MPn total energy in two forms:
+#     1. Archive entry:  MP2=-74.9983209\  (backslash-separated, single long line)
+#        The value is the TOTAL energy (HF + correlation).
+#     2. EUMP2 line:     EUMP2 = -0.74998320875307D+02
+#   The old grep chain (grep -E "RMP2|UMP2|LMP2" | grep "EUMP2") was fragile —
+#   "UMP2" matches as a substring in "EUMP2" and "T2", and the awk extraction
+#   could pick up the correlation energy (E2) instead of the total energy.
+#   Fix: extract from archive entry first (MP2=...), then EUMPn line, then E(Corr).
+if [[ "${METHOD}" == "MP4" ]]; then
+    ENERGY=$(grep -oP 'MP4=\K-?[0-9]+\.[0-9]+' output.log | tail -1 || echo "")
+    [[ -z "$ENERGY" ]] && ENERGY=$(grep -oP 'EUMP4\s*=\s*\K-?[0-9]+\.[0-9]+D[+-][0-9]+' output.log | tail -1 || echo "")
+    [[ -z "$ENERGY" ]] && ENERGY=$(grep "E(Corr)" output.log | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
+elif [[ "${METHOD}" == "MP3" ]]; then
+    ENERGY=$(grep -oP 'MP3=\K-?[0-9]+\.[0-9]+' output.log | tail -1 || echo "")
+    [[ -z "$ENERGY" ]] && ENERGY=$(grep -oP 'EUMP3\s*=\s*\K-?[0-9]+\.[0-9]+D[+-][0-9]+' output.log | tail -1 || echo "")
+    [[ -z "$ENERGY" ]] && ENERGY=$(grep "E(Corr)" output.log | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
+else
+    ENERGY=$(grep -oP 'MP2=\K-?[0-9]+\.[0-9]+' output.log | tail -1 || echo "")
+    [[ -z "$ENERGY" ]] && ENERGY=$(grep -oP 'EUMP2\s*=\s*\K-?[0-9]+\.[0-9]+D[+-][0-9]+' output.log | tail -1 || echo "")
+    [[ -z "$ENERGY" ]] && ENERGY=$(grep "E(Corr)" output.log | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
 fi
 if [[ -z "$ENERGY" ]]; then
-    ENERGY=$(grep "E(MP2)" output.log | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
-fi
-if [[ -z "$ENERGY" ]]; then
-    echo "[gaussian-mp2][ERROR] Could not extract MP2 energy from output!" >&2
+    echo "[gaussian-mp2][ERROR] Could not extract ${METHOD} energy from output!" >&2
     cat output.log >&2
     exit 1
 fi

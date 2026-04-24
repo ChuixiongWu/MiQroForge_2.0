@@ -7,11 +7,11 @@
 metadata:
   name: orca-ccsd
   version: 1.0.0
-  display_name: ORCA CCSD Single-Point Energy
+  display_name: ORCA Coupled Cluster (CCSD/CCSD(T))
   description: >
-    Performs a CCSD (coupled-cluster singles and doubles) single-point
-    electronic energy calculation using ORCA. Supports frozen-core and
-    all-electron variants. Requires an XYZ geometry as stream input.
+    Performs CCSD or CCSD(T) single-point energy calculation using ORCA.
+    CCSD(T) includes perturbative triple excitations for higher accuracy.
+    Supports frozen-core and all-electron variants.
     Note: ORCA MDCI module requires parallel_tasks to not exceed the
     number of electron pairs in the system. For small molecules (e.g. H2),
     set parallel_tasks=1.
@@ -25,6 +25,7 @@ metadata:
     version: "6.1"
     method:
       - CCSD
+      - "CCSD(T)"
       - single-point
     domain:
       - molecular
@@ -76,6 +77,15 @@ stream_outputs:
     description: JSON report of Mulliken charges and spin populations.
 
 onboard_inputs:
+  - name: method_variant
+    display_name: Coupled Cluster Variant
+    kind: enum
+    default: CCSD
+    allowed_values:
+      - CCSD
+      - "CCSD(T)"
+    description: "CCSD(T) includes perturbative triple excitations — higher accuracy but significantly more expensive."
+
   - name: charge
     display_name: Molecular Charge
     kind: integer
@@ -88,10 +98,7 @@ onboard_inputs:
     min_value: 1
 
   - name: basis_set
-    display_name: Basis Set
-    kind: string
     default: def2-SVP
-    description: "Basis set name, e.g. def2-SVP, def2-TZVP, 6-31G*"
     _shared_param: basis_sets
 
   - name: frozen_core
@@ -123,7 +130,7 @@ onboard_outputs:
 resources:
   cpu_cores: 4
   mem_gb: 8.0
-  estimated_walltime_hours: 3.0
+  estimated_walltime_hours: 6.0
   scratch_disk_gb: 10.0
   parallel_tasks: 4
   parametrize:
@@ -134,7 +141,7 @@ resources:
 execution: {}
 
 semantic_identity: >-
-  CCSD single-point energy calculation using ORCA.
+  Coupled-cluster (CCSD or CCSD(T)) single-point energy calculation using ORCA.
 
 distinguishing_ports:
   - gbw_file

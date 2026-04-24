@@ -73,23 +73,10 @@ onboard_inputs:
     default: "5.43 5.43 5.43 90 90 90"
 
   - name: functional
-    display_name: Exchange-Correlation Functional
-    kind: enum
     default: PBE
-    allowed_values:
-      - PBE
-      - PBE0
-      - B3LYP
-      - LDA
-      - BLYP
-      - TPSS
-      - SCAN
-      - HSE06
     _shared_param: functionals
 
   - name: basis_set
-    display_name: Basis Set
-    kind: string
     default: DZVP-MOLOPT-SR-GTH
     _shared_param: basis_sets
 

@@ -25,6 +25,7 @@ class OnBoardParamResponse(BaseModel):
     unit: Optional[str] = None
     multiple_input: bool = False
     resource_param: bool = False
+    allow_other: bool = False
 
 
 class OnBoardOutputResponse(BaseModel):

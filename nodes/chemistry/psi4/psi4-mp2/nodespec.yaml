@@ -7,10 +7,12 @@
 metadata:
   name: psi4-mp2
   version: 1.0.0
-  display_name: Psi4 MP2 Single-Point
+  display_name: Psi4 Perturbation Theory (MP2/MP3/MP4)
   description: >
-    MP2 single-point energy calculation using Psi4.
-    Supports frozen-core approximation for efficient post-HF calculations.
+    Performs MP2, MP3, or MP4 single-point energy calculation using Psi4.
+    MP3 and MP4 include higher-order perturbation corrections for improved
+    accuracy at increased computational cost.
+    Supports frozen-core approximation.
   node_type: compute
   category: chemistry
   author: MiQroForge Team
@@ -21,6 +23,8 @@ metadata:
     version: "1.10"
     method:
       - MP2
+      - MP3
+      - MP4
       - single-point
     domain:
       - molecular
@@ -60,6 +64,16 @@ stream_outputs:
     description: Psi4 wavefunction data (JSON serialized).
 
 onboard_inputs:
+  - name: method_variant
+    display_name: Perturbation Theory Order
+    kind: enum
+    default: MP2
+    allowed_values:
+      - MP2
+      - MP3
+      - MP4
+    description: "MP3/MP4 include higher-order corrections — higher accuracy but significantly more expensive."
+
   - name: charge
     display_name: Molecular Charge
     kind: integer
@@ -72,8 +86,6 @@ onboard_inputs:
     min_value: 1
 
   - name: basis_set
-    display_name: Basis Set
-    kind: string
     default: cc-pVDZ
     _shared_param: basis_sets
 
@@ -122,7 +134,7 @@ resources:
   cpu_cores: 4
   mem_gb: 4.0
   mem_overhead: 4.0
-  estimated_walltime_hours: 1.0
+  estimated_walltime_hours: 2.0
   scratch_disk_gb: 10.0
   parallel_tasks: 4
   parametrize:
@@ -134,7 +146,7 @@ resources:
 execution: {}
 
 semantic_identity: >-
-  MP2 single-point energy calculation using Psi4.
+  Perturbation theory (MP2, MP3, or MP4) single-point energy calculation using Psi4.
 
 distinguishing_ports:
   - total_energy

@@ -1,10 +1,15 @@
 """共享参数表 — canonical name 到软件原生关键字的编译时映射。
 
-``shared_params.yaml`` 定义了跨软件的 canonical 参数词汇表，
-包括泛函 (functionals)、基组 (basis_sets) 和色散校正 (dispersions)。
+``shared_params.yaml`` 是节点 OnBoardInput 参数的**唯一事实来源**。
+当节点设置 ``_shared_param`` 时，以下字段从本表推导，无需在 nodespec 中重复声明：
 
-节点通过 ``_shared_param`` 字段声明使用哪个表，
-编译器在生成 ``mf_node_params.sh`` 时自动翻译为软件原生关键字。
+- ``kind`` — 参数数据类型（从 categories 元数据）
+- ``display_name`` — 显示名称（从 categories 元数据）
+- ``description`` — 参数说明（从 categories 元数据）
+- ``allow_other`` — 是否允许自定义输入（从 categories 元数据）
+- ``allowed_values`` — 可选值列表（从条目按 software 过滤）
+
+编译器在生成 mf_node_params.sh 时，将 canonical 值翻译为软件原生关键字。
 
 用法::
 
@@ -13,13 +18,16 @@
     sp = load_shared_params()
     native = sp.resolve("PBE0", "gaussian", "functionals")
     # → "PBE1PBE"
+
+    meta = sp.get_category_meta("functionals")
+    # → CategoryMeta(kind="string", display_name="DFT Functional", allow_other=True)
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -29,6 +37,27 @@ _CONFIG_PATH = Path(__file__).parent / "shared_params.yaml"
 
 
 # ── 数据模型 ─────────────────────────────────────────────────────────────
+
+class CategoryMeta(BaseModel):
+    """共享参数类别的元数据。"""
+
+    kind: str = Field(
+        default="string",
+        description="参数数据类型（string / integer / float / boolean / enum）",
+    )
+    display_name: str = Field(
+        default="",
+        description="该类别的默认显示名称，用于自动填充 OnBoardInput.display_name",
+    )
+    description: str = Field(
+        default="",
+        description="该类别的默认参数说明，用于自动填充 OnBoardInput.description",
+    )
+    allow_other: bool = Field(
+        default=True,
+        description="是否允许用户输入不在列表中的自定义值",
+    )
+
 
 class SharedParamEntry(BaseModel):
     """单个 canonical 参数值的跨软件映射。"""
@@ -47,6 +76,10 @@ class SharedParamEntry(BaseModel):
 class SharedParams(BaseModel):
     """完整的共享参数表。"""
 
+    categories: dict[str, CategoryMeta] = Field(
+        default_factory=dict,
+        description="每个参数类别的元数据（kind / display_name / description / allow_other）",
+    )
     functionals: dict[str, SharedParamEntry] = Field(
         default_factory=dict,
         description="DFT 泛函 canonical name → 跨软件映射",
@@ -98,6 +131,10 @@ class SharedParams(BaseModel):
             if entry.for_software(software) is not None
         ]
 
+    def get_category_meta(self, category: str) -> CategoryMeta:
+        """获取指定类别的元数据。不存在时返回默认值。"""
+        return self.categories.get(category, CategoryMeta())
+
 
 # ── 加载器 ───────────────────────────────────────────────────────────────
 
@@ -119,6 +156,6 @@ def load_shared_params() -> SharedParams:
         )
     with _CONFIG_PATH.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    # 去掉顶层 version 字段，只保留 functionals/basis_sets/dispersions
+    # 去掉顶层 version 字段，只保留 categories/functionals/basis_sets/dispersions
     data.pop("version", None)
     return SharedParams.model_validate(data)

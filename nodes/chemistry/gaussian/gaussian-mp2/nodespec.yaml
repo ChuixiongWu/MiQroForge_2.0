@@ -2,11 +2,12 @@
 metadata:
   name: gaussian-mp2
   version: 1.0.0
-  display_name: Gaussian MP2 Single-Point
+  display_name: Gaussian Perturbation Theory (MP2/MP3/MP4)
   description: >
-    MP2 single-point energy calculation using Gaussian 16.
-    Supports frozen core and full core correlation.
-    Produces formatted checkpoint file and total energy.
+    Performs MP2, MP3, or MP4 single-point energy calculation using Gaussian 16.
+    MP3 and MP4 include higher-order perturbation corrections for improved
+    accuracy at increased computational cost.
+    Supports frozen-core and all-electron variants.
   node_type: compute
   category: chemistry
   author: MiQroForge Team
@@ -17,6 +18,8 @@ metadata:
     version: "16"
     method:
       - MP2
+      - MP3
+      - MP4
       - single-point
     domain:
       - molecular
@@ -55,6 +58,16 @@ stream_outputs:
     description: Total MP2 electronic energy.
 
 onboard_inputs:
+  - name: method_variant
+    display_name: Perturbation Theory Order
+    kind: enum
+    default: MP2
+    allowed_values:
+      - MP2
+      - MP3
+      - MP4
+    description: "MP3/MP4 include higher-order corrections — higher accuracy but significantly more expensive."
+
   - name: charge
     display_name: Molecular Charge
     kind: integer
@@ -67,8 +80,6 @@ onboard_inputs:
     min_value: 1
 
   - name: basis_set
-    display_name: Basis Set
-    kind: string
     default: "6-31G*"
     _shared_param: basis_sets
 
@@ -104,7 +115,7 @@ resources:
   cpu_cores: 4
   mem_gb: 8.0
   mem_overhead: 2.0
-  estimated_walltime_hours: 0.5
+  estimated_walltime_hours: 2.0
   scratch_disk_gb: 10.0
   parametrize:
     - cpu_cores
@@ -116,7 +127,7 @@ execution:
     GAUSS_SCRDIR: "/tmp"
 
 semantic_identity: >-
-  MP2 single-point energy calculation using Gaussian 16.
+  Perturbation theory (MP2, MP3, or MP4) single-point energy calculation using Gaussian 16.
 
 distinguishing_ports:
   - fchk_file

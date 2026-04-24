@@ -13,6 +13,8 @@ POST /api/v1/nodes/reindex           — 重新生成索引
 
 from __future__ import annotations
 
+from typing import Optional
+
 from pathlib import Path
 
 import yaml
@@ -180,11 +182,41 @@ def list_semantic_types(
 
 
 @router.get("/shared-params", summary="返回共享参数表（functionals / basis_sets / dispersions）")
-def get_shared_params() -> dict:
-    """返回完整的 shared_params.yaml，供前端 Reference 页面显示。"""
+def get_shared_params(software: Optional[str] = None) -> dict:
+    """返回共享参数表。
+
+    - 无 software 参数：返回完整表（供 Reference 页面显示）。
+    - 带 software 参数：返回按软件过滤后的选项（供 Inspector 下拉渲染），
+      包含 category 元数据（kind / display_name / description / allow_other）。
+    """
     from nodes.schemas.shared_params import load_shared_params
 
     shared = load_shared_params()
+
+    if software:
+        result = {}
+        for cat_name, cat_meta in shared.categories.items():
+            entries = []
+            table = getattr(shared, cat_name, {})
+            for name, entry in table.items():
+                native = entry.for_software(software)
+                if native is not None:
+                    entries.append({
+                        "canonical": name,
+                        "display_name": entry.display_name,
+                        "native": native,
+                    })
+            allowed_values = [e["canonical"] for e in entries]
+            result[cat_name] = {
+                "kind": cat_meta.kind,
+                "display_name": cat_meta.display_name,
+                "description": cat_meta.description,
+                "allow_other": cat_meta.allow_other,
+                "allowed_values": allowed_values,
+                "entries": entries,
+            }
+        return result
+
     return shared.model_dump(mode="json")
 
 
@@ -300,6 +332,7 @@ def get_node(
             unit=p.unit,
             multiple_input=p.multiple_input,
             resource_param=p.resource_param,
+            allow_other=p.allow_other,
         )
         for p in entry.onboard_inputs
     ]

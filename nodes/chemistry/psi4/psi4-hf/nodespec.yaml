@@ -72,8 +72,6 @@ onboard_inputs:
     min_value: 1
 
   - name: basis_set
-    display_name: Basis Set
-    kind: string
     default: cc-pVDZ
     _shared_param: basis_sets
 

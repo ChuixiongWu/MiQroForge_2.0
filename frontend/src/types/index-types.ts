@@ -22,6 +22,7 @@ export interface OnBoardParamResponse {
   unit?: string
   multiple_input?: boolean
   resource_param?: boolean
+  allow_other?: boolean
 }
 
 export interface OnBoardOutputResponse {

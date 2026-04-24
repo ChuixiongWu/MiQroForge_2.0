@@ -42,6 +42,7 @@ export function buildNodeData(detail: NodeDetailResponse): MFNodeData {
       unit: p.unit,
       multiple_input: p.multiple_input,
       resource_param: p.resource_param,
+      allow_other: p.allow_other,
     })),
     onboard_outputs: (detail.onboard_outputs ?? []).map((o) => ({
       name: o.name,

@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# gaussian-ccsd/profile/run.sh — CCSD 单点能量
+# gaussian-ccsd/profile/run.sh — CCSD/CCSD(T) 单点能量
 set -euo pipefail
 # MF2 init
 
-mf_banner "gaussian-ccsd" "CCSD single-point energy calculation"
+mf_banner "gaussian-ccsd" "CCSD/CCSD(T) single-point energy calculation"
 
-echo "[gaussian-ccsd] CCSD/${basis_set} FC=${frozen_core} Pop=${population} Cores=${n_cores} Mem=${mem_gb}GB"
+# ── 方法变体 ───────────────────────────────────────────────────────────────
+METHOD="${method_variant:-CCSD}"
+
+echo "[gaussian-ccsd] ${METHOD}/${basis_set} FC=${frozen_core} Pop=${population} Cores=${n_cores} Mem=${mem_gb}GB"
 
 XYZ_INPUT="${INPUT_DIR}/xyz_geometry"
 if [[ ! -f "$XYZ_INPUT" ]]; then
@@ -17,6 +20,7 @@ cp "$XYZ_INPUT" "${WORKDIR}/input.xyz"
 python3 << PYEOF
 from string import Template
 
+method = '${METHOD}'
 basis_set = '${basis_set}'
 population = '${population}'
 frozen_core = '${frozen_core}'
@@ -38,6 +42,7 @@ with open('/mf/profile/input.gjf.template') as f:
     tmpl = Template(f.read())
 
 result = tmpl.substitute(
+    method=method,
     basis_set=basis_set,
     population=population,
     fc_kw=fc_kw,
@@ -51,7 +56,7 @@ result = tmpl.substitute(
 with open('${WORKDIR}/input.gjf', 'w') as f:
     f.write(result)
 
-print(f"[gaussian-ccsd] Generated input.gjf ({mem_mb}MB, {n_cores} cores)")
+print(f"[gaussian-ccsd] Generated input.gjf for {method} ({mem_mb}MB, {n_cores} cores)")
 PYEOF
 
 echo "[gaussian-ccsd] Generated input.gjf:"
@@ -65,18 +70,33 @@ if ! g16 < input.gjf > output.log 2>&1; then
     tail -n 200 output.log >&2 || true
     exit "${ec}"
 fi
-echo "[gaussian-ccsd] Gaussian finished. Parsing output..."
+echo "[gaussian-ccsd] Gaussian finished (${METHOD}). Parsing output..."
 
-# CCSD energy: try E(CCSD) first, then EUMP2 on total energy line as fallback
-ENERGY=$(grep "E(CCSD)" output.log | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
-if [[ -z "$ENERGY" ]]; then
-    ENERGY=$(grep -E "RMP2|UMP2|LMP2" output.log | grep "EUMP2" | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
+# Energy extraction:
+#   Unlike MP2 (which prints "EUMP2=..." / "E(MP2)=..."), Gaussian 16's CCSD output
+#   does NOT contain an "E(CCSD)=..." line. The energy appears in two places:
+#     1. Archive entry:  CCSD=-75.0122086  (and CCSD(T)=-xxx for triples)
+#     2. Correlation summary:  E(Corr)= -75.012208612  /  E(CORR)= -75.012210765
+#   The original grep for "E(CCSD)" matched nothing, causing the script to exit
+#   before writing output files — Argo then reported "cannot save parameter" errors.
+#   Fix: extract from the archive entry ("CCSD=..." / "CCSD(T)=...") first,
+#   fallback to "E(Corr)" line if archive entry is missing.
+if [[ "${METHOD}" == "CCSD(T)" ]]; then
+    ENERGY=$(grep -oP 'CCSD\(T\)=\K-?[0-9]+\.[0-9]+' output.log | tail -1 || echo "")
+    if [[ -z "$ENERGY" ]]; then
+        ENERGY=$(grep -oP 'CCSD=\K-?[0-9]+\.[0-9]+' output.log | tail -1 || echo "")
+    fi
+    if [[ -z "$ENERGY" ]]; then
+        ENERGY=$(grep "E(Corr)" output.log | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
+    fi
+else
+    ENERGY=$(grep -oP 'CCSD=\K-?[0-9]+\.[0-9]+' output.log | tail -1 || echo "")
+    if [[ -z "$ENERGY" ]]; then
+        ENERGY=$(grep "E(Corr)" output.log | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
+    fi
 fi
 if [[ -z "$ENERGY" ]]; then
-    ENERGY=$(grep "EUMP2" output.log | tail -1 | awk -F'=' '{print $2}' | awk '{print $1}' || echo "")
-fi
-if [[ -z "$ENERGY" ]]; then
-    echo "[gaussian-ccsd][ERROR] Could not extract CCSD energy from output!" >&2
+    echo "[gaussian-ccsd][ERROR] Could not extract ${METHOD} energy from output!" >&2
     cat output.log >&2
     exit 1
 fi

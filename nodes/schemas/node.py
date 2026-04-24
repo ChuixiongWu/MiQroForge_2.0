@@ -315,6 +315,25 @@ class NodeSpec(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _filter_allowed_values_by_software(self) -> NodeSpec:
+        """对 _shared_param 参数，按软件过滤 allowed_values。
+
+        例如 Gaussian 节点的 dispersions 不应显示 D4（Gaussian 不支持）。
+        """
+        from .shared_params import load_shared_params
+
+        software = self.metadata.tags.software
+        if not software:
+            return self
+
+        sp = load_shared_params()
+        for p in self.onboard_inputs:
+            if p.shared_param and p.kind == OnBoardInputKind.ENUM and p.allowed_values:
+                available = set(sp.available_for_software(software, p.shared_param))
+                p.allowed_values = [v for v in p.allowed_values if v in available]
+        return self
+
+    @model_validator(mode="after")
     def _auto_semantic_identity(self) -> NodeSpec:
         """semantic_identity 为空时，自动从 name + description 生成。"""
         if not self.semantic_identity:

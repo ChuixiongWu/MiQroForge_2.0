@@ -12,6 +12,8 @@ from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
+from nodes.schemas.shared_params import load_shared_params
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Stream I/O 四分类
@@ -300,12 +302,13 @@ class OnBoardInput(BaseModel):
         default=None,
         description="人类可读的显示名称。留空时自动从 name 生成（下划线→空格，首字母大写）。",
     )
-    kind: OnBoardInputKind = Field(
-        ...,
+    kind: Optional[OnBoardInputKind] = Field(
+        default=None,
         description=(
             "参数数据类型。"
             "string=单行文本 | integer=整数 | float=浮点 | "
             "boolean=开关 | enum=枚举（需配 allowed_values）| textarea=多行文本。"
+            "当 _shared_param 存在时可省略，由共享参数表自动推导。"
         ),
     )
     default: Any = Field(
@@ -363,6 +366,42 @@ class OnBoardInput(BaseModel):
         default=False,
         description="是否由资源 parametrize 自动生成的参数。前端应将其显示在资源区域而非参数表单中。",
     )
+    allow_other: bool = Field(
+        default=False,
+        description=(
+            "是否允许用户输入不在 allowed_values 中的自定义值。"
+            "当 _shared_param 存在时从共享参数表推导。"
+            "前端据此渲染 combo-box（true）或纯下拉（false）。"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _resolve_shared_param(self) -> "OnBoardInput":
+        """当 _shared_param 存在时，从 shared_params.yaml 推导缺失字段。"""
+        if self.shared_param is None:
+            # 非共享参数：kind 必填
+            if self.kind is None:
+                raise ValueError(
+                    f"OnBoardInput '{self.name}': kind is required "
+                    f"when _shared_param is not set."
+                )
+            return self
+
+        # 共享参数：从 shared_params.yaml 推导
+        sp = load_shared_params()
+        meta = sp.get_category_meta(self.shared_param)
+
+        if self.kind is None:
+            self.kind = OnBoardInputKind(meta.kind)
+        if self.description == "" and meta.description:
+            self.description = meta.description
+        # enum 类型自动填充 allowed_values（所有 canonical name）
+        if self.kind == OnBoardInputKind.ENUM and not self.allowed_values:
+            self.allowed_values = sp.available_canonical_names(self.shared_param)
+        # allow_other 从 category 元数据推导
+        if self.shared_param:
+            self.allow_other = meta.allow_other
+        return self
 
     @model_validator(mode="after")
     def _auto_display_name(self) -> "OnBoardInput":

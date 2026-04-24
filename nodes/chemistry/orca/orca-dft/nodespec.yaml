@@ -86,36 +86,15 @@ onboard_inputs:
     min_value: 1
 
   - name: basis_set
-    display_name: Basis Set
-    kind: string
     default: def2-SVP
-    description: "Basis set name, e.g. def2-SVP, def2-TZVP, 6-31G*"
     _shared_param: basis_sets
 
   - name: functional
-    display_name: DFT Functional
-    kind: enum
     default: B3LYP
-    allowed_values:
-      - B3LYP
-      - PBE
-      - PBE0
-      - LDA
-      - BLYP
-      - TPSS
-      - SCAN
-      - HSE06
     _shared_param: functionals
 
   - name: dispersion
-    display_name: Dispersion Correction
-    kind: enum
     default: "none"
-    allowed_values:
-      - "none"
-      - D3
-      - D3BJ
-      - D4
     _shared_param: dispersions
 
 onboard_outputs:

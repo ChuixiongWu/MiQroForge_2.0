@@ -50,6 +50,10 @@ class OnBoardInputSummary(BaseModel):
         default=False,
         description="是否由资源 parametrize 自动生成的参数。",
     )
+    allow_other: bool = Field(
+        default=False,
+        description="是否允许用户输入自定义值（combo-box 模式）。",
+    )
 
 
 class OnBoardOutputSummary(BaseModel):

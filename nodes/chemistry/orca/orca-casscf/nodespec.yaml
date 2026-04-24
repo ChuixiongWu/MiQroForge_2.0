@@ -88,10 +88,7 @@ onboard_inputs:
     min_value: 1
 
   - name: basis_set
-    display_name: Basis Set
-    kind: string
     default: def2-SVP
-    description: "Basis set name, e.g. def2-SVP, def2-TZVP, 6-31G*"
     _shared_param: basis_sets
 
   - name: active_electrons

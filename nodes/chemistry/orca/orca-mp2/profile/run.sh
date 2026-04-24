@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# orca-mp2/profile/run.sh — MP2 单点能量计算
+# orca-mp2/profile/run.sh — MP2/MP3/MP4 单点能量计算
 set -euo pipefail
 # MF2 init
 
-mf_banner "orca-mp2" "MP2 single-point energy calculation"
+mf_banner "orca-mp2" "MP2/MP3/MP4 single-point energy calculation"
+
+# ── 方法变体 ───────────────────────────────────────────────────────────────
+METHOD="${method_variant:-MP2}"
 
 # ── 映射 frozen_core 关键字 ──────────────────────────────────────────────────
 fc_kw=""
@@ -11,7 +14,7 @@ if [[ "${frozen_core}" == "false" ]]; then
     fc_kw="NoFrozenCore "
 fi
 
-echo "[orca-mp2] MP2/${basis_set} FrozenCore=${frozen_core} Charge=${charge} Mult=${multiplicity} Cores=${n_cores}"
+echo "[orca-mp2] ${METHOD}/${basis_set} FrozenCore=${frozen_core} Charge=${charge} Mult=${multiplicity} Cores=${n_cores}"
 
 # ── 读取 stream input: xyz_geometry ──────────────────────────────────────────
 XYZ_INPUT="${INPUT_DIR}/xyz_geometry"
@@ -27,6 +30,7 @@ python3 << PYEOF
 from string import Template
 tmpl = Template(open('/mf/profile/input.orca.template').read())
 result = tmpl.substitute(
+    method='${METHOD}',
     basis_set='${basis_set}',
     fc_kw='${fc_kw}',
     n_cores='${n_cores}',
@@ -44,7 +48,7 @@ cat "${WORKDIR}/input.inp"
 cd "$WORKDIR"
 echo "[orca-mp2] Running ORCA..."
 /opt/orca/orca input.inp > output.log 2>&1
-echo "[orca-mp2] ORCA finished. Parsing output..."
+echo "[orca-mp2] ORCA finished (${METHOD}). Parsing output..."
 
 # ── 解析输出 ──────────────────────────────────────────────────────────────────
 ENERGY=$(grep "FINAL SINGLE POINT ENERGY" output.log | tail -1 | awk '{print $NF}' || echo "")

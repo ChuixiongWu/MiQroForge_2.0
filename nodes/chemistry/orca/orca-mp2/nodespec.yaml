@@ -7,12 +7,12 @@
 metadata:
   name: orca-mp2
   version: 1.0.0
-  display_name: ORCA MP2 Single-Point Energy
+  display_name: ORCA Perturbation Theory (MP2/MP3/MP4)
   description: >
-    Performs an MP2 (second-order Møller-Plesset perturbation theory)
-    single-point electronic energy calculation using ORCA. Supports
-    frozen-core and all-electron variants. Requires an XYZ geometry
-    as stream input.
+    Performs MP2, MP3, or MP4 single-point energy calculation using ORCA.
+    MP3 and MP4 include higher-order perturbation corrections for improved
+    accuracy at increased computational cost.
+    Supports frozen-core and all-electron variants.
   node_type: compute
   category: chemistry
   author: MiQroForge Team
@@ -23,6 +23,8 @@ metadata:
     version: "6.1"
     method:
       - MP2
+      - MP3
+      - MP4
       - single-point
     domain:
       - molecular
@@ -74,6 +76,16 @@ stream_outputs:
     description: JSON report of Mulliken charges and spin populations.
 
 onboard_inputs:
+  - name: method_variant
+    display_name: Perturbation Theory Order
+    kind: enum
+    default: MP2
+    allowed_values:
+      - MP2
+      - MP3
+      - MP4
+    description: "MP3/MP4 include higher-order corrections — higher accuracy but significantly more expensive."
+
   - name: charge
     display_name: Molecular Charge
     kind: integer
@@ -86,10 +98,7 @@ onboard_inputs:
     min_value: 1
 
   - name: basis_set
-    display_name: Basis Set
-    kind: string
     default: def2-SVP
-    description: "Basis set name, e.g. def2-SVP, def2-TZVP, 6-31G*"
     _shared_param: basis_sets
 
   - name: frozen_core
@@ -121,7 +130,7 @@ onboard_outputs:
 resources:
   cpu_cores: 4
   mem_gb: 8.0
-  estimated_walltime_hours: 1.0
+  estimated_walltime_hours: 2.0
   scratch_disk_gb: 10.0
   parallel_tasks: 4
   parametrize:
@@ -132,7 +141,7 @@ resources:
 execution: {}
 
 semantic_identity: >-
-  MP2 single-point energy calculation using ORCA.
+  Perturbation theory (MP2, MP3, or MP4) single-point energy calculation using ORCA.
 
 distinguishing_ports:
   - gbw_file

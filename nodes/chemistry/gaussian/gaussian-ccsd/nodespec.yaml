@@ -2,11 +2,11 @@
 metadata:
   name: gaussian-ccsd
   version: 1.0.0
-  display_name: Gaussian CCSD Single-Point
+  display_name: Gaussian Coupled Cluster (CCSD/CCSD(T))
   description: >
-    CCSD single-point energy calculation using Gaussian 16.
-    Coupled cluster with singles and doubles.
-    Produces formatted checkpoint file and total energy.
+    Performs CCSD or CCSD(T) single-point energy calculation using Gaussian 16.
+    CCSD(T) includes perturbative triple excitations for higher accuracy.
+    Supports frozen-core and all-electron variants.
   node_type: compute
   category: chemistry
   author: MiQroForge Team
@@ -17,6 +17,7 @@ metadata:
     version: "16"
     method:
       - CCSD
+      - "CCSD(T)"
       - single-point
     domain:
       - molecular
@@ -55,6 +56,15 @@ stream_outputs:
     description: Total CCSD electronic energy.
 
 onboard_inputs:
+  - name: method_variant
+    display_name: Coupled Cluster Variant
+    kind: enum
+    default: CCSD
+    allowed_values:
+      - CCSD
+      - "CCSD(T)"
+    description: "CCSD(T) includes perturbative triple excitations — higher accuracy but significantly more expensive."
+
   - name: charge
     display_name: Molecular Charge
     kind: integer
@@ -67,8 +77,6 @@ onboard_inputs:
     min_value: 1
 
   - name: basis_set
-    display_name: Basis Set
-    kind: string
     default: "6-31G*"
     _shared_param: basis_sets
 
@@ -104,7 +112,7 @@ resources:
   cpu_cores: 4
   mem_gb: 8.0
   mem_overhead: 2.0
-  estimated_walltime_hours: 2.0
+  estimated_walltime_hours: 5.0
   scratch_disk_gb: 10.0
   parametrize:
     - cpu_cores
@@ -116,7 +124,7 @@ execution:
     GAUSS_SCRDIR: "/tmp"
 
 semantic_identity: >-
-  CCSD single-point energy calculation using Gaussian 16.
+  Coupled-cluster (CCSD or CCSD(T)) single-point energy calculation using Gaussian 16.
 
 distinguishing_ports:
   - fchk_file

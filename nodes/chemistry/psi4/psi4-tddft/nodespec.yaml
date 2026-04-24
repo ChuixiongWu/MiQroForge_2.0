@@ -84,35 +84,15 @@ onboard_inputs:
     min_value: 1
 
   - name: functional
-    display_name: Exchange-Correlation Functional
-    kind: enum
     default: B3LYP
-    allowed_values:
-      - B3LYP
-      - PBE
-      - PBE0
-      - LDA
-      - BLYP
-      - TPSS
-      - SCAN
-      - HSE06
     _shared_param: functionals
 
   - name: basis_set
-    display_name: Basis Set
-    kind: string
     default: cc-pVDZ
     _shared_param: basis_sets
 
   - name: dispersion
-    display_name: Dispersion Correction
-    kind: enum
     default: "none"
-    allowed_values:
-      - "none"
-      - D3
-      - D3BJ
-      - D4
     _shared_param: dispersions
 
   - name: reference

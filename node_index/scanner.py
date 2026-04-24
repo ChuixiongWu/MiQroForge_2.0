@@ -212,6 +212,7 @@ def _spec_to_entry(
             unit=p.unit,
             multiple_input=p.multiple_input,
             resource_param=p.resource_param,
+            allow_other=p.allow_other,
         )
         for p in spec.onboard_inputs
     ]
