@@ -47,6 +47,10 @@ export function rfStateToWorkflowDoc(
     // Pass through stream I/O so workflowDocToYaml can derive ephemeral ports
     if (n.data.stream_inputs) wfNode.stream_inputs = n.data.stream_inputs
     if (n.data.stream_outputs) wfNode.stream_outputs = n.data.stream_outputs
+    if (n.data.onboard_inputs) wfNode.onboard_inputs = n.data.onboard_inputs
+    if (n.data.resources) wfNode.resources = n.data.resources
+    // Pass through node_generator for nodegen serialization detection
+    if (n.data.node_generator) wfNode.node_generator = n.data.node_generator
     return wfNode
   })
 
@@ -72,12 +76,18 @@ export function workflowDocToYaml(doc: WorkflowDocument): string {
         id: n.id,
         onboard_params: n.onboard_params,
       }
-      // Only include nodespec_path for non-ephemeral nodes
       const extra = n as unknown as Record<string, unknown>
-      const isEphemeral = !!extra.ephemeral
+      // Nodegen: a node from "Generate Node" drag always has node_generator
+      const nodeGenerator = extra.node_generator as Record<string, unknown> | undefined
+      const nodegenResult = (nodeGenerator?.result ?? {}) as Record<string, unknown>
+      const hasNodegenResult = !!nodegenResult.nodespec_yaml
+      const hasNodeGenerator = !!nodeGenerator
+      // Nodegen nodes: ALWAYS ephemeral + nodegen_tmp_ref → calls /api/v1/agents/node/run
+      //   no result → nodegen_tmp_ref="" → Agent generates from scratch at runtime
+      //   has result → nodegen_tmp_ref="<name>" → Agent uses pre-generated as reference
+      // Plain ephemeral nodes (palette drag): ephemeral → calls /api/v1/agents/ephemeral
+      const isEphemeral = !!extra.ephemeral || hasNodeGenerator
       const isSweep = !!extra.parallel_sweep
-      // Unified: all non-ephemeral nodes use 'node' field (not nodespec_path)
-      // Backend MFWorkflow validates node XOR nodespec_path — cannot have both
       if (!isEphemeral) {
         nodeObj.node = (extra.node as string) || n.nodespec_name
           || n.nodespec_path?.split('/').slice(-2, -1)[0]
@@ -87,7 +97,23 @@ export function workflowDocToYaml(doc: WorkflowDocument): string {
       }
       if (isEphemeral) {
         nodeObj.ephemeral = true
-        // Derive ports: export as int-count format {inputs: N, outputs: N}
+        if (hasNodeGenerator) {
+          // Always use canvas node ID (n.id) as nodegen_tmp_ref — unique per canvas
+          // instance, avoids collisions when multiple prefab nodes share the same
+          // generated node name.  API uses it as work-dir under tmp/ so generated
+          // nodespec.yaml / run.sh are always persisted for after-run canvas updates.
+          nodeObj.nodegen_tmp_ref = n.id as string
+          // Build pregenerate key: -1 cycle parsed nodespec info for compiler/runtime port resolution
+          if (hasNodegenResult) {
+            const pg: Record<string, unknown> = {}
+            if (extra.stream_inputs) pg.stream_inputs = extra.stream_inputs
+            if (extra.stream_outputs) pg.stream_outputs = extra.stream_outputs
+            if (extra.onboard_inputs) pg.onboard_inputs = extra.onboard_inputs
+            if (extra.resources) pg.resources = extra.resources
+            nodeObj.pregenerate = pg
+          }
+        }
+        // Derive ports from stored ports or stream I/O
         const rawPorts = extra.ports as Record<string, unknown> | undefined
         if (rawPorts && Array.isArray(rawPorts.inputs)) {
           nodeObj.ports = {
@@ -103,12 +129,21 @@ export function workflowDocToYaml(doc: WorkflowDocument): string {
             nodeObj.ports = { inputs: nIn, outputs: nOut }
           }
         }
-        // Write ephemeral_description only into onboard_params.description
-        // (not top-level description, to avoid duplication)
-        const desc = (extra.ephemeral_description as string) || (extra.description as string) || ''
+        // Use user's generation description and software from node_generator
+        const genDesc = (nodeGenerator?.description as string) || ''
+        const genSoftware = (nodeGenerator?.software as string) || ''
+        const desc = genDesc || (extra.ephemeral_description as string) || (extra.description as string) || ''
+        const params = { ...(nodeObj.onboard_params as Record<string, unknown>) }
+        let paramsModified = false
         if (desc) {
-          const params = (nodeObj.onboard_params as Record<string, unknown>) ?? {}
           params.description = desc
+          paramsModified = true
+        }
+        if (genSoftware) {
+          params._software = genSoftware
+          paramsModified = true
+        }
+        if (paramsModified) {
           nodeObj.onboard_params = params
         }
       }
@@ -131,6 +166,7 @@ interface ParsedYamlNode {
   description?: string
   ports?: { inputs: Array<{ name: string; type: string }>; outputs: Array<{ name: string; type: string }> }
   node?: string
+  nodegen_tmp_ref?: string
   // Sweep fields
   parallel_sweep?: { values: unknown[] }
   // Stream IO (for deriving ephemeral ports)
@@ -200,6 +236,7 @@ export function parseWorkflowYaml(yamlStr: string): ParsedWorkflow {
       }
     }
     if (n.node) wfNode.node = n.node
+    if (n.nodegen_tmp_ref) wfNode.nodegen_tmp_ref = n.nodegen_tmp_ref
     if (n.parallel_sweep) wfNode.parallel_sweep = n.parallel_sweep
     if (n.stream_inputs) wfNode.stream_inputs = n.stream_inputs
     if (n.stream_outputs) wfNode.stream_outputs = n.stream_outputs

@@ -18,10 +18,41 @@ Check whether the generated node correctly implements the requested functionalit
 ```
 {% endif %}
 
+{% if sandbox_result %}
+## Sandbox Test Result:
+- **Test Passed**: {{ sandbox_result.test_passed }}
+- **Return Code**: {{ sandbox_result.return_code }}
+{% if sandbox_result.stdout %}
+- **stdout** (last 1000 chars):
+```
+{{ sandbox_result.stdout[-1000:] }}
+```
+{% endif %}
+{% if sandbox_result.stderr %}
+- **stderr** (last 1000 chars):
+```
+{{ sandbox_result.stderr[-1000:] }}
+```
+{% endif %}
+{% if sandbox_result.generated_files %}
+- **Generated Files**: {{ sandbox_result.generated_files | join(', ') }}
+{% endif %}
+{% if output_previews %}
+### Output File Contents (for data correctness check):
+{% for fname, fcontent in output_previews.items() %}
+**{{ fname }}**:
+```
+{{ fcontent }}
+```
+{% endfor %}
+{% endif %}
+{% endif %}
+
 ## Evaluation Checklist:
 
 ### Programmatic Checks:
 - nodespec.yaml: parseable as valid YAML? ✓/✗
+- NodeSpec Pydantic validation: passes? ✓/✗
 - Port names: snake_case? ✓/✗
 - semantic_type: in registry? ✓/✗
 - base_image_ref: in registry? ✓/✗
@@ -30,11 +61,20 @@ Check whether the generated node correctly implements the requested functionalit
 - run.sh: uses /mf/input/ and /mf/output/ paths? ✓/✗
 - Templates: use string.Template syntax ($var)? ✓/✗
 
-### Intent Checks (more important):
+### Sandbox Checks:
+{% if sandbox_result %}
+- Sandbox execution: return_code == 0? {{ '✓' if sandbox_result.return_code == 0 else '✗' }}
+- Output files generated? {{ '✓' if sandbox_result.generated_files else '✗' }}
+{% else %}
+- No sandbox test was performed
+{% endif %}
+
+### Intent Checks (most important):
 1. Does the node correctly implement the requested semantic type?
 2. Are the ports minimal and correct for the operation?
 3. Is the run.sh script logically correct for the target software?
 4. Are on-board parameters complete and well-defined?
+5. Does the node match the software's actual capabilities (per manual)?
 
 Output ONLY this JSON (no prose):
 ```json

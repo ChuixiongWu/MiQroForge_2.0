@@ -16,7 +16,9 @@ import { SharedParamsPage } from './components/docs/SharedParamsPage'
 import { ChatPanel } from './components/chat/ChatPanel'
 import { ProjectGallery } from './pages/ProjectGallery'
 import { NodeRepository } from './pages/NodeRepository'
+import { MemoryManager } from './pages/MemoryManager'
 import { useUIStore } from './stores/ui-store'
+import { useRunOverlayStore } from './stores/run-overlay-store'
 import { useAgentStore } from './stores/agent-store'
 import { setSavedWorkflowsProjectId } from './stores/saved-workflows-store'
 import { useProjectStore } from './stores/project-store'
@@ -51,6 +53,7 @@ function CanvasLayout() {
 
   const loadProject = useProjectStore((s) => s.loadProject)
   const clearProject = useProjectStore((s) => s.clearProject)
+  const clearOverlay = useRunOverlayStore((s) => s.clearOverlay)
   const loadFromNodes = useWorkflowStore((s) => s.loadFromNodes)
 
   // Mount run overlay polling at app level (persists across panel changes)
@@ -63,6 +66,8 @@ function CanvasLayout() {
     if (!projectId) return
 
     let cancelled = false
+    // Clear stale run overlay from previous project before loading new one
+    clearOverlay()
     setSavedWorkflowsProjectId(projectId)
     useWorkflowStore.getState().setProjectId(projectId)
     setPreferenceProjectId(projectId)
@@ -93,6 +98,7 @@ function CanvasLayout() {
       // Save canvas on unmount
       useProjectStore.getState().saveCanvas().catch(() => {})
       clearProject()
+      clearOverlay()
       setSavedWorkflowsProjectId(null)
       useWorkflowStore.getState().setProjectId(null)
     }
@@ -160,6 +166,7 @@ function AppRoutes() {
       <Route path="/ref/units" element={<UnitsPage />} />
       <Route path="/ref/shared-params" element={<SharedParamsPage />} />
       <Route path="/node-repository" element={<NodeRepository />} />
+      <Route path="/memory" element={<MemoryManager />} />
     </Routes>
   )
 }

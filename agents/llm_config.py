@@ -121,11 +121,12 @@ def get_chat_model(purpose: Optional[str] = None, temperature: float = 0.0):
 
     kwargs: dict[str, Any] = {
         "model": cfg["model_id"],
-        "temperature": temperature,
-        "api_key": cfg["api_key"] or "EMPTY",  # 本地模型可能不需要真实 key
+        "api_key": cfg["api_key"] or "EMPTY",
     }
     if cfg["base_url"]:
         kwargs["base_url"] = cfg["base_url"]
+    if "claude" not in cfg["model_id"].lower():
+        kwargs["temperature"] = temperature
 
     return ChatOpenAI(**kwargs)
 

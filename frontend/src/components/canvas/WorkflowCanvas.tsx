@@ -21,6 +21,7 @@ import { useWorkflowStore, type MFNodeData, selectCanUndo, selectCanRedo } from 
 import { useUIStore } from '../../stores/ui-store'
 import { useConnectionValidator } from '../../hooks/useConnectionValidator'
 import { nodesApi } from '../../api/nodes-api'
+import { agentsApi } from '../../api/agents-api'
 import { buildNodeData } from '../../lib/node-utils'
 import { semanticLabel } from '../../lib/semantic-labels'
 import type { PickerOption } from '../../lib/semantic-labels'
@@ -51,7 +52,8 @@ export function WorkflowCanvas() {
     (edgeId: string) => onEdgesChange([{ id: edgeId, type: 'remove' }]),
     [onEdgesChange],
   )
-  const { selectNode } = useUIStore()
+  const { selectNode, showNotification } = useUIStore()
+  const _projectId = useWorkflowStore((s) => s._projectId)
   const { isValidConnection: checkConnection } = useConnectionValidator()
   const { fitView } = useReactFlow()
   const theme = useSettingsStore((s) => s.theme)
@@ -114,6 +116,35 @@ export function WorkflowCanvas() {
     selectNode(null)
     setContextMenu(null)
   }, [contextMenu, removeNode, selectNode])
+
+  const handleSaveNodeToLibrary = useCallback(async () => {
+    if (!contextMenu) return
+    const node = nodes.find((n) => n.id === contextMenu.nodeId)
+    const gen = (node?.data as MFNodeData | undefined)?.node_generator
+    const result = gen?.result as Record<string, unknown> | undefined
+    if (!result?.nodespec_yaml || !result?.node_name) {
+      showNotification('error', 'No generated node files to save')
+      setContextMenu(null)
+      return
+    }
+    try {
+      const acceptResult = await agentsApi.acceptNode({
+        node_name: result.node_name as string,
+        nodespec_yaml: result.nodespec_yaml as string,
+        run_sh: (result.run_sh as string) || undefined,
+        input_templates: (result.input_templates as Record<string, string>) || {},
+        category: 'chemistry',
+      })
+      showNotification('success',
+        acceptResult.collision_renamed
+          ? `Saved as ${acceptResult.node_name}`
+          : `Saved ${acceptResult.node_name} to library`
+      )
+    } catch (err: unknown) {
+      showNotification('error', err instanceof Error ? err.message : 'Save failed')
+    }
+    setContextMenu(null)
+  }, [contextMenu, nodes, showNotification])
 
   // ── Create a brand-new resolved node at a canvas position (direct drag) ──
 
@@ -256,6 +287,35 @@ export function WorkflowCanvas() {
         return
       }
 
+      // Protocol 4: node generator drag
+      const isNodeGen = event.dataTransfer.getData('application/mf-node-gen')
+      if (isNodeGen) {
+        const genNode: RFNode<MFNodeData> = {
+          id: `nodegen-${Date.now()}`,
+          type: 'mfNode',
+          position: dropPosition,
+          data: {
+            name: 'node-generator',
+            version: '\u2014',
+            display_name: 'Generate Node',
+            description: '',
+            node_type: 'lightweight',
+            category: 'node_generator',
+            nodespec_path: '',
+            stream_inputs: [],
+            stream_outputs: [],
+            onboard_inputs: [],
+            onboard_outputs: [],
+            onboard_params: {},
+            node_generator: { generating: false },
+            ports: { inputs: [], outputs: [] },
+          } as unknown as MFNodeData,
+        }
+        addNode(genNode)
+        selectNode(genNode.id)
+        return
+      }
+
       // Protocol 2: semantic type card drag
       const semanticType = event.dataTransfer.getData('application/mf-semantic-type')
       const implJson = event.dataTransfer.getData('application/mf-node-implementations')
@@ -347,6 +407,8 @@ export function WorkflowCanvas() {
 
   const ctxCanUndo = contextMenu ? selectCanUndo(contextMenu.nodeId) : false
   const ctxCanRedo = contextMenu ? selectCanRedo(contextMenu.nodeId) : false
+  const ctxNode = contextMenu ? nodes.find((n) => n.id === contextMenu.nodeId) : undefined
+  const ctxHasNodeFiles = !!(ctxNode?.data as MFNodeData | undefined)?.node_generator?.result?.nodespec_yaml
   // Re-derive when nodeHistory changes so the menu updates live
   void nodeHistory  // subscribe to store slice
 
@@ -425,6 +487,17 @@ export function WorkflowCanvas() {
             <div className="border-t border-mf-border/60 my-0.5" />
           )}
 
+          {ctxHasNodeFiles && (
+            <>
+              <button
+                className="w-full text-left px-3 py-1.5 text-xs text-green-400 hover:bg-mf-hover hover:text-green-300 transition-colors"
+                onClick={handleSaveNodeToLibrary}
+              >
+                💾 Save node to library
+              </button>
+              <div className="border-t border-mf-border/60 my-0.5" />
+            </>
+          )}
           <button
             className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-mf-hover hover:text-red-300 transition-colors"
             onClick={handleDeleteFromMenu}

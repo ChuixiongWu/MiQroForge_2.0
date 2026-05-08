@@ -39,6 +39,7 @@ def resolve_nodespec(
     node_instance: MFNodeInstance,
     *,
     project_root: Path | None = None,
+    project_id: str = "",
 ) -> NodeSpec:
     """解析 MFNodeInstance 对应的 NodeSpec。
 
@@ -47,6 +48,7 @@ def resolve_nodespec(
     Parameters:
         node_instance: 工作流中的节点实例。
         project_root: 项目根目录，用于解析相对路径。默认为当前工作目录。
+        project_id: 当前项目 ID（保留参数，不再用于 tmp 搜索）。
 
     Returns:
         校验后的 NodeSpec 实例。
@@ -70,22 +72,24 @@ def resolve_nodespec(
         return NodeSpec.model_validate(node_instance.inline_nodespec)
 
     if node_instance.node is not None:
-        return _find_nodespec_by_name(node_instance.node, project_root)
+        return _find_nodespec_by_name(node_instance.node, project_root, project_id=project_id)
 
     raise ValueError(
         f"节点 {node_instance.id!r}: 未指定 node, nodespec_path 或 inline_nodespec"
     )
 
 
-def _find_nodespec_by_name(name: str, project_root: Path) -> NodeSpec:
+def _find_nodespec_by_name(name: str, project_root: Path, *, project_id: str = "") -> NodeSpec:
     """按名称在节点库中查找 NodeSpec。
 
-    遍历 nodes/ 和 userdata/nodes/ 目录下所有 nodespec.yaml 文件，
+    遍历 nodes/、userdata/nodes/ 目录下所有 nodespec.yaml 文件，
     找到 metadata.name 匹配的节点。
+    proj/tmp/ 中的未 Accept 节点不在此搜索——它们通过 ephemeral + nodegen_tmp_ref 机制使用。
 
     Parameters:
         name: 节点名称（metadata.name）。
         project_root: 项目根目录。
+        project_id: 当前项目 ID（保留参数，不再用于 tmp 搜索）。
 
     Returns:
         匹配的 NodeSpec。
@@ -94,6 +98,7 @@ def _find_nodespec_by_name(name: str, project_root: Path) -> NodeSpec:
         ValueError: 未找到匹配的节点。
     """
     # 搜索目录列表：系统节点库 + 用户数据目录
+    # 注意：proj/tmp/ 中的未 Accept 节点不在此搜索，它们通过 ephemeral + nodegen_tmp_ref 机制使用
     search_dirs = [
         project_root / "nodes",
         project_root / "userdata" / "nodes",

@@ -21,11 +21,13 @@ from api.models.agents import (
     PlanRequest, PlanResponse,
     YAMLRequest, YAMLResponse,
     NodeGenAPIRequest, NodeGenAPIResponse,
+    NodeRunAPIRequest,
+    NodeAcceptRequest, NodeAcceptResponse,
     EphemeralGenRequest, EphemeralGenResponse,
     EphemeralEvalRequest, EphemeralEvalResponse,
     SaveSessionRequest, SaveSessionResponse,
 )
-from agents.schemas import NodeGenRequest
+from agents.schemas import NodeGenRequest, EvaluationResult
 from agents.common.session_logger import (
     start_session, end_session,
     save_agent_log, save_conversation,
@@ -165,16 +167,21 @@ async def generate_yaml(
         raise HTTPException(status_code=500, detail=f"YAML Coder Agent 失败: {e}")
 
 
-# ─── Node Generator Agent ─────────────────────────────────────────────────────
+# ─── Node Generator Agent (设计时) ────────────────────────────────────────────
 
-@router.post("/node", response_model=NodeGenAPIResponse, summary="运行 Node Generator Agent")
+@router.post("/node", response_model=NodeGenAPIResponse, summary="设计时生成节点（无 sandbox）")
 async def generate_node(
     request: NodeGenAPIRequest,
     settings: Settings = Depends(get_settings),
 ) -> NodeGenAPIResponse:
-    """生成新的正式节点（nodespec.yaml + run.sh + 模板）。"""
+    """设计时生成节点（-1 循环）：仅生成 nodespec.yaml + run.sh，无 sandbox 测试。
+
+    文件通过 write_file 工具写入 _sandbox_dir 工作目录，
+    生成完成后从工作目录读取并保存到 userdata/projects/{project_id}/tmp/{node_name}/。
+    运行时由 /node/run 端点接管，进行 sandbox + evaluate 循环。
+    """
     try:
-        from agents.node_generator.graph import run_node_generator
+        from agents.node_generator.prefab.graph import run_prefab_node_generator
 
         gen_request = NodeGenRequest(
             semantic_type=request.semantic_type,
@@ -182,55 +189,807 @@ async def generate_node(
             target_software=request.target_software,
             target_method=request.target_method,
             category=request.category,
+            resource_overrides=request.resource_overrides,
         )
 
         effective_session_id = (
             request.session_id
-            or f"auto-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            or f"design-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         )
 
+        last_state = None
+        last_error = None
+
+        # 使用 proj/tmp/pending/ 作为工作目录，Agent 通过 write_file 写入
+        pending_dir = None
+        if request.project_id:
+            pending_dir = settings.userdata_root / "projects" / request.project_id / "tmp" / "pending"
+            pending_dir.mkdir(parents=True, exist_ok=True)
+
+        prefab_cfg = _load_prefab_settings()
+        mf_test_design = prefab_cfg.get("mf_test", False)
+
         def _run_with_session():
-            start_session("node_generator", {
+            nonlocal last_state, last_error
+            start_session("node_generator_design", {
                 "semantic_type": request.semantic_type,
                 "target_software": request.target_software,
                 "category": request.category,
+                "project_id": request.project_id,
             })
             try:
-                state = run_node_generator(gen_request)
-                return state
+                extra = {
+                    "_sandbox_enabled": False,
+                    "_mf_test": mf_test_design,
+                    "iteration": 0,
+                }
+                if pending_dir:
+                    extra["_sandbox_dir"] = str(pending_dir)
+                if request.project_id:
+                    extra["_project_id"] = request.project_id
+                state = run_prefab_node_generator(gen_request, **extra)
+                last_state = state
+                last_error = state.get("error")
             finally:
                 log = end_session()
                 if log:
                     try:
-                        save_agent_log(
-                            log.to_dict(),
-                            session_id=effective_session_id,
-                            userdata_root=settings.userdata_root,
-                        )
+                        log_dict = log.to_dict()
+                        # 保存到项目 conversations 目录（JSON + 人类可读文本）
+                        if request.project_id:
+                            from agents.common.session_logger import save_agent_log_text
+                            proj_conv_dir = (
+                                settings.userdata_root / "projects"
+                                / request.project_id / "conversations"
+                            )
+                            # 人类可读文本格式（保留所有换行符）
+                            save_agent_log_text(
+                                log_dict,
+                                session_id=effective_session_id,
+                                userdata_root=proj_conv_dir,
+                            )
+                            # JSON 格式（机器可读，作为备份）
+                            proj_conv_dir_session = proj_conv_dir / effective_session_id
+                            proj_conv_dir_session.mkdir(parents=True, exist_ok=True)
+                            time_str = datetime.now().strftime("%H-%M-%S")
+                            agent_type = log_dict.get("agent_type", "unknown")
+                            (proj_conv_dir_session / f"{agent_type}_{time_str}.json").write_text(
+                                json.dumps(log_dict, indent=2, ensure_ascii=False, default=str)
+                            )
                     except Exception:
                         pass
 
-        state = await asyncio.to_thread(_run_with_session)
-        result = state.get("result")
+        await asyncio.to_thread(_run_with_session)
 
-        if not result:
-            error_msg = state.get("error") or "Node Generator 未能生成节点"
+        # 从 _sandbox_dir 读取生成的文件（优先），否则从 state 读取
+        nodespec_yaml = ""
+        run_sh = ""
+        input_templates: dict[str, str] = {}
+        extra_profile_files: dict[str, str] = {}  # 辅助文件（postprocess.py, data.json 等）
+        if pending_dir and pending_dir.exists():
+            ns_path = pending_dir / "nodespec.yaml"
+            if ns_path.exists():
+                nodespec_yaml = ns_path.read_text("utf-8")
+            profile_pending = pending_dir / "profile"
+            if profile_pending.exists():
+                rs_path = profile_pending / "run.sh"
+                if rs_path.exists():
+                    run_sh = rs_path.read_text("utf-8")
+                # 读取 profile/ 下所有文件（run.sh 单独处理）
+                for f_path in profile_pending.iterdir():
+                    if not f_path.is_file():
+                        continue
+                    if f_path.name == "run.sh":
+                        continue
+                    if f_path.suffix == ".template":
+                        input_templates[f_path.name] = f_path.read_text("utf-8")
+                    else:
+                        extra_profile_files[f_path.name] = f_path.read_text("utf-8")
+
+        # 如果 sandbox_dir 中没有，fallback 到 state
+        if not nodespec_yaml and last_state:
+            nodespec_yaml = last_state.get("nodespec_yaml", "")
+        if not run_sh and last_state:
+            run_sh = last_state.get("run_sh", "")
+        if not input_templates and last_state:
+            input_templates = last_state.get("input_templates") or {}
+
+        if not nodespec_yaml:
+            error_msg = last_error or "Node Generator 未能生成节点"
             raise HTTPException(status_code=500, detail=error_msg)
 
+        # 提取语义节点名（仅用于响应 display，不用于目录命名）
+        import yaml as _yaml
+        try:
+            spec_data = _yaml.safe_load(nodespec_yaml)
+            node_name = spec_data.get("metadata", {}).get("name", "generated-node")
+        except Exception:
+            node_name = "generated-node"
+
+        # 保存到 proj/tmp/<canvas_node_id>/（用 canvas node ID 避免多节点重名）
+        saved_path = None
+        if request.project_id:
+            # 目录名：优先使用前端传来的 canvas node ID
+            dir_name = request.node_id or node_name
+            tmp_dir = settings.userdata_root / "projects" / request.project_id / "tmp" / dir_name
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            (tmp_dir / "nodespec.yaml").write_text(nodespec_yaml, encoding="utf-8")
+            if run_sh:
+                profile_dir = tmp_dir / "profile"
+                profile_dir.mkdir(exist_ok=True)
+                (profile_dir / "run.sh").write_text(run_sh, encoding="utf-8")
+                (profile_dir / "run.sh").chmod(0o755)
+                for tpl_name, tpl_content in input_templates.items():
+                    (profile_dir / tpl_name).write_text(tpl_content, encoding="utf-8")
+                for extra_name, extra_content in extra_profile_files.items():
+                    (profile_dir / extra_name).write_text(extra_content, encoding="utf-8")
+            saved_path = str(tmp_dir.relative_to(settings.project_root))
+
+            # 清理 pending 工作目录
+            import shutil
+            if pending_dir and pending_dir.exists():
+                shutil.rmtree(pending_dir)
+
         return NodeGenAPIResponse(
-            node_name=result.node_name,
-            nodespec_yaml=result.nodespec_yaml,
-            run_sh=result.run_sh,
-            input_templates=result.input_templates,
-            saved_path=result.saved_path,
-            evaluation=result.evaluation,
-            error=state.get("error"),
+            node_name=node_name,
+            nodespec_yaml=nodespec_yaml,
+            run_sh=run_sh,
+            input_templates=input_templates,
+            saved_path=saved_path,
+            evaluation=None,
+            error=last_error,
         )
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Node Generator Agent 失败: {e}")
+
+
+# ─── Node Generator helpers ────────────────────────────────────────────────────
+
+
+def _collect_sandbox_outputs(
+    sandbox_dir: Path,
+    nodespec_yaml: str,
+    max_file_size: int = 1_000_000,
+) -> dict[str, str]:
+    """从 sandbox 输出目录收集所有声明的输出端口值。
+
+    根据 nodespec 中声明的 stream_outputs 和 onboard_outputs 端口名，
+    在 sandbox_dir/output/ 中查找同名文件并读取内容。
+
+    Returns:
+        {port_name: file_content} 字典。
+    """
+    import yaml as _yaml
+    outputs: dict[str, str] = {}
+
+    try:
+        spec = _yaml.safe_load(nodespec_yaml)
+        stream_outputs = spec.get("stream_outputs", []) if isinstance(spec, dict) else []
+        onboard_outputs = spec.get("onboard_outputs", []) if isinstance(spec, dict) else []
+        all_outputs = list(stream_outputs) + list(onboard_outputs)
+    except Exception:
+        return outputs
+
+    output_dir = sandbox_dir / "output"
+    if not output_dir.exists():
+        return outputs
+
+    for port in all_outputs:
+        port_name = port.get("name", "") if isinstance(port, dict) else ""
+        if not port_name:
+            continue
+        out_file = output_dir / port_name
+        if out_file.is_file():
+            try:
+                content = out_file.read_text("utf-8")
+                outputs[port_name] = content[:max_file_size]
+            except Exception:
+                pass
+
+    return outputs
+
+
+def _resolve_nodegen_spec(
+    node_name: str,
+    project_id: str,
+    project_root: Path,
+    userdata_root: Path,
+) -> tuple[str, str, dict[str, str]] | None:
+    """为 nodegen 运行时读取预生成的 nodespec + run.sh + 所有 profile 文件。
+
+    搜索优先级：
+    1. userdata/nodes/**/<node_name>/nodespec.yaml（已 Accept）
+    2. userdata/projects/<project_id>/tmp/<node_name>/nodespec.yaml（未 Accept）
+
+    Returns:
+        (nodespec_yaml, run_sh, profile_files) 或 None。
+        profile_files 是 {filename: content} 字典，包含 profile/ 下除 run.sh 外的所有文件。
+    """
+    import yaml as _yaml
+
+    def _read_all(spec_path: Path) -> tuple[str, str, dict[str, str]] | None:
+        """读取 nodespec + run.sh + 所有 profile 文件。"""
+        if not spec_path.exists():
+            return None
+        nodespec = spec_path.read_text("utf-8")
+        profile_dir = spec_path.parent / "profile"
+        run_sh = ""
+        profile_files: dict[str, str] = {}
+        if profile_dir.exists():
+            for f_path in profile_dir.iterdir():
+                if not f_path.is_file():
+                    continue
+                try:
+                    content = f_path.read_text("utf-8")
+                except Exception:
+                    continue
+                if f_path.name == "run.sh":
+                    run_sh = content
+                else:
+                    profile_files[f_path.name] = content
+        return nodespec, run_sh, profile_files
+
+    # 1. 搜索 userdata/nodes/
+    userdata_nodes = userdata_root / "nodes"
+    if userdata_nodes.exists():
+        for spec_path in userdata_nodes.rglob(f"{node_name}/nodespec.yaml"):
+            if "schemas" in spec_path.parts or "base_images" in spec_path.parts:
+                continue
+            result = _read_all(spec_path)
+            if result:
+                return result
+
+    # 2. 搜索 proj/tmp/
+    if project_id:
+        tmp_spec = project_root / "userdata" / "projects" / project_id / "tmp" / node_name / "nodespec.yaml"
+        result = _read_all(tmp_spec)
+        if result:
+            return result
+
+    return None
+
+
+def _apply_onboard_overrides_to_nodespec(
+    nodespec_yaml: str,
+    input_data: dict[str, str],
+) -> str:
+    """将 input_data 中的 onboard param 覆盖值应用到 nodespec 的 resources 字段。
+
+    input_data 中包含 stream inputs 和 onboard params。
+    只处理与 resources 相关的已知 param 名（n_cores → cpu_cores, mem_gb → mem_gb,
+    walltime_hours → estimated_walltime_hours 等）。
+    """
+    import yaml as _yaml
+    try:
+        spec = _yaml.safe_load(nodespec_yaml)
+    except Exception:
+        return nodespec_yaml
+
+    if not isinstance(spec, dict):
+        return nodespec_yaml
+
+    resources = spec.get("resources", {})
+    if not isinstance(resources, dict):
+        return nodespec_yaml
+
+    # onboard param name → nodespec resource field
+    _RESOURCE_PARAM_MAP = {
+        "n_cores": "cpu_cores",
+        "mem_gb": "mem_gb",
+        "walltime_hours": "estimated_walltime_hours",
+        "mem_overhead": "mem_overhead",
+        "gpu_count": "gpu_count",
+        "scratch_disk_gb": "scratch_disk_gb",
+        "parallel_tasks": "parallel_tasks",
+    }
+
+    for param_name, res_field in _RESOURCE_PARAM_MAP.items():
+        if param_name in input_data:
+            raw = input_data[param_name].strip()
+            if raw:
+                try:
+                    # 数值类型转换
+                    if res_field in ("cpu_cores", "gpu_count", "parallel_tasks"):
+                        resources[res_field] = int(raw)
+                    else:
+                        resources[res_field] = float(raw)
+                except (ValueError, TypeError):
+                    pass  # 保留原值
+
+    spec["resources"] = resources
+    return _yaml.dump(spec, default_flow_style=False, allow_unicode=True)
+
+
+# ─── Node Generator Agent (运行时) ────────────────────────────────────────────
+
+@router.post("/node/run", response_model=NodeGenAPIResponse, summary="运行时节点生成循环（sandbox + evaluate）")
+async def run_node_runtime(
+    request: NodeRunAPIRequest,
+    settings: Settings = Depends(get_settings),
+) -> NodeGenAPIResponse:
+    """运行时节点生成：完整 generate → sandbox → evaluate → retry 循环。
+
+    与 ephemeral 外循环模式一致：
+    - 每轮：生成器 ReAct Agent（含最多 3 次 sandbox）→ evaluator 检查
+    - evaluator 通过 → 直接使用结果（不重跑）
+    - evaluator 不通过 → 带反馈进下一轮（至多 3 轮外循环）
+    """
+    try:
+        from agents.node_generator.prefab.graph import run_prefab_node_generator
+        from agents.node_generator.prefab.evaluator import evaluate_prefab_node
+
+        gen_request = NodeGenRequest(
+            semantic_type=request.semantic_type,
+            description=request.description,
+            target_software=request.target_software,
+            target_method=request.target_method,
+            category=request.category,
+            resource_overrides=request.resource_overrides,
+        )
+
+        effective_session_id = (
+            request.session_id
+            or f"runtime-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        )
+
+        prefab_cfg = _load_prefab_settings()
+        max_outer = prefab_cfg.get("max_outer_rounds", 2)
+        max_inner = prefab_cfg.get("max_inner_rounds", 3)
+        mf_test = prefab_cfg.get("mf_test", False)
+        evaluation = None
+        last_state = None
+        last_error = None
+        nodespec_yaml = request.existing_nodespec or ""
+        run_sh = request.existing_run_sh or ""
+        sandbox_result = None
+        eval_issues: list[str] = []
+        _internal_errors: list[str] = []
+        profile_files: dict[str, str] = {}
+
+        # ── nodegen_tmp_ref: 从 proj/tmp/ 或 userdata/nodes/ 读取预生成 nodespec ──
+        if request.nodegen_tmp_ref and not nodespec_yaml:
+            resolved = _resolve_nodegen_spec(
+                node_name=request.nodegen_tmp_ref,
+                project_id=request.project_id,
+                project_root=settings.project_root,
+                userdata_root=settings.userdata_root,
+            )
+            if resolved:
+                nodespec_yaml, run_sh, profile_files = resolved
+                # 应用 input_data 中的 onboard param 覆盖到 nodespec resources
+                nodespec_yaml = _apply_onboard_overrides_to_nodespec(
+                    nodespec_yaml, request.input_data
+                )
+
+        _sandbox_dir = ""
+        _exec_sandbox_dirs: list[str] = []
+        _collected_outputs: dict[str, str] = {}
+
+        def _run_with_session():
+            nonlocal evaluation, last_state, last_error
+            nonlocal nodespec_yaml, run_sh, sandbox_result, eval_issues, _internal_errors, profile_files
+            nonlocal _sandbox_dir, _exec_sandbox_dirs, _collected_outputs
+
+            _sandbox_dir = ""
+            _exec_sandbox_dirs = []
+            _collected_outputs = {}
+
+            # ── 确定节点工作目录（tmp/<node_name>/）──
+            _node_name_hint = request.nodegen_tmp_ref or ""
+            if not _node_name_hint and nodespec_yaml:
+                import yaml as _yaml_hint
+                try:
+                    _spec_hint = _yaml_hint.safe_load(nodespec_yaml)
+                    _node_name_hint = _spec_hint.get("metadata", {}).get("name", "") if isinstance(_spec_hint, dict) else ""
+                except Exception:
+                    pass
+            if _node_name_hint and request.project_id:
+                _node_work_dir = settings.userdata_root / "projects" / request.project_id / "tmp" / _node_name_hint
+                _node_work_dir.mkdir(parents=True, exist_ok=True)
+                _sandbox_dir = str(_node_work_dir)
+
+            for outer_round in range(max_outer):
+                # --- Generate (含 ReAct Agent 内循环 + sandbox) ---
+                start_session("node_generator_runtime", {
+                    "semantic_type": request.semantic_type,
+                    "target_software": request.target_software,
+                    "category": request.category,
+                    "iteration": outer_round,
+                    "run_name": request.run_name,
+                    "project_id": request.project_id,
+                })
+                try:
+                    extra_state: dict[str, Any] = {
+                        "_input_data": request.input_data,
+                        "_sandbox_enabled": True,
+                        "_project_id": request.project_id,
+                        "_run_name": request.run_name,
+                        "_mf_test": mf_test,
+                        "_max_inner": max_inner,
+                        "_input_ports": request.input_ports or [],
+                        "_output_ports": request.output_ports or [],
+                        "iteration": outer_round,
+                    }
+                    # 传入预生成的 nodespec（第一轮即传入，让 Agent 以此为参考修改）
+                    if nodespec_yaml:
+                        extra_state["nodespec_yaml"] = nodespec_yaml
+                        extra_state["run_sh"] = run_sh
+                        extra_state["input_templates"] = profile_files
+                    if evaluation and not evaluation.passed:
+                        extra_state["evaluation"] = evaluation
+                    if sandbox_result:
+                        extra_state["sandbox_test_result"] = sandbox_result
+                    # 节点工作目录（tmp/<node_name>/）
+                    if _sandbox_dir:
+                        extra_state["_sandbox_dir"] = _sandbox_dir
+
+                    state = run_prefab_node_generator(gen_request, **extra_state)
+                    last_state = state
+                except Exception as gen_error:
+                    # 生成异常不终止外循环 — 记录并继续下一轮
+                    session = get_session()
+                    if session:
+                        session.log_event("outer_generate_error", {
+                            "round": outer_round,
+                            "error": str(gen_error),
+                        })
+                    last_error = f"Outer round {outer_round} generate error: {gen_error}"
+                    continue
+                finally:
+                    log = end_session()
+                    if log:
+                        try:
+                            log_dict = log.to_dict()
+                            if request.run_name and request.project_id:
+                                run_log_dir = (
+                                    settings.userdata_root / "projects" / request.project_id
+                                    / "runs" / request.run_name
+                                )
+                                run_log_dir.mkdir(parents=True, exist_ok=True)
+                                time_str = datetime.now().strftime("%H-%M-%S")
+                                agent_type = log_dict.get("agent_type", "unknown")
+                                json_path = run_log_dir / f"{agent_type}_r{outer_round}_{time_str}.json"
+                                json_path.write_text(json.dumps(log_dict, indent=2, ensure_ascii=False, default=str))
+                                # 同步保存人类可读 .txt 文件
+                                from agents.common.session_logger import format_log_as_text
+                                txt_path = run_log_dir / f"{agent_type}_r{outer_round}_{time_str}.txt"
+                                txt_path.write_text(format_log_as_text(log_dict), encoding="utf-8")
+                        except Exception:
+                            pass
+
+                # 防御性检查：确保 state 有效
+                if not state:
+                    continue
+
+                nodespec_yaml = state.get("nodespec_yaml", "")
+                run_sh = state.get("run_sh", "")
+                sandbox_result = state.get("sandbox_test_result")
+                last_error = state.get("error")
+                _sandbox_dir = state.get("_sandbox_dir", _sandbox_dir)
+                # 追踪执行沙箱目录（test_in_sandbox 创建的临时目录）
+                for _esb in state.get("_exec_sandbox_dirs", []):
+                    if _esb not in _exec_sandbox_dirs:
+                        _exec_sandbox_dirs.append(_esb)
+
+                # 收集 generator 内部错误（供 memory 系统使用，跨轮次累积）
+                round_errors = state.get("_internal_errors", [])
+                for err in round_errors:
+                    if err not in _internal_errors:
+                        _internal_errors.append(err)
+
+                # terminate 信号：Agent 判定计算不科学，跳过 evaluator 直接结束
+                if state.get("_terminated"):
+                    evaluation = EvaluationResult(
+                        passed=False,
+                        issues=[f"Agent 主动终止: {state.get('_terminate_reason', '计算输入不合理')}"],
+                        suggestions=[],
+                        iteration=outer_round,
+                    )
+                    eval_issues = evaluation.issues
+                    break
+
+                # --- 评估 ---
+                start_session("node_generator_eval", {
+                    "semantic_type": request.semantic_type,
+                    "target_software": request.target_software,
+                    "iteration": outer_round,
+                    "run_name": request.run_name,
+                    "project_id": request.project_id,
+                })
+                try:
+                    eval_state = {
+                        "request": gen_request,
+                        "nodespec_yaml": nodespec_yaml,
+                        "run_sh": run_sh,
+                        "available_images": state.get("available_images"),
+                        "semantic_types": state.get("semantic_types"),
+                        "sandbox_test_result": sandbox_result,
+                        "sandbox_test_passed": state.get("sandbox_test_passed", False),
+                        "sandbox_call_count": state.get("sandbox_call_count", 0),
+                        "_sandbox_enabled": True,
+                        "iteration": outer_round,
+                    }
+                    eval_result = evaluate_prefab_node(eval_state)
+                except Exception as eval_error:
+                    # 评估异常不终止 — 构造失败结果继续下一轮
+                    session = get_session()
+                    if session:
+                        session.log_event("outer_eval_error", {
+                            "round": outer_round,
+                            "error": str(eval_error),
+                        })
+                    eval_result = {
+                        "evaluation": EvaluationResult(
+                            passed=False,
+                            issues=[f"Evaluator error in round {outer_round}: {eval_error}"],
+                            suggestions=["Retry with more careful generation"],
+                            iteration=outer_round,
+                        )
+                    }
+                finally:
+                    log = end_session()
+                    if log:
+                        try:
+                            log_dict = log.to_dict()
+                            if request.run_name and request.project_id:
+                                run_log_dir = (
+                                    settings.userdata_root / "projects" / request.project_id
+                                    / "runs" / request.run_name
+                                )
+                                run_log_dir.mkdir(parents=True, exist_ok=True)
+                                time_str = datetime.now().strftime("%H-%M-%S")
+                                json_path = run_log_dir / f"node_eval_r{outer_round}_{time_str}.json"
+                                json_path.write_text(json.dumps(log_dict, indent=2, ensure_ascii=False, default=str))
+                                # 同步保存人类可读 .txt 文件
+                                from agents.common.session_logger import format_log_as_text
+                                txt_path = run_log_dir / f"node_eval_r{outer_round}_{time_str}.txt"
+                                txt_path.write_text(format_log_as_text(log_dict), encoding="utf-8")
+                        except Exception:
+                            pass
+
+                evaluation = eval_result.get("evaluation")
+                if evaluation and evaluation.passed:
+                    break
+                if evaluation:
+                    eval_issues = evaluation.issues
+
+            # ── 收集 sandbox 输出（在 exec 清理前，_run_with_session 内部）──
+            if sandbox_result and sandbox_result.get("test_passed"):
+                if _sandbox_dir:
+                    sandbox_output_dir = Path(_sandbox_dir) / "output"
+                    if sandbox_output_dir.exists():
+                        _collected_outputs = _collect_sandbox_outputs(
+                            sandbox_dir=Path(_sandbox_dir),
+                            nodespec_yaml=nodespec_yaml,
+                        )
+                if not _collected_outputs and _exec_sandbox_dirs:
+                    _collected_outputs = _collect_sandbox_outputs(
+                        sandbox_dir=Path(_exec_sandbox_dirs[-1]),
+                        nodespec_yaml=nodespec_yaml,
+                    )
+                # 应用 port_map 反向映射
+                if _collected_outputs and _sandbox_dir:
+                    port_map_path = Path(_sandbox_dir) / "port_map.json"
+                    if port_map_path.exists():
+                        try:
+                            import json as _json
+                            pm = _json.loads(port_map_path.read_text("utf-8"))
+                            reverse = {v: k for k, v in pm.get("outputs", {}).items()}
+                            remapped: dict[str, str] = {}
+                            for name, content in _collected_outputs.items():
+                                mapped = reverse.get(name, name)
+                                if mapped in remapped:
+                                    continue
+                                remapped[mapped] = content
+                            _collected_outputs = remapped
+                        except Exception:
+                            pass
+
+        try:
+            await asyncio.to_thread(_run_with_session)
+        finally:
+            # ── 清理执行沙箱目录 + 节点工作目录临时文件 ──
+            import shutil as _shutil
+            # 1) 清理追踪到的 exec sandbox 目录
+            for _esb in _exec_sandbox_dirs:
+                try:
+                    _shutil.rmtree(_esb, ignore_errors=True)
+                except Exception:
+                    pass
+            # 2) 兜底：扫描 tmp/ 中遗漏的 _exec_* 目录
+            if _sandbox_dir:
+                tmp_root = Path(_sandbox_dir).parent
+                for _d in tmp_root.iterdir():
+                    if _d.is_dir() and _d.name.startswith("_exec_"):
+                        try:
+                            _shutil.rmtree(_d, ignore_errors=True)
+                        except Exception:
+                            pass
+            # 3) 清理节点工作目录中的运行时临时文件（保留 nodespec.yaml + profile/ + port_map.json + input/ + output/）
+            if _sandbox_dir:
+                _node_work = Path(_sandbox_dir)
+                for _item in _node_work.iterdir():
+                    if _item.name in ("nodespec.yaml", "profile", "port_map.json", "input", "output"):
+                        continue
+                    try:
+                        if _item.is_dir():
+                            _shutil.rmtree(_item, ignore_errors=True)
+                        else:
+                            _item.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+        # ── 保存经验到 Memory 系统 ──
+        try:
+            # 收集所有经验教训
+            all_lessons: list[str] = list(_internal_errors) if _internal_errors else []
+            if evaluation:
+                if evaluation.issues:
+                    all_lessons.extend(evaluation.issues)
+                if evaluation.suggestions:
+                    all_lessons.extend(evaluation.suggestions)
+
+            if all_lessons or evaluation:
+                # 提取 software 名
+                software_name = request.target_software or ""
+                if not software_name and nodespec_yaml:
+                    try:
+                        import yaml as _y
+                        spec = _y.safe_load(nodespec_yaml)
+                        software_name = (
+                            spec.get("metadata", {}).get("tags", {}).get("software", "")
+                        ) or ""
+                    except Exception:
+                        pass
+                if not software_name:
+                    software_name = "general"
+
+                sandbox_ok = (
+                    sandbox_test_result.get("test_passed", False)
+                    if sandbox_test_result else False
+                )
+                final_passed = (evaluation and evaluation.passed) if evaluation else False
+                result = "success" if (final_passed and sandbox_ok) else "failure"
+
+                from agents.node_generator.shared.memory import (
+                    get_experience_store,
+                    build_experience_entry,
+                )
+                store = get_experience_store(software_name)
+                entry = build_experience_entry(
+                    task=request.description or "",
+                    software=software_name,
+                    result=result,
+                    lessons=all_lessons[:10],
+                )
+                store.add(entry)
+        except Exception:
+            pass
+
+        # 保存到 run 目录
+        saved_path = None
+        # 节点工作目录即 saved_path（文件已在 tmp/<node_name>/ 中）
+        if _sandbox_dir:
+            try:
+                saved_path = str(Path(_sandbox_dir).relative_to(settings.project_root))
+            except ValueError:
+                saved_path = _sandbox_dir
+        result = last_state.get("result") if last_state else None
+        if not result and not nodespec_yaml:
+            error_msg = last_error or "Node Generator 未能生成节点"
+            raise HTTPException(status_code=500, detail=error_msg)
+
+        # 提取节点名
+        if nodespec_yaml:
+            import yaml as _yaml
+            try:
+                spec_data = _yaml.safe_load(nodespec_yaml)
+                node_name = spec_data.get("metadata", {}).get("name", "generated-node")
+            except Exception:
+                node_name = "generated-node"
+        else:
+            node_name = result.node_name if result else "unknown"
+
+        # ── outputs 已在 _run_with_session 中收集（清理前），直接使用 ──
+        outputs = _collected_outputs
+
+        return NodeGenAPIResponse(
+            node_name=node_name,
+            nodespec_yaml=nodespec_yaml,
+            run_sh=run_sh or None,
+            input_templates=result.input_templates if result else {},
+            saved_path=saved_path,
+            evaluation=evaluation,
+            error=last_error,
+            outputs=outputs,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Node Generator 运行时失败: {e}")
+
+
+# ─── Node Accept — 持久化生成的节点 ────────────────────────────────────────────
+
+@router.post("/node/accept", response_model=NodeAcceptResponse, summary="将生成的节点持久化到节点库")
+async def accept_generated_node(
+    request: NodeAcceptRequest,
+    settings: Settings = Depends(get_settings),
+) -> NodeAcceptResponse:
+    """将 prefab generator 生成的节点保存到 userdata/nodes/。
+
+    - 重名检测：同时检查 userdata/nodes/ 和根目录 nodes/
+    - 重名时自动添加后缀 _1, _2, ...
+    - 写入后触发 node index reindex
+    """
+    try:
+        import yaml
+
+        node_name = request.node_name
+        category = request.category
+
+        # ── 重名检测与自动后缀 ──
+        nodes_root = settings.userdata_root / "nodes" / category
+        builtin_nodes_root = settings.project_root / "nodes" / category
+        target_dir = nodes_root / node_name
+        collision_renamed = False
+
+        def _name_exists(name: str) -> bool:
+            """检查名称是否已存在于 userdata 或 builtin 节点目录。"""
+            userdata_check = nodes_root / name / "nodespec.yaml"
+            builtin_check = builtin_nodes_root / name / "nodespec.yaml"
+            return userdata_check.exists() or builtin_check.exists()
+
+        if _name_exists(node_name):
+            suffix = 1
+            while True:
+                candidate = f"{node_name}_{suffix}"
+                if not _name_exists(candidate):
+                    node_name = candidate
+                    target_dir = nodes_root / candidate
+                    collision_renamed = True
+                    break
+                suffix += 1
+
+        # ── 写入文件 ──
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        # nodespec.yaml
+        (target_dir / "nodespec.yaml").write_text(request.nodespec_yaml, encoding="utf-8")
+
+        saved_path = str(target_dir.relative_to(settings.project_root))
+
+        # profile/run.sh
+        if request.run_sh:
+            profile_dir = target_dir / "profile"
+            profile_dir.mkdir(exist_ok=True)
+            (profile_dir / "run.sh").write_text(request.run_sh, encoding="utf-8")
+            (profile_dir / "run.sh").chmod(0o755)
+
+            # 输入模板
+            for tpl_name, tpl_content in request.input_templates.items():
+                (profile_dir / tpl_name).write_text(tpl_content, encoding="utf-8")
+
+        # ── 触发 reindex ──
+        try:
+            from node_index.scanner import scan_nodes, write_index
+            index = scan_nodes(settings.project_root)
+            write_index(index, settings.project_root)
+        except Exception:
+            pass
+
+        return NodeAcceptResponse(
+            node_name=node_name,
+            saved_path=saved_path,
+            collision_renamed=collision_renamed,
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"节点入库失败: {e}")
 
 
 # ─── Ephemeral Node Agent (Runtime) ────────────────────────────────────────────
@@ -249,6 +1008,20 @@ def _load_ephemeral_settings() -> dict[str, Any]:
         return {}
 
 
+def _load_prefab_settings() -> dict[str, Any]:
+    """从 userdata/settings.yaml 加载 prefab 运行时配置。"""
+    settings_path = Path(__file__).parent.parent.parent / "userdata" / "settings.yaml"
+    if not settings_path.exists():
+        return {}
+    try:
+        import yaml
+        with settings_path.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return data.get("prefab", {})
+    except Exception:
+        return {}
+
+
 @router.post("/ephemeral", response_model=EphemeralGenResponse, summary="运行临时节点 Agent")
 async def ephemeral_generate(
     request: EphemeralGenRequest,
@@ -260,9 +1033,9 @@ async def ephemeral_generate(
     内部运行完整的外循环（generate → evaluate → retry），wrapper 只需调一次。
     """
     try:
-        from agents.node_generator.graph import run_node_generator
-        from agents.node_generator.evaluator import evaluate_node
-        from agents.schemas import NodeGenRequest
+        from agents.node_generator.ephemeral.graph import run_ephemeral_node_generator
+        from agents.node_generator.ephemeral.evaluator import evaluate_ephemeral_node
+        from agents.schemas import NodeGenRequest, EvaluationResult
 
         gen_request = NodeGenRequest(
             semantic_type="ephemeral",
@@ -300,9 +1073,11 @@ async def ephemeral_generate(
                         "project_id": request.project_id,
                     })
                     try:
-                        state = run_node_generator(
+                        state = run_ephemeral_node_generator(
                             gen_request,
                             _input_data=request.input_data,
+                            _project_id=request.project_id,
+                            _run_name=request.run_name,
                             iteration=outer_round,
                             script=script,
                             run_sh=script,
@@ -322,11 +1097,12 @@ async def ephemeral_generate(
                                     run_log_dir.mkdir(parents=True, exist_ok=True)
                                     time_str = datetime.now().strftime("%H-%M-%S")
                                     agent_type = log_dict.get("agent_type", "unknown")
-                                    filepath = run_log_dir / f"{agent_type}_gen_r{outer_round}_{time_str}.json"
-                                    filepath.write_text(json.dumps(log_dict, indent=2, ensure_ascii=False, default=str))
-                                else:
-                                    effective_session_id = f"ephemeral-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-                                    save_agent_log(log_dict, session_id=effective_session_id, userdata_root=settings.userdata_root)
+                                    json_path = run_log_dir / f"{agent_type}_gen_r{outer_round}_{time_str}.json"
+                                    json_path.write_text(json.dumps(log_dict, indent=2, ensure_ascii=False, default=str))
+                                    # 同步保存人类可读 .txt 文件
+                                    from agents.common.session_logger import format_log_as_text
+                                    txt_path = run_log_dir / f"{agent_type}_gen_r{outer_round}_{time_str}.txt"
+                                    txt_path.write_text(format_log_as_text(log_dict), encoding="utf-8")
                             except Exception:
                                 pass
 
@@ -368,7 +1144,7 @@ async def ephemeral_generate(
                             "generated_files": generated_files,
                             "iteration": outer_round,
                         }
-                        eval_result = evaluate_node(eval_state)
+                        eval_result = evaluate_ephemeral_node(eval_state)
                     finally:
                         log = end_session()
                         if log:
@@ -381,11 +1157,12 @@ async def ephemeral_generate(
                                     )
                                     run_log_dir.mkdir(parents=True, exist_ok=True)
                                     time_str = datetime.now().strftime("%H-%M-%S")
-                                    filepath = run_log_dir / f"ephemeral_eval_r{outer_round}_{time_str}.json"
-                                    filepath.write_text(json.dumps(log_dict, indent=2, ensure_ascii=False, default=str))
-                                else:
-                                    effective_session_id = f"ephemeral-eval-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-                                    save_agent_log(log_dict, session_id=effective_session_id, userdata_root=settings.userdata_root)
+                                    json_path = run_log_dir / f"ephemeral_eval_r{outer_round}_{time_str}.json"
+                                    json_path.write_text(json.dumps(log_dict, indent=2, ensure_ascii=False, default=str))
+                                    # 同步保存人类可读 .txt 文件
+                                    from agents.common.session_logger import format_log_as_text
+                                    txt_path = run_log_dir / f"ephemeral_eval_r{outer_round}_{time_str}.txt"
+                                    txt_path.write_text(format_log_as_text(log_dict), encoding="utf-8")
                             except Exception:
                                 pass
 
@@ -401,7 +1178,7 @@ async def ephemeral_generate(
 
             finally:
                 # 清理沙箱工作目录
-                from agents.node_generator.sandbox import cleanup_sandbox_dir
+                from agents.node_generator.shared.sandbox_base import cleanup_sandbox_dir
                 for sb_dir in sandbox_dirs:
                     cleanup_sandbox_dir(Path(sb_dir))
 
@@ -451,8 +1228,8 @@ async def ephemeral_evaluate(
     接收脚本输出和 base64 编码的图片，返回评估结果。
     """
     try:
-        from agents.node_generator.evaluator import evaluate_node_vision
-        from agents.schemas import NodeGenRequest
+        from agents.node_generator.ephemeral.evaluator import evaluate_node_vision
+        from agents.schemas import NodeGenRequest, EvaluationResult
 
         gen_request = NodeGenRequest(
             semantic_type="ephemeral",
@@ -507,11 +1284,12 @@ async def ephemeral_evaluate(
                             )
                             run_log_dir.mkdir(parents=True, exist_ok=True)
                             time_str = datetime.now().strftime("%H-%M-%S")
-                            filepath = run_log_dir / f"ephemeral_evaluator_{time_str}.json"
-                            filepath.write_text(json.dumps(log_dict, indent=2, ensure_ascii=False, default=str))
-                        else:
-                            effective_session_id = f"ephemeral-eval-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-                            save_agent_log(log_dict, session_id=effective_session_id, userdata_root=settings.userdata_root)
+                            json_path = run_log_dir / f"ephemeral_evaluator_{time_str}.json"
+                            json_path.write_text(json.dumps(log_dict, indent=2, ensure_ascii=False, default=str))
+                            # 同步保存人类可读 .txt 文件
+                            from agents.common.session_logger import format_log_as_text
+                            txt_path = run_log_dir / f"ephemeral_evaluator_{time_str}.txt"
+                            txt_path.write_text(format_log_as_text(log_dict), encoding="utf-8")
                     except Exception:
                         pass
 

@@ -66,13 +66,45 @@ class YAMLResponse(BaseModel):
 # ─── Node Generator Agent ─────────────────────────────────────────────────────
 
 class NodeGenAPIRequest(BaseModel):
-    """POST /api/v1/agents/node 请求体。"""
+    """POST /api/v1/agents/node 请求体（设计时：仅生成 nodespec，无 sandbox）。"""
     semantic_type: str = Field(..., description="语义类型，如 'geometry-optimization'")
     description: str = Field(..., description="节点功能详细描述")
-    target_software: Optional[str] = Field(default=None, description="目标软件，如 'ORCA'")
+    target_software: Optional[str] = Field(default=None, description="目标软件，如 'gaussian'")
     target_method: Optional[str] = Field(default=None, description="目标计算方法，如 'B3LYP'")
     category: str = Field(default="chemistry", description="节点分类目录")
+    project_id: Optional[str] = Field(default=None, description="项目 ID（用于保存到 proj/tmp/）")
+    node_id: Optional[str] = Field(default=None, description="Canvas node ID — 用作 tmp 目录名，避免多节点重名冲突")
     session_id: Optional[str] = Field(default=None, description="会话 ID，用于日志归组")
+    resource_overrides: Optional[dict[str, Any]] = Field(default=None, description="资源参数覆盖")
+
+
+class NodeRunAPIRequest(BaseModel):
+    """POST /api/v1/agents/node/run 请求体（运行时：完整 generate+sandbox+evaluate 循环）。"""
+    semantic_type: str = Field(..., description="语义类型")
+    description: str = Field(..., description="节点功能详细描述")
+    target_software: Optional[str] = Field(default=None, description="目标软件")
+    target_method: Optional[str] = Field(default=None, description="目标计算方法")
+    category: str = Field(default="chemistry", description="节点分类目录")
+    input_data: dict[str, str] = Field(default_factory=dict, description="真实上游输入数据 {port_name: content}")
+    resource_overrides: Optional[dict[str, Any]] = Field(default=None, description="资源参数覆盖")
+    run_name: str = Field(default="", description="Argo workflow run 名称（用于日志关联）")
+    project_id: str = Field(default="", description="项目 ID（用于日志关联）")
+    session_id: Optional[str] = Field(default=None, description="会话 ID")
+    # 设计时生成的节点（可选，用于继续而非重新生成）
+    existing_nodespec: Optional[str] = Field(default=None, description="设计时已生成的 nodespec.yaml")
+    existing_run_sh: Optional[str] = Field(default=None, description="设计时已生成的 run.sh")
+    nodegen_tmp_ref: Optional[str] = Field(
+        default=None,
+        description="Node Generator tmp ref: API 从 proj/tmp/<name>/ 或 userdata/nodes/ 读取预生成 nodespec。",
+    )
+    output_ports: Optional[list[str]] = Field(
+        default=None,
+        description="输出端口名列表（如 ['O1','O2']），供 Agent port_mapping 参考",
+    )
+    input_ports: Optional[list[str]] = Field(
+        default=None,
+        description="输入端口名列表（如 ['xyz_geometry','method']），供 prompt 列出所有端口",
+    )
 
 
 class NodeGenAPIResponse(BaseModel):
@@ -84,6 +116,26 @@ class NodeGenAPIResponse(BaseModel):
     saved_path: Optional[str] = None
     evaluation: Optional[EvaluationResult] = None
     error: Optional[str] = None
+    outputs: dict[str, str] = Field(
+        default_factory=dict,
+        description="Sandbox output port values (for Argo wrapper to write to /mf/output/).",
+    )
+
+
+class NodeAcceptRequest(BaseModel):
+    """POST /api/v1/agents/node/accept 请求体 — 将生成的节点持久化到 userdata/nodes/。"""
+    node_name: str = Field(..., description="节点名称（来自生成结果的 metadata.name）")
+    nodespec_yaml: str = Field(..., description="nodespec.yaml 内容")
+    run_sh: Optional[str] = Field(default=None, description="profile/run.sh 内容")
+    input_templates: dict[str, str] = Field(default_factory=dict, description="输入模板 {文件名: 内容}")
+    category: str = Field(default="chemistry", description="节点分类目录")
+
+
+class NodeAcceptResponse(BaseModel):
+    """POST /api/v1/agents/node/accept 响应体。"""
+    node_name: str = Field(..., description="最终节点名（可能带后缀）")
+    saved_path: str = Field(..., description="保存路径")
+    collision_renamed: bool = Field(default=False, description="是否因重名而自动重命名")
 
 
 # ─── Ephemeral Node Agent (Runtime) ────────────────────────────────────────────

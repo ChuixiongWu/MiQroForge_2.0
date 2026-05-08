@@ -1,90 +1,30 @@
-"""agents/node_generator/sandbox.py — 服务端执行沙箱。
+"""agents/node_generator/ephemeral/sandbox.py — 临时节点 Docker 沙箱执行环境。
 
 使用 Docker 容器（ephemeral-py 镜像）为临时节点 Agent 提供安全的脚本执行环境：
 - pip install 隔离（不污染宿主机）
 - 文件系统隔离（容器内独立 /mf/ 路径）
-- 沙箱工作目录使用 userdata/sandbox_runs/<run_id>/ 持久化（不随 with 块清理）
+- 沙箱工作目录使用 userdata/sandbox_runs/<run_id>/ 持久化
 """
 
 from __future__ import annotations
 
-import glob as _glob
 import json
 import os
-import shutil
 import subprocess
-import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# 支持的图片扩展名
-_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".svg", ".pdf", ".gif", ".webp"}
+from agents.node_generator.shared.sandbox_base import (
+    create_sandbox_dir,
+    cleanup_sandbox_dir,
+    _scan_output_files,
+    _ensure_docker,
+    save_pip_history,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 执行模式选择
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _ensure_docker() -> None:
-    """确认 Docker 可用，不可用时抛异常。"""
-    if not _docker_available():
-        raise RuntimeError(
-            "Docker is required for ephemeral sandbox but not available. "
-            "Install Docker and ensure the daemon is running."
-        )
-
-
-def _docker_available() -> bool:
-    """检查 Docker daemon 是否可用。"""
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            timeout=5,
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 沙箱工作目录管理
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _get_sandbox_base_dir() -> Path:
-    """获取沙箱基础目录 userdata/sandbox_runs/。"""
-    root = Path(__file__).parent.parent.parent
-    base = root / "userdata" / "sandbox_runs"
-    base.mkdir(parents=True, exist_ok=True)
-    return base
-
-
-def create_sandbox_dir() -> Path:
-    """创建一个持久化的沙箱工作目录。调用方负责在不再需要时清理。
-
-    Returns:
-        沙箱目录路径，含 input/、output/、workspace/ 子目录。
-    """
-    run_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
-    sandbox_dir = _get_sandbox_base_dir() / run_id
-    (sandbox_dir / "input").mkdir(parents=True)
-    (sandbox_dir / "output").mkdir(parents=True)
-    (sandbox_dir / "workspace").mkdir(parents=True)
-    return sandbox_dir
-
-
-def cleanup_sandbox_dir(sandbox_dir: Path) -> None:
-    """清理沙箱工作目录。"""
-    try:
-        if sandbox_dir.exists() and str(sandbox_dir).startswith(str(_get_sandbox_base_dir())):
-            shutil.rmtree(sandbox_dir, ignore_errors=True)
-    except Exception:
-        pass
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Docker 执行
+# Docker 执行（临时节点专用）
 # ═══════════════════════════════════════════════════════════════════════════
 
 _EPHEMERAL_IMAGE = "ephemeral-py:3.11"
@@ -198,24 +138,6 @@ def _docker_pip_install(package: str) -> dict[str, Any]:
         return {"return_code": -1, "output": "pip install timed out"}
     except Exception as e:
         return {"return_code": -1, "output": str(e)}
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 辅助
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _scan_output_files(output_dir: Path, workspace_dir: Path) -> tuple[list[str], list[str]]:
-    """扫描输出目录，返回 (generated_files, image_files)。"""
-    generated_files: list[str] = []
-    image_files: list[str] = []
-    for dirpath in (output_dir, workspace_dir):
-        for fpath in sorted(_glob.glob(str(dirpath / "**" / "*"), recursive=True)):
-            if os.path.isfile(fpath):
-                generated_files.append(fpath)
-                ext = os.path.splitext(fpath)[1].lower()
-                if ext in _IMAGE_EXTENSIONS:
-                    image_files.append(fpath)
-    return generated_files, image_files
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -343,43 +265,3 @@ def make_pip_install_tool():
         return result["output"][:500]
 
     return pip_install, install_history
-
-
-def save_pip_history(
-    pip_history: list[dict],
-    description: str,
-    userdata_root: Path | None = None,
-) -> None:
-    """将 pip 安装历史持久化到 userdata/pip_history.jsonl。
-
-    Parameters
-    ----------
-    pip_history:
-        make_pip_install_tool 返回的 install_history 列表。
-    description:
-        节点描述（截断到 100 字符用于分析）。
-    userdata_root:
-        userdata 根目录。None 时自动探测。
-    """
-    if not pip_history:
-        return
-
-    if userdata_root is None:
-        # 自动探测：从当前文件向上找项目根
-        root = Path(__file__).parent.parent.parent
-        userdata_root = root / "userdata"
-
-    history_path = userdata_root / "pip_history.jsonl"
-    history_path.parent.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().isoformat()
-    desc_short = description[:100]
-
-    with open(history_path, "a", encoding="utf-8") as f:
-        for entry in pip_history:
-            record = {
-                "timestamp": timestamp,
-                "description": desc_short,
-                **entry,
-            }
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")

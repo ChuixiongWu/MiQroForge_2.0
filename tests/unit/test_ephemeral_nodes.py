@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import pytest
+import shutil
 import yaml
 
 from nodes.schemas import NodeSpec
@@ -247,7 +248,7 @@ class TestEphemeralEvaluator:
     """临时节点 evaluator 程序化检查测试。"""
 
     def test_syntax_check_passes(self):
-        from agents.node_generator.evaluator import _programmatic_check_ephemeral
+        from agents.node_generator.ephemeral.evaluator import _programmatic_check_ephemeral
         from agents.schemas import NodeGenRequest
 
         request = NodeGenRequest(
@@ -258,14 +259,14 @@ class TestEphemeralEvaluator:
         )
         state = {
             "request": request,
-            "run_sh": "import os\ndata = open('/mf/input/I1').read()\nopen('/mf/output/O1', 'w').write(data)",
+            "script": "import os\ndata = open('/mf/input/I1').read()\nopen('/mf/output/O1', 'w').write(data)",
             "iteration": 0,
         }
         issues = _programmatic_check_ephemeral(state)
         assert issues == []
 
     def test_syntax_check_catches_error(self):
-        from agents.node_generator.evaluator import _programmatic_check_ephemeral
+        from agents.node_generator.ephemeral.evaluator import _programmatic_check_ephemeral
         from agents.schemas import NodeGenRequest
 
         request = NodeGenRequest(
@@ -275,21 +276,21 @@ class TestEphemeralEvaluator:
         )
         state = {
             "request": request,
-            "run_sh": "def foo(\n  broken syntax",
+            "script": "def foo(\n  broken syntax",
             "iteration": 0,
         }
         issues = _programmatic_check_ephemeral(state)
         assert any("语法错误" in i for i in issues)
 
     def test_empty_script_rejected(self):
-        from agents.node_generator.evaluator import _programmatic_check_ephemeral
+        from agents.node_generator.ephemeral.evaluator import _programmatic_check_ephemeral
 
-        state = {"run_sh": "", "request": None}
+        state = {"script": "", "request": None}
         issues = _programmatic_check_ephemeral(state)
         assert "生成的脚本内容为空" in issues
 
     def test_missing_output_path(self):
-        from agents.node_generator.evaluator import _programmatic_check_ephemeral
+        from agents.node_generator.ephemeral.evaluator import _programmatic_check_ephemeral
         from agents.schemas import NodeGenRequest
 
         request = NodeGenRequest(
@@ -300,7 +301,7 @@ class TestEphemeralEvaluator:
         )
         state = {
             "request": request,
-            "run_sh": "print('hello')",
+            "script": "print('hello')",
             "iteration": 0,
         }
         issues = _programmatic_check_ephemeral(state)
@@ -308,7 +309,7 @@ class TestEphemeralEvaluator:
 
     def test_multi_port_check(self):
         """多端口检查：验证所有 I/O 端口都被检查。"""
-        from agents.node_generator.evaluator import _programmatic_check_ephemeral
+        from agents.node_generator.ephemeral.evaluator import _programmatic_check_ephemeral
         from agents.schemas import NodeGenRequest
 
         request = NodeGenRequest(
@@ -319,7 +320,7 @@ class TestEphemeralEvaluator:
         )
         state = {
             "request": request,
-            "run_sh": "open('/mf/input/I1').read()\nopen('/mf/output/O1', 'w').write('x')",
+            "script": "open('/mf/input/I1').read()\nopen('/mf/output/O1', 'w').write('x')",
             "iteration": 0,
         }
         issues = _programmatic_check_ephemeral(state)
@@ -328,7 +329,7 @@ class TestEphemeralEvaluator:
 
     def test_script_field_also_checked(self):
         """'script' 字段也应被检查（新增 ephemeral 路径使用 script 而非 run_sh）。"""
-        from agents.node_generator.evaluator import _programmatic_check_ephemeral
+        from agents.node_generator.ephemeral.evaluator import _programmatic_check_ephemeral
         from agents.schemas import NodeGenRequest
 
         request = NodeGenRequest(
@@ -571,83 +572,123 @@ class TestEphemeralCompiler:
 class TestSandbox:
     """服务端执行沙箱测试。"""
 
-    def test_basic_execution(self):
-        from agents.node_generator.sandbox import execute_script_sandbox
+    @staticmethod
+    def _make_sandbox_dir() -> "Path":
+        import tempfile
+        from pathlib import Path
+        d = Path(tempfile.mkdtemp(prefix="mf_test_sandbox_"))
+        (d / "input").mkdir(parents=True, exist_ok=True)
+        (d / "output").mkdir(parents=True, exist_ok=True)
+        (d / "workspace").mkdir(parents=True, exist_ok=True)
+        return d
 
-        result = execute_script_sandbox(
-            script="print('hello world')",
-            timeout=10,
-        )
-        assert result["return_code"] == 0
-        assert "hello world" in result["stdout"]
-        assert not result["timed_out"]
+    def test_basic_execution(self):
+        from agents.node_generator.ephemeral.sandbox import execute_script_sandbox
+
+        sandbox_dir = self._make_sandbox_dir()
+        try:
+            result = execute_script_sandbox(
+                script="print('hello world')",
+                timeout=10,
+                sandbox_dir=sandbox_dir,
+            )
+            assert result["return_code"] == 0
+            assert "hello world" in result["stdout"]
+            assert not result["timed_out"]
+        finally:
+            shutil.rmtree(sandbox_dir, ignore_errors=True)
 
     def test_with_input_data(self):
-        from agents.node_generator.sandbox import execute_script_sandbox
+        from agents.node_generator.ephemeral.sandbox import execute_script_sandbox
 
-        result = execute_script_sandbox(
-            script=(
-                "import os\n"
-                "data = open('/mf/input/I1').read()\n"
-                "open('/mf/output/O1', 'w').write(data.upper())\n"
-            ),
-            input_data={"I1": "hello"},
-            timeout=10,
-        )
-        assert result["return_code"] == 0
-        # 检查输出文件
-        output_files = [f for f in result["generated_files"] if "O1" in f]
-        assert len(output_files) == 1
+        sandbox_dir = self._make_sandbox_dir()
+        try:
+            result = execute_script_sandbox(
+                script=(
+                    "import os\n"
+                    "data = open('/mf/input/I1').read()\n"
+                    "open('/mf/output/O1', 'w').write(data.upper())\n"
+                ),
+                input_data={"I1": "hello"},
+                timeout=10,
+                sandbox_dir=sandbox_dir,
+            )
+            assert result["return_code"] == 0
+            # 检查输出文件
+            output_files = [f for f in result["generated_files"] if "O1" in f]
+            assert len(output_files) == 1
+        finally:
+            shutil.rmtree(sandbox_dir, ignore_errors=True)
 
     def test_syntax_error(self):
-        from agents.node_generator.sandbox import execute_script_sandbox
+        from agents.node_generator.ephemeral.sandbox import execute_script_sandbox
 
-        result = execute_script_sandbox(
-            script="def foo(\n  broken",
-            timeout=10,
-        )
-        assert result["return_code"] != 0
-        assert "SyntaxError" in result["stderr"] or result["stderr"]
+        sandbox_dir = self._make_sandbox_dir()
+        try:
+            result = execute_script_sandbox(
+                script="def foo(\n  broken",
+                timeout=10,
+                sandbox_dir=sandbox_dir,
+            )
+            assert result["return_code"] != 0
+            assert "SyntaxError" in result["stderr"] or result["stderr"]
+        finally:
+            shutil.rmtree(sandbox_dir, ignore_errors=True)
 
     def test_timeout(self):
-        from agents.node_generator.sandbox import execute_script_sandbox
+        from agents.node_generator.ephemeral.sandbox import execute_script_sandbox
 
-        result = execute_script_sandbox(
-            script="import time; time.sleep(100)",
-            timeout=3,
-        )
-        assert result["timed_out"]
-        assert result["return_code"] == -1
+        sandbox_dir = self._make_sandbox_dir()
+        try:
+            result = execute_script_sandbox(
+                script="import time; time.sleep(100)",
+                timeout=3,
+                sandbox_dir=sandbox_dir,
+            )
+            assert result["timed_out"]
+            assert result["return_code"] == -1
+        finally:
+            shutil.rmtree(sandbox_dir, ignore_errors=True)
 
     def test_image_detection(self):
-        from agents.node_generator.sandbox import execute_script_sandbox
+        from agents.node_generator.ephemeral.sandbox import execute_script_sandbox
 
-        result = execute_script_sandbox(
-            script=(
-                "import matplotlib\n"
-                "matplotlib.use('Agg')\n"
-                "import matplotlib.pyplot as plt\n"
-                "plt.plot([1, 2, 3])\n"
-                "plt.savefig('/mf/workspace/test_plot.png')\n"
-                "plt.close()\n"
-            ),
-            timeout=30,
-        )
-        assert result["return_code"] == 0
-        png_files = [f for f in result["image_files"] if f.endswith(".png")]
-        assert len(png_files) == 1
+        sandbox_dir = self._make_sandbox_dir()
+        try:
+            result = execute_script_sandbox(
+                script=(
+                    "import matplotlib\n"
+                    "matplotlib.use('Agg')\n"
+                    "import matplotlib.pyplot as plt\n"
+                    "plt.plot([1, 2, 3])\n"
+                    "plt.savefig('/mf/workspace/test_plot.png')\n"
+                    "plt.close()\n"
+                ),
+                timeout=30,
+                sandbox_dir=sandbox_dir,
+            )
+            assert result["return_code"] == 0
+            png_files = [f for f in result["image_files"] if f.endswith(".png")]
+            assert len(png_files) == 1
+        finally:
+            shutil.rmtree(sandbox_dir, ignore_errors=True)
 
     def test_environment_variables(self):
-        from agents.node_generator.sandbox import execute_script_sandbox
+        from agents.node_generator.ephemeral.sandbox import execute_script_sandbox
 
-        result = execute_script_sandbox(
-            script=(
-                "import os\n"
-                "print(os.environ.get('MF_INPUT_DIR', 'MISSING'))\n"
-                "print(os.environ.get('MF_OUTPUT_DIR', 'MISSING'))\n"
-                "print(os.environ.get('MF_WORKSPACE_DIR', 'MISSING'))\n"
-            ),
-            timeout=10,
-        )
-        assert result["return_code"] == 0
-        assert "/mf/" in result["stdout"] or "MISSING" not in result["stdout"]
+        sandbox_dir = self._make_sandbox_dir()
+        try:
+            result = execute_script_sandbox(
+                script=(
+                    "import os\n"
+                    "print(os.environ.get('MF_INPUT_DIR', 'MISSING'))\n"
+                    "print(os.environ.get('MF_OUTPUT_DIR', 'MISSING'))\n"
+                    "print(os.environ.get('MF_WORKSPACE_DIR', 'MISSING'))\n"
+                ),
+                timeout=10,
+                sandbox_dir=sandbox_dir,
+            )
+            assert result["return_code"] == 0
+            assert "/mf/" in result["stdout"] or "MISSING" not in result["stdout"]
+        finally:
+            shutil.rmtree(sandbox_dir, ignore_errors=True)

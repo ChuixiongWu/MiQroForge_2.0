@@ -53,7 +53,7 @@ def validate_workflow(
     校验失败返回 422（validation errors 在响应体中）。
     """
     try:
-        report = svc.validate_yaml_str(req.yaml_content)
+        report = svc.validate_yaml_str(req.yaml_content, project_id=req.project_id or "")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse workflow: {str(e)}")
 
@@ -83,7 +83,7 @@ async def compile_workflow(
     编译可能较慢（含 LLM 调用），使用线程池避免阻塞事件循环。
     """
     try:
-        result = await asyncio.to_thread(svc.compile_yaml_str, req.yaml_content)
+        result = await asyncio.to_thread(svc.compile_yaml_str, req.yaml_content, req.project_id or "")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

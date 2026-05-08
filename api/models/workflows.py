@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 class WorkflowValidateRequest(BaseModel):
     yaml_content: str
+    project_id: str | None = None
 
 
 class ValidationIssueResponse(BaseModel):
@@ -29,6 +30,7 @@ class WorkflowValidateResponse(BaseModel):
 
 class WorkflowCompileRequest(BaseModel):
     yaml_content: str
+    project_id: str | None = None
 
 
 class WorkflowCompileResponse(BaseModel):

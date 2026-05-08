@@ -9,10 +9,13 @@ POST /api/v1/runs/{name}/save-outputs — 将输出参数写入 userdata/runs/{n
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+import yaml
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.config import Settings, get_settings
 from api.models.runs import RunDetailResponse, RunListResponse, RunLogsResponse, RunSummaryResponse
@@ -170,10 +173,102 @@ def get_run_logs(name: str, argo: ArgoService = Depends(get_argo_service)) -> Ru
     return RunLogsResponse(name=name, logs=logs)
 
 
+# ── helpers ──────────────────────────────────────────────────────────────────────
+
+def _apply_nodespec_to_canvas_node(spec: dict, cn_data: dict) -> None:
+    """将 nodespec 中的展示字段写入 canvas 节点 data dict（就地修改）。"""
+    meta = spec.get("metadata", {}) or {}
+
+    # 基础展示字段
+    for key in ("display_name", "name", "version", "description", "category", "node_type"):
+        if meta.get(key):
+            cn_data[key] = meta[key]
+
+    # software 来源：tags.software 或 base_image_ref
+    tags = meta.get("tags", {}) or {}
+    sw = tags.get("software") or meta.get("base_image_ref")
+    if sw:
+        cn_data["software"] = sw
+
+    # 如果节点有 nodespec_path 指向 userdata/nodes/，更新之
+    node_name = meta.get("name", "")
+    if node_name:
+        cn_data["nodespec_path"] = f"userdata/nodes/{node_name}/nodespec.yaml"
+
+    # Stream I/O
+    raw_stream_in = spec.get("stream_inputs", []) or []
+    raw_stream_out = spec.get("stream_outputs", []) or []
+
+    def _to_stream_port(p: dict) -> dict:
+        io_type = p.get("io_type", {}) or {}
+        return {
+            "name": p.get("name", ""),
+            "display_name": p.get("display_name", p.get("name", "")),
+            "category": io_type.get("category", "software_data_package"),
+            "detail": io_type.get("shape", "") or io_type.get("data_type", "") or "",
+            "required": bool(p.get("required", False)),
+        }
+
+    cn_data["stream_inputs"] = [_to_stream_port(p) for p in raw_stream_in]
+    cn_data["stream_outputs"] = [_to_stream_port(p) for p in raw_stream_out]
+
+    # Onboard inputs (parameters)
+    raw_inputs = spec.get("onboard_inputs", []) or []
+
+    def _to_onboard_param(inp: dict) -> dict:
+        return {
+            "name": inp.get("name", ""),
+            "display_name": inp.get("display_name", inp.get("name", "")),
+            "type": inp.get("kind", inp.get("type", "text")),
+            "default": inp.get("default"),
+            "description": inp.get("description"),
+            "unit": inp.get("unit"),
+            "enum_values": inp.get("allowed_values") or inp.get("enum_values"),
+            "required": bool(inp.get("required", False)),
+            "min": inp.get("min_value") if inp.get("min_value") is not None else inp.get("min"),
+            "max": inp.get("max_value") if inp.get("max_value") is not None else inp.get("max"),
+            "resource_param": bool(inp.get("resource_param", False)),
+            "multiple_input": bool(inp.get("multiple_input", False)),
+            "allow_other": bool(inp.get("allow_other", False)),
+        }
+
+    cn_data["onboard_inputs"] = [_to_onboard_param(inp) for inp in raw_inputs]
+
+    # Resources
+    res = spec.get("resources", {}) or {}
+    if res.get("cpu_cores") or res.get("cpu"):
+        cn_data["resources"] = {
+            "cpu": int(res.get("cpu_cores", res.get("cpu", 1))),
+            "mem_gb": float(res.get("mem_gb", 0)),
+            "mem_overhead": float(res.get("mem_overhead", 0)),
+            "gpu": int(res.get("gpu", 0)),
+            "estimated_walltime_hours": float(res.get("estimated_walltime_hours", 1)),
+            "scratch_disk_gb": float(res.get("scratch_disk_gb", 0)),
+            "parallel_tasks": int(res.get("parallel_tasks", 1)),
+        }
+
+    # Onboard outputs (quality gates)
+    raw_outputs = spec.get("onboard_outputs", []) or []
+
+    def _to_onboard_output(out: dict) -> dict:
+        return {
+            "name": out.get("name", ""),
+            "display_name": out.get("display_name", out.get("name", "")),
+            "kind": out.get("kind", out.get("type", "text")),
+            "description": out.get("description"),
+            "unit": out.get("unit"),
+            "quality_gate": bool(out.get("quality_gate", False)),
+            "gate_default": out.get("gate_default"),
+            "gate_description": out.get("gate_description"),
+        }
+
+    cn_data["onboard_outputs"] = [_to_onboard_output(o) for o in raw_outputs]
+
+
 @router.post("/{name}/save-outputs", summary="保存运行输出到 runs/ 目录")
 def save_run_outputs(
     name: str,
-    project_id: str | None = None,
+    project_id: str | None = Query(None),
     canvas: dict[str, Any] | None = Body(None),
     argo: ArgoService = Depends(get_argo_service),
     settings: Settings = Depends(get_settings),
@@ -260,7 +355,145 @@ def save_run_outputs(
     )
 
     # Save afterrun_canvas if provided
+    nodegen_updates: dict[str, dict[str, object]] = {}
     if canvas:
+        # ── 对成功的 nodegen 节点，从 tmp/ 读取 nodespec 填充 node_generator.result ──
+        for cn in canvas.get("nodes", []):
+            cn_data = cn.get("data", {})
+            ng = cn_data.get("node_generator")
+            if not ng:
+                continue
+            cn_id = cn.get("id", "")
+            node_detail = node_details.get(cn_id, {})
+            if node_detail.get("phase") != "Succeeded":
+                continue
+            # 从 tmp/<node_id>/ 读取运行时生成的 nodespec + run.sh
+            try:
+                tmp_dir = settings.userdata_root / "projects" / project_id / "tmp" / cn_id
+                ns_path = tmp_dir / "nodespec.yaml"
+                rs_path = tmp_dir / "profile" / "run.sh"
+                if ns_path.exists():
+                    nodespec_yaml = ns_path.read_text("utf-8")
+                    run_sh = rs_path.read_text("utf-8") if rs_path.exists() else ""
+                    spec = yaml.safe_load(nodespec_yaml) if nodespec_yaml else None
+                    node_name = spec.get("metadata", {}).get("name", cn_id) if isinstance(spec, dict) else cn_id
+                    ng["result"] = {
+                        "node_name": node_name,
+                        "nodespec_yaml": nodespec_yaml,
+                        "run_sh": run_sh,
+                        "input_templates": ng.get("result", {}).get("input_templates", {}),
+                        "evaluation": ng.get("result", {}).get("evaluation"),
+                    }
+                    # ── 更新节点核心展示字段到 afterrun_canvas ──
+                    if isinstance(spec, dict):
+                        _apply_nodespec_to_canvas_node(spec, cn_data)
+                        # 收集供前端更新 live canvas 的数据
+                        nodegen_updates[cn_id] = {
+                            "node_name": node_name,
+                            "nodespec_yaml": nodespec_yaml,
+                            "run_sh": run_sh,
+                            "display_name": cn_data.get("display_name", ""),
+                            "name": cn_data.get("name", ""),
+                            "version": cn_data.get("version", ""),
+                            "description": cn_data.get("description", ""),
+                            "node_type": cn_data.get("node_type", ""),
+                            "category": cn_data.get("category", ""),
+                            "software": cn_data.get("software"),
+                            "stream_inputs": cn_data.get("stream_inputs", []),
+                            "stream_outputs": cn_data.get("stream_outputs", []),
+                            "onboard_inputs": cn_data.get("onboard_inputs", []),
+                            "onboard_outputs": cn_data.get("onboard_outputs", []),
+                            "resources": cn_data.get("resources"),
+                            "nodespec_path": cn_data.get("nodespec_path", ""),
+                        }
+                else:
+                    import logging
+                    logging.warning(
+                        "save_run_outputs: no nodespec.yaml found for nodegen "
+                        "node %s in tmp/%s — generated files were not persisted",
+                        cn_id, cn_id,
+                    )
+            except Exception:
+                import logging
+                logging.warning(
+                    "save_run_outputs: failed to read nodespec for nodegen "
+                    "node %s from tmp/%s", cn_id, cn_id, exc_info=True,
+                )
+
+        # ── 用 port_map.json 重映射 edge handles（Agent 可能重命名了端口）──
+        for cn_id in list(nodegen_updates.keys()):
+            port_map_path = settings.userdata_root / "projects" / project_id / "tmp" / cn_id / "port_map.json"
+            if not port_map_path.exists():
+                continue
+            try:
+                import json as _json2
+                pm_raw = _json2.loads(port_map_path.read_text("utf-8"))
+                input_map: dict[str, str] = (pm_raw.get("inputs") or {}) if isinstance(pm_raw, dict) else {}
+                output_map: dict[str, str] = (pm_raw.get("outputs") or {}) if isinstance(pm_raw, dict) else {}
+
+                # Remap edges that connect to/from this nodegen node
+                for edge in canvas.get("edges", []):
+                    source = edge.get("source", "")
+                    target = edge.get("target", "")
+                    if source == cn_id:
+                        old_handle = edge.get("sourceHandle", "")
+                        if old_handle in output_map:
+                            edge["sourceHandle"] = output_map[old_handle]
+                    if target == cn_id:
+                        old_handle = edge.get("targetHandle", "")
+                        if old_handle in input_map:
+                            edge["targetHandle"] = input_map[old_handle]
+
+                # 将 port_map 和 remapped edges 传回前端
+                nodegen_updates[cn_id]["_port_map"] = pm_raw
+
+                # ── 读取 sandbox 输出值（从 tmp/<node_id>/output/）──
+                # 只收集 nodespec 中声明的 onboard outputs，不收集 stream outputs
+                output_dir = tmp_dir / "output"
+                if output_dir.is_dir():
+                    ns_path_qg = tmp_dir / "nodespec.yaml"
+                    onboard_output_names: set[str] = set()
+                    qg_names: set[str] = set()
+                    if ns_path_qg.exists():
+                        try:
+                            import yaml as _y2
+                            spec_qg = _y2.safe_load(ns_path_qg.read_text("utf-8"))
+                            if isinstance(spec_qg, dict):
+                                for oo in spec_qg.get("onboard_outputs", []) or []:
+                                    oo_name = oo.get("name", "")
+                                    if oo_name:
+                                        onboard_output_names.add(oo_name)
+                                        if oo.get("quality_gate"):
+                                            qg_names.add(oo_name)
+                        except Exception:
+                            pass
+
+                    output_values: dict[str, str] = {}
+                    for f in output_dir.iterdir():
+                        if f.is_file() and f.name in onboard_output_names:
+                            name = f.name
+                            # quality gate 输出加 _qg_ 前缀，匹配前端 inspector 的 runKey
+                            key = f"_qg_{name}" if name in qg_names else name
+                            try:
+                                output_values[key] = f.read_text("utf-8").strip()
+                            except Exception:
+                                pass
+                    if output_values:
+                        nodegen_updates[cn_id]["_output_values"] = output_values
+
+                        # 同时注入 afterrun_canvas 的 nodeStatuses，确保 reload 后也有值
+                        canvas_ns = canvas.get("nodeStatuses")
+                        if isinstance(canvas_ns, dict) and cn_id in canvas_ns:
+                            existing_outputs = dict(canvas_ns[cn_id].get("outputs", {}) or {})
+                            existing_outputs.update(output_values)
+                            canvas_ns[cn_id]["outputs"] = existing_outputs
+            except Exception:
+                import logging
+                logging.warning(
+                    "save_run_outputs: failed to process port_map.json for node %s",
+                    cn_id, exc_info=True,
+                )
+
         svc = ProjectService()
         svc.save_afterrun_canvas(project_id, name, canvas)
 
@@ -276,6 +509,7 @@ def save_run_outputs(
         "run": name,
         "outputs_count": len(node_outputs),
         "error_texts": error_texts,
+        "nodegen_updates": nodegen_updates,
     }
 
 

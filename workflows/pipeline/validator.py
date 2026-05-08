@@ -168,12 +168,14 @@ def validate_workflow(
     workflow: MFWorkflow,
     *,
     project_root: Path | None = None,
+    project_id: str = "",
 ) -> ValidationReport:
     """对 MF 工作流进行全量校验。
 
     Parameters:
         workflow: 已加载的 MFWorkflow 实例。
         project_root: 项目根目录，用于解析 nodespec 路径。
+        project_id: 当前项目 ID，用于搜索项目 tmp 目录中的未 Accept 节点。
 
     Returns:
         ValidationReport，包含所有问题和解析后的 NodeSpec。
@@ -193,17 +195,51 @@ def validate_workflow(
                 ))
 
         if node_inst.ephemeral:
-            # 临时节点：构建虚拟 NodeSpec
-            spec = _build_ephemeral_nodespec(node_inst)
-            resolved_nodes[node_inst.id] = spec
-            issues.append(ValidationIssue(
-                severity="info",
-                location=f"node: {node_inst.id}",
-                message=f"临时节点 (ephemeral): {node_inst.get_generation_description()}",
-            ))
+            # ── Nodegen 节点：pregenerate 非空时才去 disk 读预生成 nodespec ──
+            if node_inst.pregenerate is not None and node_inst.nodegen_tmp_ref is not None and node_inst.nodegen_tmp_ref.strip():
+                try:
+                    spec = _resolve_nodegen_tmp_spec(node_inst, project_root, project_id)
+                    resolved_nodes[node_inst.id] = spec
+                    issues.append(ValidationIssue(
+                        severity="info",
+                        location=f"node: {node_inst.id}",
+                        message=f"Nodegen 节点 (pregenerated, nodegen_tmp_ref={node_inst.nodegen_tmp_ref!r}): "
+                                f"从 tmp/userdata 读取预生成 nodespec",
+                    ))
+                except FileNotFoundError as e:
+                    issues.append(ValidationIssue(
+                        severity="error",
+                        location=f"node: {node_inst.id}",
+                        message=f"Nodegen tmp nodespec 未找到: {e}",
+                    ))
+                    resolved_nodes[node_inst.id] = _build_ephemeral_nodespec(node_inst)
+                except Exception as e:
+                    issues.append(ValidationIssue(
+                        severity="error",
+                        location=f"node: {node_inst.id}",
+                        message=f"Nodegen tmp nodespec 解析失败: {e}",
+                    ))
+                    resolved_nodes[node_inst.id] = _build_ephemeral_nodespec(node_inst)
+            else:
+                # 无预生成（from scratch）或普通 ephemeral — 不读 disk
+                spec = _build_ephemeral_nodespec(node_inst)
+                resolved_nodes[node_inst.id] = spec
+                if node_inst.nodegen_tmp_ref is not None and node_inst.nodegen_tmp_ref.strip():
+                    issues.append(ValidationIssue(
+                        severity="info",
+                        location=f"node: {node_inst.id}",
+                        message=f"Nodegen 节点 (from scratch, nodegen_tmp_ref={node_inst.nodegen_tmp_ref!r}): "
+                                f"运行时 Agent 将从零生成 nodespec",
+                    ))
+                else:
+                    issues.append(ValidationIssue(
+                        severity="info",
+                        location=f"node: {node_inst.id}",
+                        message=f"临时节点 (ephemeral): {node_inst.get_generation_description()}",
+                    ))
         else:
             try:
-                spec = resolve_nodespec(node_inst, project_root=project_root)
+                spec = resolve_nodespec(node_inst, project_root=project_root, project_id=project_id)
                 resolved_nodes[node_inst.id] = spec
             except FileNotFoundError as e:
                 issues.append(ValidationIssue(
@@ -344,6 +380,46 @@ def validate_workflow(
 # ═══════════════════════════════════════════════════════════════════════════
 # 辅助函数
 # ═══════════════════════════════════════════════════════════════════════════
+
+
+def _resolve_nodegen_tmp_spec(
+    node_inst: MFNodeInstance,
+    project_root: Path | None,
+    project_id: str,
+) -> NodeSpec:
+    """为 nodegen 节点从 proj/tmp/ 或 userdata/nodes/ 读取预生成 nodespec。
+
+    仅在 pregenerate 非空时调用（-1 循环已执行）。
+
+    Returns:
+        解析后的 NodeSpec。
+
+    Raises:
+        FileNotFoundError: 两处均未找到。
+    """
+    if project_root is None:
+        project_root = Path.cwd()
+    name = node_inst.nodegen_tmp_ref
+
+    # 1. 搜索 userdata/nodes/（已 Accept 的节点）
+    userdata_nodes = project_root / "userdata" / "nodes"
+    if userdata_nodes.exists():
+        for spec_path in userdata_nodes.rglob(f"{name}/nodespec.yaml"):
+            if "schemas" in spec_path.parts or "base_images" in spec_path.parts:
+                continue
+            return NodeSpec.from_yaml(spec_path)
+
+    # 2. 搜索 proj/tmp/（未 Accept 的节点）
+    if project_id:
+        tmp_dir = project_root / "userdata" / "projects" / project_id / "tmp" / name
+        spec_path = tmp_dir / "nodespec.yaml"
+        if spec_path.exists():
+            return NodeSpec.from_yaml(spec_path)
+
+    raise FileNotFoundError(
+        f"nodegen 节点 {name!r} 的 nodespec 在 userdata/nodes/ 和 "
+        f"proj/{project_id}/tmp/ 中均未找到"
+    )
 
 
 def _find_output_port(spec: NodeSpec, name: str) -> StreamOutputPort | None:

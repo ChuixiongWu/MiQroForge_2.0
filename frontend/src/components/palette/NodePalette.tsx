@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react'
-import { Search, RefreshCw, ChevronLeft, ChevronRight, ChevronDown, Zap } from 'lucide-react'
+import { Search, RefreshCw, ChevronLeft, ChevronRight, ChevronDown, Zap, Sparkles } from 'lucide-react'
 import { useNodeCatalog } from '../../hooks/useNodeCatalog'
 import { useNodeCatalogStore, buildSemanticGroups, type SubGroup } from '../../stores/node-catalog-store'
 import { useUIStore } from '../../stores/ui-store'
@@ -30,6 +30,37 @@ function EphemeralTypeCard() {
             </div>
             <div className="text-[10px] text-orange-500/80">
               temporary · drag to create
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Node Generator type card (fixed, draggable) ─────────────────────────────
+
+function NodeGeneratorTypeCard() {
+  const onDragStart = useCallback((e: React.DragEvent) => {
+    e.dataTransfer.setData('application/mf-node-gen', 'true')
+    e.dataTransfer.effectAllowed = 'copy'
+  }, [])
+
+  return (
+    <div className="mx-2 mb-2">
+      <div
+        draggable
+        onDragStart={onDragStart}
+        className="bg-mf-card border border-purple-700/40 rounded-lg shadow cursor-grab active:cursor-grabbing hover:border-purple-500/60 transition-colors select-none"
+      >
+        <div className="px-2.5 py-2 bg-purple-900/20 rounded-lg flex items-start gap-1.5">
+          <Sparkles size={14} className="text-purple-400 mt-0.5 flex-shrink-0" />
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-purple-200 truncate leading-tight">
+              Generate Node
+            </div>
+            <div className="text-[10px] text-purple-500/80">
+              AI-assisted · drag to create
             </div>
           </div>
         </div>
@@ -265,6 +296,9 @@ export function NodePalette() {
       <div className="flex-1 overflow-y-auto mf-scroll py-2">
         {/* Ephemeral node card — always shown */}
         <EphemeralTypeCard />
+
+        {/* Node Generator card — always shown */}
+        <NodeGeneratorTypeCard />
 
         {isLoading && (
           <div className="px-3 py-4 text-xs text-mf-text-muted text-center">Loading nodes…</div>

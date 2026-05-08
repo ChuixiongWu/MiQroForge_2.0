@@ -1,4 +1,7 @@
-"""agents/node_generator/evaluator.py — Node Generator Agent 评判节点。"""
+"""agents/node_generator/ephemeral/evaluator.py — 临时节点评判。
+
+程序化检查 + 执行结果检查 + 视觉评估（多模态）。
+"""
 
 from __future__ import annotations
 
@@ -7,17 +10,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-import yaml
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from agents.llm_config import LLMConfig
 from agents.schemas import EvaluationResult
 from agents.common.prompt_loader import load_prompt
 from agents.common.session_logger import get_session
-from agents.node_generator.state import NodeGenState
+from agents.node_generator.ephemeral.state import EphemeralGenState
 
 
 def _extract_json(text: str) -> str:
+    """从 LLM 响应中提取 JSON 字符串。"""
     if "```json" in text:
         start = text.index("```json") + 7
         end = text.index("```", start)
@@ -33,10 +36,10 @@ def _extract_json(text: str) -> str:
     return text.strip()
 
 
-def _programmatic_check_ephemeral(state: NodeGenState) -> list[str]:
+def _programmatic_check_ephemeral(state: EphemeralGenState) -> list[str]:
     """临时节点的程序化检查。"""
     issues = []
-    run_sh = state.get("run_sh", "") or state.get("script", "")
+    run_sh = state.get("script", "")
 
     if not run_sh:
         return ["生成的脚本内容为空"]
@@ -80,147 +83,7 @@ def _programmatic_check_ephemeral(state: NodeGenState) -> list[str]:
     return issues
 
 
-def _programmatic_check(state: NodeGenState) -> list[str]:
-    """程序化检查。"""
-    issues = []
-    nodespec_yaml = state.get("nodespec_yaml", "")
-    run_sh = state.get("run_sh", "")
-    semantic_types = state.get("semantic_types") or {}
-    request = state.get("request")
-    is_ephemeral = getattr(request, "node_mode", "formal") == "ephemeral" if request else False
-
-    if is_ephemeral:
-        return _programmatic_check_ephemeral(state)
-
-    if not nodespec_yaml:
-        return ["nodespec_yaml 为空"]
-
-    # YAML 可解析
-    try:
-        spec_data = yaml.safe_load(nodespec_yaml)
-    except yaml.YAMLError as e:
-        return [f"nodespec.yaml 解析失败: {e}"]
-
-    if not isinstance(spec_data, dict):
-        return ["nodespec.yaml 格式不正确（应为字典）"]
-
-    # Pydantic 校验
-    try:
-        from nodes.schemas import NodeSpec
-        NodeSpec.model_validate(spec_data)
-    except Exception as e:
-        issues.append(f"NodeSpec Pydantic 校验失败: {e}")
-
-    # 语义类型检查
-    metadata = spec_data.get("metadata", {})
-    semantic_type = metadata.get("semantic_type")
-    if semantic_type and semantic_types and semantic_type not in semantic_types:
-        issues.append(
-            f"semantic_type '{semantic_type}' 不在注册表中。合法值: {list(semantic_types.keys())}"
-        )
-
-    # run.sh 检查（compute 节点）
-    node_type = metadata.get("node_type", "")
-    if node_type == "compute":
-        if not run_sh:
-            issues.append("compute 节点缺少 run.sh")
-        elif "# MF2 init" not in run_sh:
-            issues.append("run.sh 缺少 '# MF2 init' 标记")
-
-    # 端口名 snake_case 检查
-    import re
-    snake_pattern = re.compile(r'^[a-z][a-z0-9_]*$')
-    for port in spec_data.get("stream_inputs", []) + spec_data.get("stream_outputs", []):
-        name = port.get("name", "")
-        if name and not snake_pattern.match(name):
-            issues.append(f"端口名 '{name}' 不符合 snake_case 规范")
-
-    return issues
-
-
-def evaluate_node(state: NodeGenState) -> dict[str, Any]:
-    """LangGraph 评判节点。"""
-    request = state.get("request")
-    is_ephemeral = getattr(request, "node_mode", "formal") == "ephemeral" if request else False
-
-    if is_ephemeral:
-        # ephemeral 模式：程序化检查 + 执行结果检查
-        return _evaluate_ephemeral(state)
-
-    # ── 正式节点模式 ──
-    iteration = state.get("iteration", 0)
-
-    # 程序化检查
-    prog_issues = _programmatic_check(state)
-    if prog_issues:
-        result = EvaluationResult(
-            passed=False,
-            issues=prog_issues,
-            suggestions=["修正上述程序化检查失败项"],
-            iteration=iteration,
-        )
-        session = get_session()
-        if session:
-            session.log_event("evaluate_programmatic", {
-                "iteration": iteration,
-                "passed": False,
-                "issues": prog_issues,
-            })
-        return {"evaluation": result}
-
-    # LLM 意图检查
-    nodespec_yaml = state.get("nodespec_yaml", "")
-    run_sh = state.get("run_sh", "")
-
-    prompt = load_prompt(
-        "node_generator/prompts/nodegen_evaluate.jinja2",
-        request=request.model_dump() if request else {},
-        nodespec_yaml=nodespec_yaml,
-        run_sh=run_sh,
-    )
-
-    llm = LLMConfig.get_chat_model(purpose="evaluator", temperature=0.0)
-
-    eval_messages = [HumanMessage(content=prompt)]
-
-    try:
-        response = llm.invoke(eval_messages)
-
-        session = get_session()
-        if session:
-            session.log_llm_call(
-                "evaluate", eval_messages, response.content,
-                iteration=iteration,
-            )
-
-        raw_json = _extract_json(response.content)
-        data = json.loads(raw_json)
-
-        result = EvaluationResult(
-            passed=data.get("passed", False),
-            issues=data.get("issues", []),
-            suggestions=data.get("suggestions", []),
-            iteration=iteration,
-        )
-    except Exception as e:
-        session = get_session()
-        if session:
-            session.log_event("evaluate_error", {
-                "iteration": iteration,
-                "error": str(e),
-                "auto_pass": True,
-            })
-        result = EvaluationResult(
-            passed=True,  # 评判失败则放行
-            issues=[],
-            suggestions=[f"LLM 评判失败（自动放行）: {e}"],
-            iteration=iteration,
-        )
-
-    return {"evaluation": result}
-
-
-def _evaluate_ephemeral(state: NodeGenState) -> dict[str, Any]:
+def evaluate_ephemeral_node(state: EphemeralGenState) -> dict[str, Any]:
     """临时节点模式的评估：程序化检查 + 执行结果检查。"""
     iteration = state.get("iteration", 0)
     return_code = state.get("exec_return_code", -1)
@@ -298,15 +161,14 @@ def _evaluate_ephemeral(state: NodeGenState) -> dict[str, Any]:
         return {"evaluation": result}
 
     # 5. 有图片：调用视觉评估器
-    # sandbox_dir 是持久化的，图片路径在评估时仍然有效
     return evaluate_node_vision(state)
 
 
-def evaluate_node_vision(state: NodeGenState) -> dict[str, Any]:
+def evaluate_node_vision(state: EphemeralGenState) -> dict[str, Any]:
     """多模态视觉评估：将图片发送给 GPT-4o 进行视觉检查。"""
     iteration = state.get("iteration", 0)
     request = state.get("request")
-    script = state.get("script", "") or state.get("run_sh", "")
+    script = state.get("script", "")
     exec_stdout = state.get("exec_stdout", "")
     exec_stderr = state.get("exec_stderr", "")
     image_files = state.get("image_files", [])
@@ -332,7 +194,7 @@ def evaluate_node_vision(state: NodeGenState) -> dict[str, Any]:
 
     # 构建多模态消息
     prompt_text = load_prompt(
-        "node_generator/prompts/nodegen_ephemeral_evaluate_vision.jinja2",
+        "node_generator/prompts/ephemeral/nodegen_ephemeral_evaluate_vision.jinja2",
         description=request.description if request else "",
         ports=request.ports if request else {},
         script=script,

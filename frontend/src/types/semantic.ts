@@ -99,6 +99,22 @@ export interface NodeGenRequest {
   target_software?: string
   target_method?: string
   category?: string
+  project_id?: string
+  /** Canvas node ID — used as tmp directory name to avoid collisions */
+  node_id?: string
+}
+
+export interface NodeRunRequest {
+  semantic_type: string
+  description: string
+  target_software?: string
+  target_method?: string
+  category?: string
+  input_data?: Record<string, string>
+  run_name?: string
+  project_id?: string
+  existing_nodespec?: string
+  existing_run_sh?: string
 }
 
 export interface NodeGenResponse {
@@ -109,6 +125,20 @@ export interface NodeGenResponse {
   saved_path?: string
   evaluation: EvaluationResult | null
   error: string | null
+}
+
+export interface NodeAcceptRequest {
+  node_name: string
+  nodespec_yaml: string
+  run_sh?: string
+  input_templates: Record<string, string>
+  category?: string
+}
+
+export interface NodeAcceptResponse {
+  node_name: string
+  saved_path: string
+  collision_renamed: boolean
 }
 
 // ─── Chat / Agent UI ─────────────────────────────────────────────────────────

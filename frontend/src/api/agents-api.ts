@@ -6,6 +6,8 @@ import type {
   PlanRequest, PlanResponse,
   YAMLRequest, YAMLResponse,
   NodeGenRequest, NodeGenResponse,
+  NodeRunRequest,
+  NodeAcceptRequest, NodeAcceptResponse,
 } from '../types/semantic'
 
 const API_BASE = '/api/v1/agents'
@@ -45,9 +47,17 @@ export const agentsApi = {
   generateYaml: (req: YAMLRequest, signal?: AbortSignal): Promise<YAMLResponse> =>
     post<YAMLResponse>(`${API_BASE}/yaml`, req, signal),
 
-  /** Node Generator Agent — 生成新节点 */
+  /** Node Generator Agent — 设计时生成节点（无 sandbox） */
   generateNode: (req: NodeGenRequest, signal?: AbortSignal): Promise<NodeGenResponse> =>
     post<NodeGenResponse>(`${API_BASE}/node`, req, signal),
+
+  /** Node Generator Agent — 运行时节点生成循环（sandbox + evaluate） */
+  runNode: (req: NodeRunRequest, signal?: AbortSignal): Promise<NodeGenResponse> =>
+    post<NodeGenResponse>(`${API_BASE}/node/run`, req, signal),
+
+  /** Node Generator Agent — 将生成的节点持久化到节点库 */
+  acceptNode: (req: NodeAcceptRequest, signal?: AbortSignal): Promise<NodeAcceptResponse> =>
+    post<NodeAcceptResponse>(`${API_BASE}/node/accept`, req, signal),
 
   /** 保存对话会话到 userdata/agent_sessions/ */
   saveSession: (req: SaveSessionRequest): Promise<SaveSessionResponse> =>

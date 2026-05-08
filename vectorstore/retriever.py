@@ -29,12 +29,34 @@ class KeywordRetriever:
                 self._index = json.load(f)
 
     def _score(self, document: str, query: str) -> float:
-        """简单关键词评分（词频）。"""
-        query_words = query.lower().split()
+        """基于字段权重的关键词评分。
+
+        对不同字段施加不同权重，并对软件名精确匹配给予额外加分。
+        """
+        query_lower = query.lower()
+        query_words = query_lower.split()
         if not query_words:
             return 1.0
-        score = sum(document.count(w) for w in query_words)
-        return score / len(query_words)
+
+        # 提取各字段的文本段（文档格式由 _make_document() 定义）
+        field_scores: list[float] = []
+        for line in document.split("\n"):
+            line_lower = line.lower()
+            line_score = sum(line_lower.count(w) for w in query_words)
+
+            if line_lower.startswith("node:"):
+                # 节点名匹配 — 最高权重
+                field_scores.append(line_score * 3.0)
+            elif line_lower.startswith("display name:"):
+                field_scores.append(line_score * 2.0)
+            elif line_lower.startswith(("description:", "keywords:", "methods:",
+                                          "capabilities:", "software:", "semantic type:")):
+                field_scores.append(line_score * 1.0)
+            else:
+                field_scores.append(line_score * 0.5)
+
+        score = sum(field_scores) / max(len(query_words), 1)
+        return score
 
     def search(self, query: str, n: int = 8) -> list[dict[str, Any]]:
         query_lower = query.lower()
@@ -73,9 +95,10 @@ class ChromaRetriever:
         count = self._collection.count()
         if count == 0:
             return []
+        n_fetch = max(1, min(n, count))
         results = self._collection.query(
             query_texts=[query],
-            n_results=min(n, count),
+            n_results=n_fetch,
             include=["metadatas"],
         )
         return list((results["metadatas"] or [[]])[0])
@@ -105,10 +128,34 @@ class NodeRetriever:
         from vectorstore.config import get_chroma_persist_dir, COLLECTION_NAME
         persist_dir = get_chroma_persist_dir()
         index_type_file = persist_dir / ".index_type"
+        keyword_index_file = persist_dir / "keyword_index.json"
 
+        # ── 过期检测：比较 node_index.yaml 与索引文件的 mtime ──
+        needs_rebuild = False
         if not index_type_file.exists():
-            # 尝试构建索引
-            print("[vectorstore] 索引不存在，尝试自动构建...")
+            needs_rebuild = True
+        else:
+            try:
+                from pathlib import Path as _Path
+                root = _Path(__file__).parent.parent
+                node_index = root / "nodes" / "node_index.yaml"
+                if node_index.exists():
+                    index_mtime = index_type_file.stat().st_mtime
+                    node_mtime = node_index.stat().st_mtime
+                    if node_mtime > index_mtime + 1.0:  # 1 秒容差
+                        print(f"[vectorstore] 检测到 node_index.yaml 已更新，触发索引重建...")
+                        needs_rebuild = True
+                    # 双保险：检查 keyword_index.json 是否也存在且同样过期
+                    if not needs_rebuild and keyword_index_file.exists():
+                        kw_mtime = keyword_index_file.stat().st_mtime
+                        if node_mtime > kw_mtime + 1.0:
+                            print(f"[vectorstore] 检测到 keyword_index.json 已过期，触发索引重建...")
+                            needs_rebuild = True
+            except Exception:
+                pass
+
+        if needs_rebuild:
+            print("[vectorstore] 索引不存在或已过期，自动构建...")
             from vectorstore.indexer import build_index
             build_index()
 
@@ -150,8 +197,12 @@ class NodeRetriever:
     def search_summary(self, query: str, n: int = 8) -> list[dict[str, Any]]:
         """Level 1 检索：返回节点摘要列表。"""
         self._ensure_connected()
+        if self._backend is None:
+            return []
         metas = self._backend.search(query, n=n)
-        return [self._meta_to_summary(m) for m in metas]
+        summaries = [self._meta_to_summary(m) for m in metas]
+        # 过滤 test 节点
+        return [s for s in summaries if "nodes/test/" not in s.get("nodespec_path", "")]
 
     def search_by_semantic_type(self, semantic_type: str) -> list[dict[str, Any]]:
         """按语义类型精确匹配检索。"""

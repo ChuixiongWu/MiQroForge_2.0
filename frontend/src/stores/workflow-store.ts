@@ -52,6 +52,23 @@ export interface MFNodeData extends Record<string, unknown> {
   pending_implementations?: Array<{ nodeName: string; label: string; software?: string }>
   // 用户选择实现时的回调（函数，不持久化）
   pending_on_select?: (nodeName: string) => void
+
+  // ── Node Generator 扩展字段 ─────────────────────────────────────────────────
+  node_generator?: {
+    generating: boolean
+    result?: {
+      node_name: string
+      nodespec_yaml: string
+      run_sh?: string
+      input_templates: Record<string, string>
+      saved_path?: string
+      evaluation: { passed: boolean; issues: string[]; suggestions: string[] } | null
+      error: string | null
+    }
+    software?: string
+    semantic_type?: string
+    description?: string
+  }
 }
 
 // ─── Per-node implementation history ─────────────────────────────────────────

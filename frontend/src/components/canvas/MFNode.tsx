@@ -36,8 +36,21 @@ const PortRow = memo(({ name, displayName, category, required, direction, epheme
     <div
       className={`relative flex items-center gap-1 py-0.5 text-xs ${isInput ? 'pr-1 pl-4' : 'pl-1 pr-4 flex-row-reverse'}`}
     >
-      {/* Handle spacer — visual placeholder matching the Handle size */}
-      <span className="flex-shrink-0" style={{ width: ephemeral ? 12 : 10, height: ephemeral ? 12 : 10 }} />
+      {/* Handle — rendered inside PortRow so React Flow can compute Y from DOM position */}
+      <Handle
+        type={isInput ? 'target' : 'source'}
+        position={isInput ? Position.Left : Position.Right}
+        id={name}
+        style={{
+          background: ephemeral
+            ? 'linear-gradient(135deg, #f97316, #22c55e, #3b82f6)'
+            : (color),
+          width: ephemeral ? 12 : 10,
+          height: ephemeral ? 12 : 10,
+          border: '2px solid rgb(var(--mf-bg-base))',
+        }}
+        className="transition-transform hover:scale-125"
+      />
 
       <span
         className="font-mono truncate max-w-[80px]"
@@ -112,7 +125,7 @@ function RunOverlaySection({
 
   // Exclude quality-gate keys (_qg_*) and internal mf keys (_mf_*) — shown integrated in the gate badges above
   const outputEntries = Object.entries(status.outputs).filter(
-    ([k]) => !k.startsWith('_internal_') && !k.startsWith('_qg_') && !k.startsWith('_mf_') && !k.startsWith('_error'),
+    ([k]) => !k.startsWith('_internal_') && !k.startsWith('_qg_') && !k.startsWith('_mf_') && !k.startsWith('_error') && !k.startsWith('_node_result'),
   )
 
   // Error message: from Argo node.message or from outputs._error
@@ -471,38 +484,6 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
 
   return (
     <div className={nodeClass} style={{ perspective: '800px' }}>
-      {/* Handles — always visible, outside the flip container */}
-      {inputPorts.map((port) => (
-        <Handle
-          key={`h-in-${port.name}`}
-          type="target"
-          position={Position.Left}
-          id={port.name}
-          style={{
-            background: data.ephemeral ? 'linear-gradient(135deg, #f97316, #22c55e, #3b82f6)' : (PORT_COLORS[port.category as keyof typeof PORT_COLORS] ?? '#6b7280'),
-            width: data.ephemeral ? 12 : 10,
-            height: data.ephemeral ? 12 : 10,
-            border: '2px solid rgb(var(--mf-bg-base))',
-          }}
-          className="transition-transform hover:scale-125"
-        />
-      ))}
-      {outputPorts.map((port) => (
-        <Handle
-          key={`h-out-${port.name}`}
-          type="source"
-          position={Position.Right}
-          id={port.name}
-          style={{
-            background: data.ephemeral ? 'linear-gradient(135deg, #f97316, #22c55e, #3b82f6)' : (PORT_COLORS[port.category as keyof typeof PORT_COLORS] ?? '#6b7280'),
-            width: data.ephemeral ? 12 : 10,
-            height: data.ephemeral ? 12 : 10,
-            border: '2px solid rgb(var(--mf-bg-base))',
-          }}
-          className="transition-transform hover:scale-125"
-        />
-      ))}
-
       {/* Flip container — no onClick here; flip is triggered by error indicator only */}
       <div
         style={{

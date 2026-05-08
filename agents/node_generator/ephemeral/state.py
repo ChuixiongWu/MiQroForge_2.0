@@ -1,31 +1,23 @@
-"""agents/node_generator/state.py — Node Generator Agent 状态定义。"""
+"""agents/node_generator/ephemeral/state.py — 临时节点生成状态定义。"""
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 from typing_extensions import TypedDict
 
 from agents.schemas import NodeGenRequest, NodeGenResult, EvaluationResult
 
 
-class NodeGenState(TypedDict, total=False):
-    """Node Generator Agent 的 LangGraph 状态。"""
+class EphemeralGenState(TypedDict, total=False):
+    """临时节点生成 Agent 的 LangGraph 状态。"""
 
     # 输入
     request: NodeGenRequest
 
     # 中间状态
-    reference_nodes: list[dict[str, Any]]   # few-shot 参考节点
-    available_images: list[dict[str, Any]]  # 可用 Docker 镜像
-    semantic_types: dict[str, Any]          # 语义类型注册表
-
-    # 生成状态（formal 模式）
-    nodespec_yaml: str
-    run_sh: str
-    input_templates: dict[str, str]         # 文件名 → 内容
-
-    # 生成状态（ephemeral 模式）
     _input_data: dict[str, str]             # 真实输入数据 {port_name: content}
+    _project_id: str                        # 项目 ID（用于 workspace 和 sandbox 定位）
+    _run_name: str                          # 运行名称（用于 sandbox 定位）
     script: str                             # 生成的 Python 脚本
     exec_stdout: str                        # 执行 stdout
     exec_stderr: str                        # 执行 stderr

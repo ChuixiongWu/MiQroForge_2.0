@@ -58,6 +58,7 @@ class AgentSessionLog:
         messages: list,
         response_content: str,
         iteration: int = 0,
+        max_content_len: int = 50000,
         **extra: Any,
     ) -> None:
         """记录一次 LLM 调用的完整输入和输出。
@@ -68,13 +69,21 @@ class AgentSessionLog:
         messages:   LangChain Message 列表（SystemMessage/HumanMessage）
         response_content:  LLM 返回的原始文本
         iteration:  当前迭代轮次
+        max_content_len: 单条消息内容的最大字符数（超长则截断）。默认 50000，
+            保证 SystemMessage/HumanMessage 完整显示。
         **extra:    额外元数据（如 parsed_json, error 等）
         """
         serialized_messages = []
         for msg in messages:
+            content = msg.content
+            msg_type = type(msg).__name__
+            # ToolMessage 通常较长且重复，使用较小截断值
+            limit = 5000 if msg_type == "ToolMessage" else max_content_len
+            if isinstance(content, str) and len(content) > limit:
+                content = content[:limit] + f"\n... [truncated at {limit} chars]"
             serialized_messages.append({
                 "role": type(msg).__name__,
-                "content": msg.content,
+                "content": content,
             })
 
         self.steps.append({
@@ -213,4 +222,124 @@ def save_conversation(
         json.dumps(payload, indent=2, ensure_ascii=False, default=str),
         encoding="utf-8",
     )
+    return filepath
+
+
+# ─── 人类可读格式导出 ──────────────────────────────────────────────────────
+
+def format_log_as_text(log_data: dict[str, Any]) -> str:
+    """将会话日志格式化为人类可读的纯文本，保留所有换行符。
+
+    输出结构：
+      - 会话元数据头部
+      - 每个 step：LLM 调用（完整 prompt + response）或事件
+    """
+    lines: list[str] = []
+
+    # ═══ 头部 ═══
+    lines.append("=" * 70)
+    lines.append("MiQroForge Agent Session Log")
+    lines.append("=" * 70)
+    lines.append(f"Agent:    {log_data.get('agent_type', 'unknown')}")
+    lines.append(f"Started:  {log_data.get('started_at', '?')}")
+    lines.append(f"Finished: {log_data.get('finished_at', '?')}")
+    lines.append(f"LLM Calls: {log_data.get('total_llm_calls', 0)}")
+
+    request = log_data.get("request", {})
+    if request:
+        lines.append("")
+        lines.append("--- Request ---")
+        for k, v in request.items():
+            v_str = str(v)
+            if len(v_str) > 120:
+                v_str = v_str[:120] + "..."
+            lines.append(f"  {k}: {v_str}")
+
+    # ═══ Steps ═══
+    steps = log_data.get("steps", [])
+    for i, step in enumerate(steps):
+        lines.append("")
+        lines.append("-" * 70)
+        step_name = step.get("step", f"Step {i}")
+        iteration = step.get("iteration")
+        header = f"  Step {i}: {step_name}"
+        if iteration is not None:
+            header += f" (iteration {iteration})"
+        lines.append(header)
+        lines.append("-" * 70)
+
+        # LLM 调用 → 展示完整 messages 和 response
+        if "llm_response" in step:
+            messages = step.get("messages_to_llm", [])
+            for msg in messages:
+                role = msg.get("role", "?")
+                content = msg.get("content", "")
+                lines.append(f"\n  [{role}]")
+                # 保留 content 中的所有换行符
+                for cline in content.split("\n"):
+                    lines.append(f"    | {cline}")
+
+            lines.append(f"\n  [LLM Response]")
+            response = step.get("llm_response", "")
+            for rline in response.split("\n"):
+                lines.append(f"    | {rline}")
+
+            # 额外元数据
+            extras = {k: v for k, v in step.items()
+                      if k not in ("step", "timestamp", "iteration",
+                                   "messages_to_llm", "llm_response")}
+            if extras:
+                lines.append("")
+                for ek, ev in extras.items():
+                    lines.append(f"  [{ek}]: {ev}")
+
+        # 事件 → 展示 data
+        else:
+            for k, v in step.items():
+                if k in ("step", "timestamp", "iteration"):
+                    continue
+                v_str = str(v)
+                lines.append(f"\n  [{k}]")
+                for vline in v_str.split("\n"):
+                    lines.append(f"    {vline}")
+
+    lines.append("")
+    lines.append("=" * 70)
+    lines.append("End of Session Log")
+    lines.append("=" * 70)
+
+    return "\n".join(lines)
+
+
+def save_agent_log_text(
+    log_data: dict[str, Any],
+    session_id: str,
+    userdata_root: Path,
+) -> Path:
+    """将会话日志保存为人类可读的纯文本文件。
+
+    保存路径：
+        userdata/.../{session_id}/{agent_type}_{HH-MM-SS}.txt
+
+    Returns:
+        Path: 保存的文件路径
+    """
+    now = datetime.now()
+    time_str = now.strftime("%H-%M-%S")
+    agent_type = log_data.get("agent_type", "unknown")
+
+    session_dir = userdata_root / session_id if session_id else userdata_root
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{agent_type}_{time_str}.txt"
+    filepath = session_dir / filename
+
+    counter = 1
+    while filepath.exists():
+        filename = f"{agent_type}_{time_str}_{counter}.txt"
+        filepath = session_dir / filename
+        counter += 1
+
+    text = format_log_as_text(log_data)
+    filepath.write_text(text, encoding="utf-8")
     return filepath

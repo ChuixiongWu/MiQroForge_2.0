@@ -1,0 +1,72 @@
+## Node Generation Request:
+
+**Target Software**: {{ request.target_software or 'Any appropriate software' }}
+**Description**: {{ request.description }}
+{% if request.target_method %}**Method**: {{ request.target_method }}{% endif %}
+
+{% if input_ports or output_ports %}
+### Port Mapping (use `port_mapping` tool)
+Map Argo DAG ports to your nodespec's stream_io semantic names.
+{% if input_ports %}
+**Argo input ports** (can be mapped or used as-is):
+{% for port_name in input_ports %}
+- `{{ port_name }}`{% if port_name in input_data %} ← has data{% endif %}
+{% endfor %}
+{% endif %}
+{% if output_ports %}
+**Argo output ports** (ALL must be mapped — downstream DAG depends on them):
+{% for p in output_ports %}
+- `{{ p }}`
+{% endfor %}
+{% endif %}
+Call `port_mapping()` AFTER writing nodespec.yaml.
+{% endif %}
+{% if input_data %}
+### Real Input Data Preview (first 500 chars of each port):
+{% for port_name, content in input_data.items() %}
+**{{ port_name }}**:
+```
+{{ content[:500] }}{% if content|length > 500 %}
+... (truncated){% endif %}
+```
+{% endfor %}
+{% endif %}
+
+{% if iteration > 0 %}
+## Previous Attempt (iteration {{ iteration }}):
+{% if prev_nodespec %}
+Previous nodespec.yaml:
+```yaml
+{{ prev_nodespec }}
+```
+{% endif %}
+{% if prev_run_sh %}
+Previous run.sh (first 20 lines):
+```bash
+{{ prev_run_sh[:500] }}
+```
+{% endif %}
+
+### Evaluation Issues to Fix:
+{% for issue in eval_issues %}
+- {{ issue }}
+{% endfor %}
+
+{% if sandbox_result %}
+### Sandbox Test Result:
+- Return code: {{ sandbox_result.return_code }}
+{% if sandbox_result.stdout %}
+- stdout (last 500 chars): {{ sandbox_result.stdout[-500:] }}
+{% endif %}
+{% if sandbox_result.stderr %}
+- stderr (last 500 chars): {{ sandbox_result.stderr[-500:] }}
+{% endif %}
+{% endif %}
+{% endif %}
+
+## Instructions:
+1. Research with manual tools and reference nodes
+2. Write all files using write_file() — nodespec.yaml at root, everything else in profile/
+3. {% if sandbox_enabled %}Test with test_in_sandbox() → check_sandbox().{% else %}Verify with list_node_files() and read_node_file().{% endif %}
+4. {% if sandbox_enabled %}If test fails, fix and retest (max 3 sandbox calls).{% endif %}
+When satisfied, end with a brief summary.

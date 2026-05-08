@@ -113,8 +113,8 @@ class NodeGenRequest(BaseModel):
     reference_nodes: list[str] = Field(default_factory=list, description="同软件的参考节点名（few-shot）")
     category: str = Field(default="chemistry", description="节点分类目录")
     node_mode: str = Field(
-        default="formal",
-        description="生成模式: 'formal'（完整 NodeSpec）或 'ephemeral'（纯 Python 脚本）",
+        default="prefab",
+        description="生成模式: 'prefab'（完整 NodeSpec，预制菜）或 'ephemeral'（纯 Python 脚本）",
     )
     # 临时节点专用字段
     ports: Optional[dict[str, Any]] = Field(
@@ -126,15 +126,25 @@ class NodeGenRequest(BaseModel):
         description="额外上下文（上游/下游节点信息、连接关系等）",
     )
 
+    # Formal 模式 ReAct Agent 新增
+    test_molecule: str = Field(
+        default="",
+        description="沙箱测试分子（空字符串 = 使用真实上游数据）",
+    )
+    resource_overrides: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="资源参数覆盖 {n_cores: 4, mem_gb: 8, ...}",
+    )
+
 
 class NodeGenResult(BaseModel):
     """Node Generator Agent 的输出结果。"""
 
     node_name: str = Field(..., description="生成的节点名称")
-    nodespec_yaml: str = Field(default="", description="生成的 nodespec.yaml 内容（formal 模式）")
+    nodespec_yaml: str = Field(default="", description="生成的 nodespec.yaml 内容（prefab 模式）")
     run_sh: Optional[str] = Field(default=None, description="生成的 profile/run.sh 或 Python 脚本内容")
     input_templates: dict[str, str] = Field(default_factory=dict, description="输入模板文件 {文件名: 内容}")
-    saved_path: Optional[str] = Field(default=None, description="保存到 userdata/nodes/ 的路径（formal 模式）")
+    saved_path: Optional[str] = Field(default=None, description="保存到 userdata/nodes/ 的路径（prefab 模式）")
     evaluation: Optional[EvaluationResult] = Field(default=None, description="评判结果")
     # 临时节点专用
     script_content: Optional[str] = Field(

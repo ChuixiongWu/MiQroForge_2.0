@@ -56,6 +56,92 @@ export function useRunOverlayPolling() {
               argoApi.saveOutputs(activeRunName!, projectId, updatedCanvas).catch(() => {})
             }
           }
+          // ── Apply nodegen_updates to live workflow canvas ──
+          const updates = (result as Record<string, unknown>).nodegen_updates as
+            | Record<string, Record<string, unknown>>
+            | undefined
+          if (updates && Object.keys(updates).length > 0) {
+            const wfStore = useWorkflowStore.getState()
+            const currentNodes = wfStore.nodes
+            const currentEdges = [...wfStore.edges]
+            let nodesChanged = false
+            let edgesChanged = false
+            for (const [canvasId, nodeData] of Object.entries(updates)) {
+              const idx = currentNodes.findIndex((n) => n.id === canvasId)
+              if (idx < 0) continue
+              const existing = currentNodes[idx].data as Record<string, unknown>
+              const existingNg = (existing.node_generator ?? {}) as Record<string, unknown>
+              // Merge display fields + update node_generator.result
+              const merged: Record<string, unknown> = {
+                ...existing,
+                display_name: nodeData.display_name ?? existing.display_name,
+                name: nodeData.name ?? existing.name,
+                version: nodeData.version ?? existing.version,
+                description: nodeData.description ?? existing.description,
+                node_type: nodeData.node_type ?? existing.node_type,
+                category: nodeData.category ?? existing.category,
+                software: nodeData.software ?? existing.software,
+                stream_inputs: nodeData.stream_inputs ?? existing.stream_inputs,
+                stream_outputs: nodeData.stream_outputs ?? existing.stream_outputs,
+                onboard_inputs: nodeData.onboard_inputs ?? existing.onboard_inputs,
+                onboard_outputs: nodeData.onboard_outputs ?? existing.onboard_outputs,
+                resources: nodeData.resources ?? existing.resources,
+                nodespec_path: nodeData.nodespec_path ?? existing.nodespec_path,
+                ports: nodeData.stream_inputs != null || nodeData.stream_outputs != null
+                  ? existing.ports  // keep original ports; stream_io now provides named ports
+                  : existing.ports,
+                node_generator: {
+                  ...existingNg,
+                  result: {
+                    node_name: nodeData.node_name ?? (existingNg.result as Record<string,unknown> | undefined)?.node_name ?? '',
+                    nodespec_yaml: nodeData.nodespec_yaml ?? (existingNg.result as Record<string,unknown> | undefined)?.nodespec_yaml ?? '',
+                    run_sh: nodeData.run_sh ?? (existingNg.result as Record<string,unknown> | undefined)?.run_sh ?? '',
+                    input_templates: (existingNg.result as Record<string,unknown> | undefined)?.input_templates ?? {},
+                    evaluation: (existingNg.result as Record<string,unknown> | undefined)?.evaluation,
+                  },
+                },
+              }
+              currentNodes[idx] = { ...currentNodes[idx], data: merged as never }
+              nodesChanged = true
+
+              // ── Remap edge handles using port_map (Agent may have renamed ports) ──
+              const portMap = nodeData._port_map as Record<string, Record<string, string>> | undefined
+              if (portMap) {
+                const inputMap = portMap.inputs ?? {}
+                const outputMap = portMap.outputs ?? {}
+                for (const edge of currentEdges) {
+                  if (edge.source === canvasId && edge.sourceHandle && outputMap[edge.sourceHandle]) {
+                    edge.sourceHandle = outputMap[edge.sourceHandle]
+                    edgesChanged = true
+                  }
+                  if (edge.target === canvasId && edge.targetHandle && inputMap[edge.targetHandle]) {
+                    edge.targetHandle = inputMap[edge.targetHandle]
+                    edgesChanged = true
+                  }
+                }
+              }
+
+              // ── Inject sandbox output values into nodeStatuses ──
+              const outputValues = nodeData._output_values as Record<string, string> | undefined
+              if (outputValues && Object.keys(outputValues).length > 0) {
+                const { nodeStatuses } = useRunOverlayStore.getState()
+                const existing = nodeStatuses[canvasId] ?? { phase: 'Succeeded' as const, outputs: {} }
+                const mergedOutputs = { ...(existing.outputs ?? {}), ...outputValues }
+                useRunOverlayStore.setState({
+                  nodeStatuses: {
+                    ...nodeStatuses,
+                    [canvasId]: { ...existing, outputs: mergedOutputs },
+                  },
+                })
+              }
+            }
+            if (nodesChanged) {
+              useWorkflowStore.setState({ nodes: currentNodes })
+            }
+            if (edgesChanged) {
+              useWorkflowStore.setState({ edges: currentEdges })
+            }
+          }
         }).catch(() => {})
       }
 

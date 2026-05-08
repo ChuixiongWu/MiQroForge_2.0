@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Package, BookOpen, Ruler, ExternalLink, Settings, Trash2 } from 'lucide-react'
+import { Plus, Package, BookOpen, Ruler, ExternalLink, Settings, Trash2, Brain } from 'lucide-react'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { ProjectCard } from '../components/gallery/ProjectCard'
@@ -246,6 +246,12 @@ export function ProjectGallery() {
         <div className="flex-1" />
         <div className="flex items-center gap-3">
           <RefDropdown />
+        <a
+          href="/memory"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-400 hover:text-purple-300 border border-purple-800/40 rounded-md hover:bg-purple-900/20 transition-colors"
+        >
+          <Brain size={14} /> Memory
+        </a>
         <a
           href="/node-repository"
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-mf-text-secondary hover:text-mf-text-primary border border-mf-border rounded-md hover:bg-mf-hover transition-colors"

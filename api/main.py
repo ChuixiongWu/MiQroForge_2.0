@@ -123,6 +123,8 @@ app.include_router(files.router, prefix=API_PREFIX)
 app.include_router(agents.router, prefix=API_PREFIX)
 app.include_router(projects.router, prefix=API_PREFIX)
 app.include_router(argo_proxy.router)   # /argo/* → Argo server
+from api.routers import memory
+app.include_router(memory.router, prefix=API_PREFIX)
 
 
 # ── 系统端点 ──────────────────────────────────────────────────────────────────

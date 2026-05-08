@@ -20,7 +20,7 @@ class WorkflowService:
         self.project_root = project_root
         self.docker_hub_mirror = docker_hub_mirror
 
-    def validate_yaml_str(self, yaml_content: str) -> ValidationReport:
+    def validate_yaml_str(self, yaml_content: str, project_id: str = "") -> ValidationReport:
         """从 YAML 字符串校验工作流。"""
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", delete=False, prefix="mf-validate-"
@@ -30,7 +30,7 @@ class WorkflowService:
 
         try:
             workflow = load_workflow(tmp_path)
-            return validate_workflow(workflow, project_root=self.project_root)
+            return validate_workflow(workflow, project_root=self.project_root, project_id=project_id)
         finally:
             import os
             try:
@@ -48,7 +48,7 @@ class WorkflowService:
 
         try:
             workflow = load_workflow(tmp_path)
-            report = validate_workflow(workflow, project_root=self.project_root)
+            report = validate_workflow(workflow, project_root=self.project_root, project_id=project_id)
 
             if not report.valid:
                 raise ValueError(

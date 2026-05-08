@@ -448,6 +448,139 @@ if __name__ == "__main__":
 '''
 
 
+def _build_nodegen_wrapper_script(
+    node_inst: MFNodeInstance,
+    workflow: MFWorkflow,
+    resolved_nodes: dict[str, NodeSpec],
+    project_id: str,
+) -> str:
+    """生成 Nodegen 节点的 Pod wrapper 脚本。
+
+    与 ephemeral wrapper 不同，此 wrapper 向 API 传递 nodegen_tmp_ref
+    （而非内嵌 nodespec 内容），由 API 服务端从 proj/tmp/ 或 userdata/nodes/
+    读取预生成的 nodespec + run.sh。
+
+    运行时流程：
+    1. 读取 /mf/input/ 中的真实输入数据（含 onboard params 和 _software）
+    2. POST /api/v1/agents/node/run（传递 nodegen_tmp_ref + input_data + target_software）
+    3. 检查 evaluation.passed 和 error
+    4. 将 outputs 写入 /mf/output/
+    """
+    description = node_inst.get_generation_description()
+    nodegen_tmp_ref = node_inst.nodegen_tmp_ref or ""
+    # _software 来自 inspector software selector，不在 NodeSpec onboard_inputs 中
+    software_hint = (node_inst.onboard_params or {}).get("_software", "")
+
+    # ── 端口名解析（优先级：pregenerate → resolved_nodes → 通用名）──
+    stream_input_names: list[str] = []
+    stream_output_names: list[str] = []
+
+    # 1) pregenerate: -1 循环产物直接包含端口定义
+    if node_inst.pregenerate:
+        for p in node_inst.pregenerate.get("stream_inputs", []) or []:
+            if isinstance(p, dict) and p.get("name"):
+                stream_input_names.append(p["name"])
+        for p in node_inst.pregenerate.get("stream_outputs", []) or []:
+            if isinstance(p, dict) and p.get("name"):
+                stream_output_names.append(p["name"])
+
+    # 2) resolved_nodes: validator 从 tmp/userdata 解析的 NodeSpec
+    if not stream_input_names and resolved_nodes:
+        node_spec = resolved_nodes.get(node_inst.id) or resolved_nodes.get(node_inst.node)
+        if node_spec:
+            stream_input_names = [p.name for p in node_spec.stream_inputs]
+            stream_output_names = [p.name for p in node_spec.stream_outputs]
+
+    # 3) 通用名: I1/I2..., O1/O2...
+    ports = node_inst.ports
+    if not stream_input_names and ports:
+        stream_input_names = [f"I{i+1}" for i in range(ports.inputs)] if ports.inputs > 0 else []
+    if not stream_output_names and ports:
+        stream_output_names = [f"O{i+1}" for i in range(ports.outputs)] if ports.outputs > 0 else []
+
+    _jd = json.dumps
+
+    return f'''#!/usr/bin/env python3
+# MF Nodegen Runtime Wrapper — calls /api/v1/agents/node/run
+# nodegen_tmp_ref → API 从 proj/tmp/ 或 userdata/nodes/ 读取预生成 nodespec
+
+import os, sys, json, subprocess
+import requests
+
+MF_API_URL = os.environ.get("MF_API_URL", "http://10.36.160.16:8100")
+
+DESCRIPTION = {_jd(description)}
+NODEGEN_TMP_REF = {_jd(nodegen_tmp_ref)}
+SOFTWARE_HINT = {_jd(software_hint)}
+INPUT_PORTS = {_jd(stream_input_names)}
+OUTPUT_PORTS = {_jd(stream_output_names)}
+
+def main():
+    # 1. 读取真实输入数据（含 stream inputs 和 onboard params，不含 _software）
+    input_data = {{}}
+    input_dir = "/mf/input"
+    if os.path.isdir(input_dir):
+        for fname in sorted(os.listdir(input_dir)):
+            fpath = os.path.join(input_dir, fname)
+            if os.path.isfile(fpath):
+                with open(fpath, "r", errors="replace") as f:
+                    input_data[fname] = f.read()
+
+    # 2. 调用 Agent API（服务端完成 sandbox → evaluate 完整循环）
+    try:
+        resp = requests.post(f"{{MF_API_URL}}/api/v1/agents/node/run", json={{
+            "semantic_type": "compute",
+            "description": DESCRIPTION,
+            "target_software": SOFTWARE_HINT or None,
+            "input_ports": INPUT_PORTS or None,
+            "output_ports": OUTPUT_PORTS or None,
+            "category": "chemistry",
+            "input_data": input_data,
+            "nodegen_tmp_ref": NODEGEN_TMP_REF,
+            "run_name": os.environ.get("MF_RUN_NAME", ""),
+            "project_id": os.environ.get("MF_PROJECT_ID", ""),
+        }}, timeout=1800)
+        resp.raise_for_status()
+        result = resp.json()
+    except Exception as e:
+        print(f"[MF Nodegen Wrapper] Agent API call failed: {{e}}", file=sys.stderr)
+        sys.exit(1)
+
+    # 3. 检查 Agent 报告的状态
+    error = result.get("error")
+    if error:
+        print(f"[MF Nodegen Wrapper] Agent error: {{error}}", file=sys.stderr)
+        sys.exit(1)
+
+    evaluation = result.get("evaluation")
+    if evaluation and not evaluation.get("passed", True):
+        issues = evaluation.get("issues", [])
+        print(f"[MF Nodegen Wrapper] Evaluation failed: {{issues}}", file=sys.stderr)
+        sys.exit(1)
+
+    # 4. 将 outputs 写入 /mf/output/
+    import pathlib as _pl
+    _pl.Path("/mf/output").mkdir(parents=True, exist_ok=True)
+    output_data = result.get("outputs", {{}})
+    for port_name, content in output_data.items():
+        out_path = _pl.Path("/mf/output") / port_name
+        out_path.write_text(str(content), encoding="utf-8")
+
+    # 5. 写出 quality gate 结果
+    if evaluation:
+        passed_str = "true" if evaluation.get("passed", False) else "false"
+        gate_results = evaluation.get("gate_results", {{}})
+        for gate_name, gate_val in gate_results.items():
+            gate_path = _pl.Path("/mf/output") / gate_name
+            gate_path.write_text(str(gate_val))
+
+    print("[MF Nodegen Wrapper] Done.")
+
+if __name__ == "__main__":
+    main()
+'''
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # ConfigMap 生成
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1091,6 +1224,25 @@ def _build_template(
     # 解析 parametrize（用实例的 onboard_params 覆盖静态资源值）
     resource_overrides = _resolve_resources(spec, node_inst.onboard_params)
 
+    # ── Nodegen 节点（ephemeral + nodegen_tmp_ref）：使用预生成的 nodespec ───
+    if node_inst.ephemeral and node_inst.nodegen_tmp_ref is not None:
+        wrapper_source = _build_nodegen_wrapper_script(
+            node_inst=node_inst,
+            workflow=workflow,
+            resolved_nodes=resolved_nodes or {},
+            project_id=project_id,
+        )
+        return _build_nodegen_ephemeral_template(
+            template_name=template_name,
+            script_source=wrapper_source,
+            registry=registry,
+            docker_hub_mirror=docker_hub_mirror,
+            input_params=input_params,
+            output_params=output_params,
+            onboard_params=node_inst.onboard_params,
+            project_id=project_id,
+        )
+
     # ── 临时节点：生成 wrapper 脚本，运行时调用 Agent API ───
     if node_inst.ephemeral:
         # 注入隐藏的 _mf_images output param，wrapper 会把生成的图片清单写到这里
@@ -1433,6 +1585,103 @@ def _build_ephemeral_template(
                 "limits": {
                     "cpu": str(spec.resources.cpu_cores),
                     "memory": f"{spec.resources.memory_gb}Gi",
+                },
+            },
+            "volumeMounts": [
+                _workspace_volume_mount(project_id),
+            ],
+        },
+        "volumes": [
+            _workspace_volume(),
+        ],
+    }
+
+    return template
+
+
+def _build_nodegen_ephemeral_template(
+    *,
+    template_name: str,
+    script_source: str,
+    registry: BaseImageRegistry,
+    docker_hub_mirror: str = "",
+    input_params: list[dict[str, str]],
+    output_params: list[dict[str, Any]],
+    onboard_params: dict[str, Any] | None = None,
+    project_id: str = "",
+) -> dict[str, Any]:
+    """构建 nodegen 运行时节点的 Argo script template。
+
+    与 _build_ephemeral_template 不同，此模板使用硬编码的最小资源
+    （0.5 CPU, 1Gi memory），因为实际计算在 API 服务端的 Docker sandbox
+    中执行，Argo pod 只运行一个薄的 Python wrapper。
+
+    资源用量：
+      - CPU: 0.5
+      - Memory: 1Gi
+    """
+    # ── Python 镜像解析：优先 ephemeral-py 专用镜像 ──
+    reg_entry = next((img for img in registry.images if img.name == "ephemeral-py"), None)
+    if reg_entry:
+        python_image = f"{reg_entry.image}:{reg_entry.tag}"
+    elif docker_hub_mirror:
+        python_image = f"{docker_hub_mirror}/library/python:{_EPHEMERAL_PYTHON_VERSION}-slim"
+    else:
+        python_image = f"python:{_EPHEMERAL_PYTHON_VERSION}-slim"
+
+    # ── 环境变量注入 ──
+    import os as _os
+    mf_api_url = _os.environ.get("MF_API_URL", "http://10.36.160.16:8100")
+    env_vars: list[dict[str, str]] = [
+        {"name": "MF_OUTPUT_DIR", "value": "/mf/output"},
+        {"name": "MF_WORKSPACE_DIR", "value": "/mf/workspace"},
+        {"name": "MF_API_URL", "value": mf_api_url},
+    ]
+    if project_id:
+        env_vars.append({"name": "MF_PROJECT_ID", "value": project_id})
+    env_vars.append({"name": "MF_RUN_NAME", "value": "{{workflow.name}}"})
+    for param in input_params:
+        env_vars.append({
+            "name": param["name"],
+            "value": f"{{{{inputs.parameters.{param['name']}}}}}",
+        })
+
+    # ── Preamble：将环境变量写入 /mf/input/ 文件 ──
+    preamble_lines = [
+        "import os, pathlib as _pl",
+        "_pl.Path('/mf/input').mkdir(parents=True, exist_ok=True)",
+        "_pl.Path('/mf/output').mkdir(parents=True, exist_ok=True)",
+    ]
+    for param in input_params:
+        name = param["name"]
+        preamble_lines.append(
+            f"if '{name}' in os.environ: "
+            f"_pl.Path('/mf/input/{name}').write_text(os.environ['{name}'])"
+        )
+    preamble = "\n".join(preamble_lines) + "\n"
+    full_source = preamble + script_source
+
+    # ── 硬编码最小资源：Argo pod 仅运行 thin wrapper ──
+    NODEGEN_CPU = "0.5"
+    NODEGEN_MEMORY = "1Gi"
+
+    template: dict[str, Any] = {
+        "name": template_name,
+        "inputs": {"parameters": input_params} if input_params else {},
+        "outputs": {"parameters": output_params} if output_params else {},
+        "script": {
+            "image": python_image,
+            "command": ["python"],
+            "env": env_vars,
+            "source": full_source,
+            "resources": {
+                "requests": {
+                    "cpu": NODEGEN_CPU,
+                    "memory": NODEGEN_MEMORY,
+                },
+                "limits": {
+                    "cpu": NODEGEN_CPU,
+                    "memory": NODEGEN_MEMORY,
                 },
             },
             "volumeMounts": [

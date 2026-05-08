@@ -104,10 +104,29 @@ class MFNodeInstance(BaseModel):
         default=False,
         description="显式标记此节点为 fan-in 收集点，不参与 sweep 传播。",
     )
+    nodegen_tmp_ref: Optional[str] = Field(
+        default=None,
+        description=(
+            "Node Generator tmp ref: ephemeral=True 时，"
+            "编译器从 proj/tmp/<name>/ 或 userdata/nodes/ 读取预生成 nodespec。"
+        ),
+    )
+    pregenerate: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Prefab -1 循环预生成信息。包含 stream_inputs / stream_outputs / "
+            "onboard_inputs / resources，编译器据此确定端口名（而非通用 I1/O1）。"
+        ),
+    )
 
     @model_validator(mode="after")
     def _check_node_source(self) -> MFNodeInstance:
         """确保 node / nodespec_path / inline_nodespec 三选一（或 ephemeral）。"""
+        # nodegen_tmp_ref 仅在 ephemeral=True 时有效
+        if self.nodegen_tmp_ref is not None and not self.ephemeral:
+            raise ValueError(
+                "nodegen_tmp_ref 只能在 ephemeral=True 时使用"
+            )
         if self.ephemeral:
             # 临时节点模式：不需要传统节点源，但需要 ports
             if self.ports is None:

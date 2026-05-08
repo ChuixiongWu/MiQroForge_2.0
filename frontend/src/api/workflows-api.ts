@@ -24,12 +24,12 @@ function jsonBody(body: unknown) {
 }
 
 export const workflowsApi = {
-  validate(yamlContent: string): Promise<WorkflowValidateResponse> {
-    return fetchJSON(`${BASE}/workflows/validate`, jsonBody({ yaml_content: yamlContent }))
+  validate(yamlContent: string, projectId?: string): Promise<WorkflowValidateResponse> {
+    return fetchJSON(`${BASE}/workflows/validate`, jsonBody({ yaml_content: yamlContent, project_id: projectId || undefined }))
   },
 
-  compile(yamlContent: string): Promise<WorkflowCompileResponse> {
-    return fetchJSON(`${BASE}/workflows/compile`, jsonBody({ yaml_content: yamlContent }))
+  compile(yamlContent: string, projectId?: string): Promise<WorkflowCompileResponse> {
+    return fetchJSON(`${BASE}/workflows/compile`, jsonBody({ yaml_content: yamlContent, project_id: projectId || undefined }))
   },
 
   submit(yamlContent: string, projectId?: string): Promise<WorkflowSubmitResponse> {

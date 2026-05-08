@@ -47,6 +47,10 @@ def load_available_images(project_root: Path | None = None) -> list[dict[str, An
                 "base": img_data.get("base", ""),
             })
 
+    # 过滤掉内部/测试用镜像
+    _EXCLUDE_IMAGES = {"test-busybox", "ephemeral-py"}
+    images = [img for img in images if img.get("name", "") not in _EXCLUDE_IMAGES]
+
     return images
 
 
@@ -112,6 +116,12 @@ def load_reference_nodes(
         )
     else:
         candidates = same_software + other_software
+
+    # 过滤 test 节点和内部节点
+    candidates = [
+        e for e in candidates
+        if "nodes/test/" not in (e.nodespec_path or "")
+    ]
 
     references = []
     for entry in candidates[:max_refs]:

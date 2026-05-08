@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { workflowsApi } from '../api/workflows-api'
 import { useWorkflowStore } from '../stores/workflow-store'
 import { useUIStore } from '../stores/ui-store'
+import { useProjectStore } from '../stores/project-store'
 import { rfStateToWorkflowDoc, workflowDocToYaml } from '../lib/workflow-serializer'
 import type { ValidationResult } from '../types/workflow'
 
@@ -26,7 +27,8 @@ export function useWorkflowValidation() {
     setIsValidating(true)
     try {
       const mfYaml = getYaml()
-      const resp = await workflowsApi.validate(mfYaml)
+      const projectId = useProjectStore.getState().currentProjectId ?? undefined
+      const resp = await workflowsApi.validate(mfYaml, projectId)
 
       const result: ValidationResult = {
         valid: resp.valid,
