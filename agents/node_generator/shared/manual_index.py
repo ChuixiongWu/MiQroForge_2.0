@@ -508,6 +508,18 @@ except ImportError:
 _index_cache: dict[str, ManualIndex] = {}
 
 
+def list_available_manuals() -> list[str]:
+    """扫描 docs/software_manuals/ 下所有已有 BM25 索引的软件手册。"""
+    project_root = Path(__file__).parent.parent.parent.parent
+    manuals_root = project_root / "docs" / "software_manuals"
+    if not manuals_root.exists():
+        return []
+    return sorted(
+        d.name for d in manuals_root.iterdir()
+        if d.is_dir() and not d.name.startswith(".") and (d / ".bm25_index").exists()
+    )
+
+
 def get_manual_index(software: str) -> ManualIndex | None:
     """获取指定软件的手册索引（单例缓存，首次调用自动构建 BM25 索引）。"""
     software = software.lower()

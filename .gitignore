@@ -52,6 +52,8 @@ nodes/base_images/**/*.tbJ
 # ── 生成产物（运行时生成，不入库）──────────────────────────────────────────
 # 节点索引（bash scripts/mf2.sh nodes reindex 重建）
 nodes/node_index.yaml
+# 软件手册 BM25 索引（运行时由 manual_index.py build() 重建）
+**/.bm25_index/
 
 # ── userdata/ — 用户数据隔离目录（AI 生成节点、工作流、向量库等）──────────
 userdata/

@@ -268,13 +268,6 @@ def generate_prefab_node(state: PrefabGenState) -> dict[str, Any]:
             generation_memory = store.query(task=request.description, n=5)
     except Exception:
         pass
-    # 扫描可用手册
-    _manuals_root = Path(__file__).parent.parent.parent.parent / "docs" / "software_manuals"
-    _available_manuals = [
-        d.name for d in _manuals_root.iterdir()
-        if d.is_dir() and not d.name.startswith(".") and (d / ".bm25_index").exists()
-    ] if _manuals_root.exists() else []
-
     # Argo 端口名（供 prompt 和 port_mapping 工具使用）
     input_ports = state.get("_input_ports") or []
     output_ports = state.get("_output_ports") or []
@@ -286,7 +279,6 @@ def generate_prefab_node(state: PrefabGenState) -> dict[str, Any]:
         generation_memory=generation_memory,
         sandbox_enabled=sandbox_enabled,
         mf_test=mf_test,
-        available_manuals=_available_manuals,
         input_ports=input_ports,
         output_ports=output_ports,
     )

@@ -158,6 +158,17 @@ function _debouncedBackendSync() {
   }, 2000)
 }
 
+// ── Canvas 加载时的数据规范化 ──────────────────────────────────────────────────
+
+/** 重置卡住的 node_generator.generating（刷新导致 fetch 中断后残留的中间状态） */
+function _normalizeNodegenGenerating(n: RFNode<MFNodeData>): void {
+  const data = n.data as Record<string, unknown>
+  const ng = data.node_generator as Record<string, unknown> | undefined
+  if (ng && ng.generating && !ng.result) {
+    ng.generating = false
+  }
+}
+
 // ─── Store implementation ─────────────────────────────────────────────────────
 
 // Dynamic storage name: changes when project changes
@@ -361,7 +372,10 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       loadFromNodes: (nodes, edges) => {
         // Normalize: ensure ports are always arrays (may be int-count from old YAML import)
+        // Also reset stuck generating flag (can't survive page reload)
         const normalized = nodes.map((n) => {
+          _normalizeNodegenGenerating(n)
+
           const data = n.data as Record<string, unknown>
           if (data.ports && typeof data.ports === 'object') {
             const ports = data.ports as Record<string, unknown>
@@ -401,13 +415,20 @@ export const useWorkflowStore = create<WorkflowState>()(
         nodes: state.nodes.map(_stripCallbacks),
         edges: state.edges,
       }),
-      // Normalize on rehydrate: ensure ports are always arrays
+      // Normalize on rehydrate: ensure ports are always arrays,
+      // reset stuck generating flag (transient UI state, can't survive page reload)
       merge: (persisted, current) => {
         const merged = { ...current, ...(persisted as Partial<WorkflowState>) }
         if (Array.isArray(merged.nodes)) {
           const raw = merged.nodes as Array<Record<string, unknown>>
           merged.nodes = raw.map((n) => {
             const data = n.data as Record<string, unknown> | undefined
+            if (data?.node_generator) {
+              const ng = data.node_generator as Record<string, unknown>
+              if (ng.generating && !ng.result) {
+                ng.generating = false
+              }
+            }
             if (data?.ports && typeof data.ports === 'object') {
               const ports = data.ports as Record<string, unknown>
               if (!Array.isArray(ports.inputs) || !Array.isArray(ports.outputs)) {

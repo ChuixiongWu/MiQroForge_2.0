@@ -136,7 +136,7 @@ def make_manual_tools(default_software: str, available_manuals: list[str]):
         idx, err = _get_index(software)
         if err:
             return json.dumps({"error": err})
-        results = _manual_index.find_command_docs(keyword, top_k=8)
+        results = idx.find_command_docs(keyword, top_k=8)
         if not results:
             return f"No documentation found for '{keyword}'."
         # 压缩 context
@@ -1270,6 +1270,55 @@ def make_terminate_tool() -> list:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Explore 子 Agent 工具（将研究任务委派给独立的快速模型子 Agent）
+# ═══════════════════════════════════════════════════════════════════════════
+
+def make_explore_tool(default_software: str, project_id: str = "") -> list:
+    """创建 explore_manuals 工具——将研究任务委派给 Explore 子 Agent。
+
+    父 Agent 调用此工具时，Explore 子 Agent 用快速模型独立搜索手册、
+    参考节点和 Schema，返回结构化摘要后丢弃上下文。
+    父 Agent 只看到结论，上下文保持精简。
+    """
+    _software = default_software
+    _project_id = project_id
+
+    @tool
+    def research(question: str, avoid_directions: str = "") -> str:
+        """★★★ PREFERRED — Delegate research to a sub-agent. Covers ALL sources.
+
+        Instead of calling individual tools one by one (search_manual → get_section →
+        search_reference_nodes → read_reference_node_file → query_shared_params...),
+        use this to delegate ALL research to a sub-agent that searches manuals,
+        reference nodes, and schema registries concurrently. The sub-agent uses a
+        speed-optimized model, runs parallel tool calls in its own context, and
+        returns a concise synthesized summary. Your context stays clean.
+
+        Use this FIRST for any research task. Launch MULTIPLE research() calls in
+        one round for parallel investigation of different questions.
+
+        Only fall back to individual search tools if you need to verify a specific
+        detail the sub-agent might have missed.
+
+        Args:
+            question: Focused research question (one sentence per call).
+                Example: "Gaussian RHF geo-opt: input format and % sections?"
+            avoid_directions: Directions already tried that didn't work.
+                Example: "Don't search for CASSCF — we need single-reference RHF"
+        """
+        from agents.subagent.explore import run_explore_agent
+        sw = _software or ""
+        return run_explore_agent(
+            question=question,
+            software=sw,
+            avoid_directions=avoid_directions,
+            project_id=_project_id,
+        )
+
+    return [research]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 工具注册入口
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -1304,17 +1353,9 @@ def build_all_tools(
     output_ports : list[str] | None
         Argo DAG 输出端口名列表（用于 port_mapping 工具描述）。
     """
-    from agents.node_generator.shared.manual_index import get_manual_index
+    from agents.node_generator.shared.manual_index import get_manual_index, list_available_manuals
 
-    # 扫描有手册的软件列表
-    from pathlib import Path as _Path
-    _project_root = _Path(__file__).parent.parent.parent.parent
-    _manuals_root = _project_root / "docs" / "software_manuals"
-    _available_manuals = [
-        d.name for d in _manuals_root.iterdir()
-        if d.is_dir() and not d.name.startswith(".") and (d / ".bm25_index").exists()
-    ] if _manuals_root.exists() else []
-    _available_manuals.sort()
+    _available_manuals = list_available_manuals()
 
     tools = []
 
@@ -1333,6 +1374,9 @@ def build_all_tools(
 
     # Schema 参考（2 个）
     tools.extend(make_schema_tools())
+
+    # Explore 子 Agent（1 个）— 研究任务委派给快速模型，返回摘要后丢弃上下文
+    tools.extend(make_explore_tool(default_software=software, project_id=project_id or ""))
 
     # Workspace（2 个）— 始终注册，无 project_id 时返回错误提示
     tools.extend(make_workspace_tools(project_id=project_id))

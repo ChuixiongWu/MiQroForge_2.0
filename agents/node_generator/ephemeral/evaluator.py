@@ -203,16 +203,10 @@ def evaluate_node_vision(state: EphemeralGenState) -> dict[str, Any]:
         images=images_b64,
     )
 
-    # 构建多模态 content：text + images
-    content: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
-    for b64 in images_b64[:4]:  # 最多 4 张图
-        content.append({
-            "type": "image_url",
-            "image_url": {
-                "url": f"data:image/png;base64,{b64}",
-                "detail": "high",
-            },
-        })
+    # 构建 provider 感知的多模态 content（Anthropic / OpenAI 格式自动适配）
+    content = LLMConfig.build_vision_content(
+        "evaluator_vision", prompt_text, images_b64, max_images=4,
+    )
 
     llm = LLMConfig.get_chat_model(purpose="evaluator_vision", temperature=0.0)
 

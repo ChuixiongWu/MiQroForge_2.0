@@ -118,41 +118,30 @@ User Intent (natural language)
 
 ### 3. Node Generator Agent
 
-**What it does**: Generates new computational nodes (dual mode: Formal + Ephemeral)
+**What it does**: Generates new computational nodes (dual mode: Prefab + Ephemeral)
 
-**Formal Mode Input**: `NodeGenRequest`
-- `semantic_type` — What kind of computation ("geometry-optimization")
-- `description` — Detailed requirements
-- `target_software` — Optional ("ORCA", "GROMACS", etc.)
-- `node_mode: "formal"` (default)
+**Prefab Mode（正式节点生成）** — `POST /api/v1/agents/node`
+- ReAct Agent 循环，使用工具链研究、生成、沙箱测试预制菜节点
+- 工具系统 (17 个 LangChain @tool)：软件手册 BM25 检索、参考节点查询、Schema 查询、文件读写、沙箱执行
+- 共享基础设施：经验记忆 (ChromaDB embedding)、上下文压缩、节点知识库
+- 产出：nodespec.yaml + run.sh + input templates（不入库，前端确认后持久化）
 
-**Formal Mode Output**: `NodeGenResult`
-- Generated nodespec.yaml
-- Generated run.sh
-- Input templates
-- Saved to `userdata/nodes/` and reindexed
-
-**Ephemeral Mode Input**: `NodeGenRequest` + `input_data` + context
+**Ephemeral Mode（临时节点生成）** — `POST /api/v1/agents/ephemeral`
 - `node_mode: "ephemeral"`
-- `description` — Task description (from `onboard_params.description`)
-- `ports` — Port declarations `{'inputs': N, 'outputs': M}`
-- `context` — Upstream/downstream node info, sweep context
+- `description` — 功能描述
+- `ports` — 端口声明 `{'inputs': N, 'outputs': M}`
+- ReAct Agent 内循环 (sandbox_execute + pip_install)
+- Docker 沙箱执行 (`ephemeral-py:3.11` 镜像)
+- 视觉评估 (GPT-4o multimodal)
+- 外循环: generate → evaluate → retry (max 2 rounds)
 
-**Ephemeral Mode Architecture**:
-- ReAct Agent inner loop: LLM bound with `sandbox_execute` + `pip_install` tools
-- Docker sandbox execution (`ephemeral-py:3.11` image, requires Docker daemon)
-- Visual evaluation for generated images (GPT-4o multimodal)
-- Outer loop: generate → evaluate → retry (max 2 rounds)
-- API endpoint: `POST /api/v1/agents/ephemeral`
+**Location**: `agents/node_generator/`（ephemeral/ + prefab/ + shared/ 子模块）
 
-**Location**: `agents/node_generator/`
-
-**Unique features**:
-- Few-shot learning (reference nodes)
-- Image registry awareness
-- Multi-section output parsing
-- Pydantic schema validation
-- Automatic disk persistence
+**P2M4 新增能力**:
+- 软件手册层级索引 (BM25 段落级搜索)
+- 经验记忆系统 (ChromaDB embedding + JSONL 备份)
+- 上下文压缩 (消息历史 token 管理)
+- 正式节点沙箱测试（Docker 容器执行 + 结果捕获）
 
 ---
 
@@ -226,7 +215,7 @@ Auto-selects backend:
 ```
 POST /api/v1/agents/plan              — Planner Agent
 POST /api/v1/agents/yaml              — YAML Coder Agent
-POST /api/v1/agents/node              — Node Generator Agent (Formal)
+POST /api/v1/agents/node              — Node Generator Agent (Prefab)
 POST /api/v1/agents/ephemeral         — Ephemeral Agent（运行时生成 + 沙箱执行 + 评估）
 POST /api/v1/agents/ephemeral/evaluate — Ephemeral Visual Evaluator（多模态图片评估）
 POST /api/v1/agents/save-session      — 保存对话会话到磁盘
@@ -340,9 +329,9 @@ from agents.yaml_coder.graph import run_yaml_coder
 result = run_yaml_coder(result["semantic_workflow"])
 
 # Node Generator
-from agents.node_generator.graph import run_node_generator
+from agents.node_generator import run_node_generator
 from agents.schemas import NodeGenRequest
-result = run_node_generator(NodeGenRequest(...))
+result = run_node_generator(NodeGenRequest(node_mode="prefab", ...))
 ```
 
 ### Check Status
@@ -412,17 +401,34 @@ agents/
 │   ├── prompt_loader.py    # Jinja2 template rendering
 │   ├── eval_loop.py        # Generator-Evaluator factory
 │   └── session_logger.py   # Thread-safe session logging
-├── tools/                  # LangChain tools (node_search, validate, workspace, etc.)
+├── tools/                  # Phase 2 早期工具 (node_search, validate, workspace — 待迁移)
 ├── planner/                # Planner Agent
+│   ├── state.py, generator.py, evaluator.py, graph.py
+│   └── prompts/
 ├── yaml_coder/             # YAML Coder Agent
-└── node_generator/         # Node Generator Agent (Formal + Ephemeral)
-    ├── sandbox.py          #   Docker/subprocess sandbox execution
-    ├── state.py            #   NodeGenState (incl. ephemeral execution state)
-    └── prompts/            #   .jinja2 (incl. ephemeral-specific prompts)
+│   ├── state.py, generator.py, evaluator.py, graph.py
+│   └── prompts/
+└── node_generator/         # Node Generator Agent (Prefab + Ephemeral)
+    ├── __init__.py         #   统一入口 run_node_generator()
+    ├── prefab/             #   Prefab 模式：正式节点生成
+    │   ├── state.py, generator.py, evaluator.py, graph.py
+    │   ├── tools.py        #     17 个 LangChain @tool（手册/节点/Schema/文件/沙箱）
+    │   └── prompts/
+    ├── ephemeral/          #   Ephemeral 模式：临时节点生成
+    │   ├── state.py, generator.py, evaluator.py, graph.py
+    │   ├── sandbox.py      #     Docker 沙箱执行
+    │   └── prompts/
+    └── shared/             #   共享基础设施
+        ├── knowledge.py    #     节点库 + 镜像注册表感知
+        ├── sandbox_base.py #     沙箱环境管理
+        ├── manual_index.py #     BM25 软件手册层级索引
+        ├── memory.py       #     ChromaDB 经验记忆系统
+        └── compression.py  #     消息历史 token 压缩
 
 api/
 ├── models/agents.py        # Pydantic request/response models
-└── routers/agents.py       # FastAPI endpoints
+├── routers/agents.py       # FastAPI agent 端点
+└── routers/memory.py       # 经验记忆管理端点
 
 vectorstore/
 ├── indexer.py              # Build index
@@ -432,7 +438,8 @@ vectorstore/
 docs/
 ├── AGENTS_README.md        # This file
 ├── AGENTS_EXPLORATION_GUIDE.md    # Big picture
-└── AGENTS_TECHNICAL_REFERENCE.md  # Deep dive
+├── AGENTS_TECHNICAL_REFERENCE.md  # Deep dive
+└── software_manuals/       # 软件手册 (BM25 索引供 Prefab Agent 检索)
 ```
 
 ---
