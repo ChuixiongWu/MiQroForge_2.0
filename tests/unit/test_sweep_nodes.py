@@ -26,7 +26,7 @@ from workflows.pipeline.models import (
     QualityGateOverride,
 )
 from workflows.pipeline.validator import validate_workflow
-from workflows.pipeline.compiler import compile_to_argo
+from workflows.pipeline.compiler import compile_to_argo, _propagate_sweep, _detect_fan_in_nodes
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -1617,3 +1617,107 @@ class TestQualityGateInPipeline:
         assert "sweep-pipeline-sweep" in fan_in_task["depends"]
         # pipeline task 不产生 quality gate 输出，所以 fan-in 没有 when 条件
         assert "when" not in fan_in_task
+
+
+class TestSweepEphemeralRestriction:
+    """验证 ephemeral/prefab 节点不出现在 sweep 内部分支（auto_fan_out）中。"""
+
+    def test_ephemeral_not_auto_fan_out(self):
+        """ephemeral 节点不会被标记为 auto_fan_out（阻止 sweep 传播）。"""
+        wf = MFWorkflow(
+            name="test-eph-no-fanout",
+            nodes=[
+                MFNodeInstance(
+                    id="sweep-src",
+                    node="test-gaussian-geo-opt",
+                    parallel_sweep=ParallelSweep(values=[1, 2, 3]),
+                ),
+                MFNodeInstance(
+                    id="eph-mid",
+                    ephemeral=True,
+                    ports=EphemeralPorts(inputs=1, outputs=1),
+                ),
+                MFNodeInstance(
+                    id="downstream",
+                    node="test-gaussian-freq",
+                ),
+            ],
+            connections=[
+                MFConnection(**{"from": "sweep-src.O1", "to": "eph-mid.I1"}),
+                MFConnection(**{"from": "eph-mid.O1", "to": "downstream.I1"}),
+            ],
+        )
+        auto_fan_out, _, _ = _propagate_sweep(wf)
+        # ephemeral 节点不应出现在 auto_fan_out 中
+        assert "eph-mid" not in auto_fan_out, (
+            "ephemeral 节点不应被 sweep 传播穿透"
+        )
+        # 但下游节点也不应出现在 auto_fan_out（传播在 ephemeral 处被阻断）
+        assert "downstream" not in auto_fan_out, (
+            "sweep 传播应在 ephemeral 处停止，下游节点不应 fan-out"
+        )
+
+    def test_ephemeral_fan_in_still_detected(self):
+        """ephemeral 节点仍可被自动检测为 fan-in 结束节点（无需显式 fan_in=True）。"""
+        wf = MFWorkflow(
+            name="test-eph-fan-in",
+            nodes=[
+                MFNodeInstance(
+                    id="sweep-src",
+                    node="test-gaussian-geo-opt",
+                    parallel_sweep=ParallelSweep(values=[1, 2]),
+                ),
+                MFNodeInstance(
+                    id="formal-mid",
+                    node="test-gaussian-freq",
+                ),
+                MFNodeInstance(
+                    id="eph-collect",
+                    ephemeral=True,
+                    ports=EphemeralPorts(inputs=1, outputs=1),
+                    # 不设 fan_in=True — 依赖自动检测
+                ),
+            ],
+            connections=[
+                MFConnection(**{"from": "sweep-src.O1", "to": "formal-mid.I1"}),
+                MFConnection(**{"from": "formal-mid.O1", "to": "eph-collect.I1"}),
+            ],
+        )
+        auto_fan_out, sweep_source, sweep_origin = _propagate_sweep(wf)
+        # formal-mid 应在 auto_fan_out 中（正式节点，sweep 正常传播）
+        assert "formal-mid" in auto_fan_out
+        # eph-collect 不应在 auto_fan_out 中（ephemeral 阻止传播）
+        assert "eph-collect" not in auto_fan_out
+
+        # 自动检测 fan-in 节点
+        fan_in_map = _detect_fan_in_nodes(wf, auto_fan_out, sweep_source, sweep_origin)
+        # eph-collect 应被自动检测为 fan-in 节点（其上游 formal-mid 在 auto_fan_out 中）
+        assert "eph-collect" in fan_in_map, (
+            "ephemeral 节点应仍可被自动检测为 fan-in 结束节点"
+        )
+
+    def test_prefab_not_auto_fan_out(self):
+        """prefab 节点不会进入 auto_fan_out。"""
+        wf = MFWorkflow(
+            name="test-prefab-no-fanout",
+            nodes=[
+                MFNodeInstance(
+                    id="sweep-src",
+                    node="test-gaussian-geo-opt",
+                    parallel_sweep=ParallelSweep(values=[1, 2]),
+                ),
+                MFNodeInstance(
+                    id="prefab-mid",
+                    prefab=True,
+                    ports=EphemeralPorts(inputs=1, outputs=1),
+                ),
+            ],
+            connections=[
+                MFConnection(**{"from": "sweep-src.O1", "to": "prefab-mid.I1"}),
+            ],
+        )
+        auto_fan_out, _, _ = _propagate_sweep(wf)
+        # prefab 节点不应出现在 auto_fan_out 中
+        assert "prefab-mid" not in auto_fan_out, (
+            "prefab 节点不应被 sweep 传播穿透"
+        )

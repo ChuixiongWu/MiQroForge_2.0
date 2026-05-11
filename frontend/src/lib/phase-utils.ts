@@ -11,9 +11,9 @@ interface PhaseConfig {
 
 const PHASE_CONFIG: Record<RunPhase, PhaseConfig> = {
   Running:       { emoji: '🔄', borderClass: 'border-blue-400 animate-pulse',    textClass: 'text-blue-400',              badgeClass: 'badge badge-running'   },
-  Succeeded:     { emoji: '✅', borderClass: 'border-green-500',                 textClass: 'text-green-400 font-medium', badgeClass: 'badge badge-succeeded' },
-  Failed:        { emoji: '❌', borderClass: 'border-red-500',                   textClass: 'text-red-400 font-medium',   badgeClass: 'badge badge-failed'    },
-  Error:         { emoji: '❌', borderClass: 'border-red-500',                   textClass: 'text-red-400 font-medium',   badgeClass: 'badge badge-failed'    },
+  Succeeded:     { emoji: '✅', borderClass: 'border-green-500',                 textClass: 'text-green-500 font-medium', badgeClass: 'badge badge-succeeded' },
+  Failed:        { emoji: '❌', borderClass: 'border-red-500',                   textClass: 'text-red-500 font-medium',   badgeClass: 'badge badge-failed'    },
+  Error:         { emoji: '❌', borderClass: 'border-red-500',                   textClass: 'text-red-500 font-medium',   badgeClass: 'badge badge-failed'    },
   Pending:       { emoji: '⏳', borderClass: 'border-gray-500',                  textClass: 'text-mf-text-muted',         badgeClass: 'badge badge-pending'   },
   Unknown:       { emoji: '⊘',  borderClass: 'border-gray-600 opacity-50',      textClass: 'text-mf-text-muted',         badgeClass: 'badge badge-unknown'   },
   // Individual node skipped because a when-condition was false

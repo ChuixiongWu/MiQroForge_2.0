@@ -98,6 +98,7 @@ export function buildPortLookup(
       stream_inputs?: StreamPort[]
       stream_outputs?: StreamPort[]
       ephemeral?: boolean
+      prefab?: boolean
       ports?: { inputs?: Array<{ name: string; type: string }> | number; outputs?: Array<{ name: string; type: string }> | number }
     }
   }>,
@@ -125,7 +126,7 @@ export function buildPortLookup(
             ...EPHEMERAL_WILDCARD_PORT,
             name: p.name,
             display_name: p.name,
-            category: (node.data.ephemeral ? 'software_data_package' : p.type) as PortCategory,
+            category: ((node.data.ephemeral || node.data.prefab) ? 'software_data_package' : p.type) as PortCategory,
           })
         }
       } else if (typeof rawInputs === 'number') {
@@ -141,7 +142,7 @@ export function buildPortLookup(
             ...EPHEMERAL_WILDCARD_PORT,
             name: p.name,
             display_name: p.name,
-            category: (node.data.ephemeral ? 'software_data_package' : p.type) as PortCategory,
+            category: ((node.data.ephemeral || node.data.prefab) ? 'software_data_package' : p.type) as PortCategory,
           })
         }
       } else if (typeof rawOutputs === 'number') {

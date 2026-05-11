@@ -84,7 +84,7 @@ def _find_nodespec_by_name(name: str, project_root: Path, *, project_id: str = "
 
     遍历 nodes/、userdata/nodes/ 目录下所有 nodespec.yaml 文件，
     找到 metadata.name 匹配的节点。
-    proj/tmp/ 中的未 Accept 节点不在此搜索——它们通过 ephemeral + nodegen_tmp_ref 机制使用。
+    proj/tmp/ 中的未 Accept 节点不在此搜索——它们通过 prefab 机制使用。
 
     Parameters:
         name: 节点名称（metadata.name）。
@@ -98,7 +98,7 @@ def _find_nodespec_by_name(name: str, project_root: Path, *, project_id: str = "
         ValueError: 未找到匹配的节点。
     """
     # 搜索目录列表：系统节点库 + 用户数据目录
-    # 注意：proj/tmp/ 中的未 Accept 节点不在此搜索，它们通过 ephemeral + nodegen_tmp_ref 机制使用
+    # 注意：proj/tmp/ 中的未 Accept 节点不在此搜索，它们通过 prefab 机制使用
     search_dirs = [
         project_root / "nodes",
         project_root / "userdata" / "nodes",

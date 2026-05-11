@@ -82,36 +82,30 @@ export function workflowDocToYaml(doc: WorkflowDocument): string {
       const nodegenResult = (nodeGenerator?.result ?? {}) as Record<string, unknown>
       const hasNodegenResult = !!nodegenResult.nodespec_yaml
       const hasNodeGenerator = !!nodeGenerator
-      // Nodegen nodes: ALWAYS ephemeral + nodegen_tmp_ref → calls /api/v1/agents/node/run
-      //   no result → nodegen_tmp_ref="" → Agent generates from scratch at runtime
-      //   has result → nodegen_tmp_ref="<name>" → Agent uses pre-generated as reference
+      // Prefab nodes (node_generator): prefab → calls /api/v1/agents/node/run
+      //   node ID = tmp dir → API reads/writes proj/tmp/<node_id>/
       // Plain ephemeral nodes (palette drag): ephemeral → calls /api/v1/agents/ephemeral
-      const isEphemeral = !!extra.ephemeral || hasNodeGenerator
+      const isPrefab = hasNodeGenerator
+      const isEphemeral = !!extra.ephemeral
       const isSweep = !!extra.parallel_sweep
-      if (!isEphemeral) {
+      if (!isPrefab && !isEphemeral) {
         nodeObj.node = (extra.node as string) || n.nodespec_name
           || n.nodespec_path?.split('/').slice(-2, -1)[0]
       }
       if (isSweep) {
         nodeObj.parallel_sweep = extra.parallel_sweep
       }
-      if (isEphemeral) {
-        nodeObj.ephemeral = true
-        if (hasNodeGenerator) {
-          // Always use canvas node ID (n.id) as nodegen_tmp_ref — unique per canvas
-          // instance, avoids collisions when multiple prefab nodes share the same
-          // generated node name.  API uses it as work-dir under tmp/ so generated
-          // nodespec.yaml / run.sh are always persisted for after-run canvas updates.
-          nodeObj.nodegen_tmp_ref = n.id as string
-          // Build pregenerate key: -1 cycle parsed nodespec info for compiler/runtime port resolution
-          if (hasNodegenResult) {
-            const pg: Record<string, unknown> = {}
-            if (extra.stream_inputs) pg.stream_inputs = extra.stream_inputs
-            if (extra.stream_outputs) pg.stream_outputs = extra.stream_outputs
-            if (extra.onboard_inputs) pg.onboard_inputs = extra.onboard_inputs
-            if (extra.resources) pg.resources = extra.resources
-            nodeObj.pregenerate = pg
-          }
+      if (isPrefab) {
+        nodeObj.prefab = true
+        // Build pregenerate key: only store port names for compiler port resolution
+        // (full nodespec is on disk at tmp/<node_id>/nodespec.yaml)
+        if (hasNodegenResult) {
+          const pg: Record<string, unknown> = {}
+          const si = extra.stream_inputs as Array<{ name: string }> | undefined
+          const so = extra.stream_outputs as Array<{ name: string }> | undefined
+          if (si?.length) pg.stream_inputs = si.map((p) => p.name)
+          if (so?.length) pg.stream_outputs = so.map((p) => p.name)
+          nodeObj.pregenerate = pg
         }
         // Derive ports from stored ports or stream I/O
         const rawPorts = extra.ports as Record<string, unknown> | undefined
@@ -146,6 +140,29 @@ export function workflowDocToYaml(doc: WorkflowDocument): string {
         if (paramsModified) {
           nodeObj.onboard_params = params
         }
+      } else if (isEphemeral) {
+        nodeObj.ephemeral = true
+        // Derive ports from stored ports or stream I/O
+        const rawPorts = extra.ports as Record<string, unknown> | undefined
+        if (rawPorts && Array.isArray(rawPorts.inputs)) {
+          nodeObj.ports = {
+            inputs: (rawPorts.inputs as unknown[]).length,
+            outputs: (rawPorts.outputs as unknown[]).length,
+          }
+        } else if (rawPorts && typeof rawPorts.inputs === 'number') {
+          nodeObj.ports = rawPorts
+        } else {
+          const nIn = ((extra.stream_inputs as unknown[]) ?? []).length
+          const nOut = ((extra.stream_outputs as unknown[]) ?? []).length
+          if (nIn || nOut) {
+            nodeObj.ports = { inputs: nIn, outputs: nOut }
+          }
+        }
+        // Use user's generation description
+        const desc = (extra.ephemeral_description as string) || (extra.description as string) || ''
+        if (desc) {
+          nodeObj.onboard_params = { ...(nodeObj.onboard_params as Record<string, unknown>), description: desc }
+        }
       }
       return nodeObj
     }),
@@ -161,12 +178,12 @@ interface ParsedYamlNode {
   nodespec_path: string
   onboard_params?: Record<string, unknown>
   _ui?: { position?: { x: number; y: number } }
-  // Ephemeral fields
+  // Generated node fields
   ephemeral?: boolean
+  prefab?: boolean
   description?: string
   ports?: { inputs: Array<{ name: string; type: string }>; outputs: Array<{ name: string; type: string }> }
   node?: string
-  nodegen_tmp_ref?: string
   // Sweep fields
   parallel_sweep?: { values: unknown[] }
   // Stream IO (for deriving ephemeral ports)
@@ -214,9 +231,10 @@ export function parseWorkflowYaml(yamlStr: string): ParsedWorkflow {
       onboard_params: n.onboard_params ?? {},
       position: n._ui?.position ?? autoLayout(idx, (doc?.nodes ?? []).length),
     }
-    // Pass through ephemeral fields
-    if (n.ephemeral) {
+    // Pass through generated node fields
+    if (n.ephemeral || n.prefab) {
       wfNode.ephemeral = n.ephemeral
+      wfNode.prefab = n.prefab
       // Prefer onboard_params.description over top-level description
       wfNode.description = (n.onboard_params?.description as string) ?? n.description ?? ''
     }
@@ -236,7 +254,6 @@ export function parseWorkflowYaml(yamlStr: string): ParsedWorkflow {
       }
     }
     if (n.node) wfNode.node = n.node
-    if (n.nodegen_tmp_ref) wfNode.nodegen_tmp_ref = n.nodegen_tmp_ref
     if (n.parallel_sweep) wfNode.parallel_sweep = n.parallel_sweep
     if (n.stream_inputs) wfNode.stream_inputs = n.stream_inputs
     if (n.stream_outputs) wfNode.stream_outputs = n.stream_outputs
@@ -277,6 +294,7 @@ export function workflowNodeToRF(
   }
   // Pass through Phase 2 fields from parsed YAML
   if (wfNode.ephemeral) data.ephemeral = wfNode.ephemeral
+  if (wfNode.prefab) data.prefab = wfNode.prefab
   if (wfNode.description) data.ephemeral_description = wfNode.description
   if (wfNode.ports) data.ports = wfNode.ports
   if (wfNode.parallel_sweep) {

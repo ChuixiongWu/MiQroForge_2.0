@@ -119,8 +119,8 @@ export function TopBar() {
 
         const rfNodes = await Promise.all(
           parsed.nodes.map(async (wfNode) => {
-            // Ephemeral nodes have no nodespec — build directly from YAML data
-            if (wfNode.ephemeral) {
+            // Generated nodes (ephemeral / prefab) have no nodespec — build directly from YAML data
+            if (wfNode.ephemeral || wfNode.prefab) {
               return workflowNodeToRF(wfNode, {
                 name: wfNode.id,
                 version: '?',
@@ -128,7 +128,8 @@ export function TopBar() {
                 description: wfNode.description ?? '',
                 node_type: 'lightweight',
                 category: '',
-                ephemeral: true,
+                ephemeral: wfNode.ephemeral,
+                prefab: wfNode.prefab,
                 ephemeral_description: wfNode.description,
                 ports: wfNode.ports,
                 stream_inputs: wfNode.stream_inputs as never ?? [],
@@ -180,7 +181,7 @@ export function TopBar() {
                 version: '?',
                 display_name: wfNode.id,
                 description: '',
-                node_type: wfNode.ephemeral ? 'lightweight' : 'compute',
+                node_type: (wfNode.ephemeral || wfNode.prefab) ? 'lightweight' : 'compute',
                 category: '',
                 stream_inputs: [],
                 stream_outputs: [],
@@ -234,9 +235,9 @@ export function TopBar() {
       const projectId = useProjectStore.getState().currentProjectId ?? undefined
       showNotification('info', 'Compiling and submitting workflow… (may take up to 2 min)')
 
-      // Set compiling state on ephemeral/sweep nodes for visual feedback
+      // Set compiling state on generated/sweep nodes for visual feedback
       const compilingIds = nodes
-        .filter((n) => n.data.ephemeral)
+        .filter((n) => n.data.ephemeral || n.data.prefab)
         .map((n) => n.id)
       setCompilingNodeIds(compilingIds)
 

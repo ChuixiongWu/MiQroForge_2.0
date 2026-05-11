@@ -56,6 +56,7 @@ class MFNodeInstance(BaseModel):
 
     当 ``ephemeral=True`` 时，上述三选一约束解除，
     改为使用 ``ports`` + ``description`` 声明临时节点。
+    当 ``prefab=True`` 时同理（与 ephemeral 互斥）。
     """
 
     id: str = Field(
@@ -79,59 +80,56 @@ class MFNodeInstance(BaseModel):
         description="On-board 参数值。",
     )
 
-    # ── 临时节点字段 ─────────────────────────────────────────────────────
+    # ── 生成类节点字段 ───────────────────────────────────────────────────
     ephemeral: bool = Field(
         default=False,
-        description="是否为临时节点。True 时不需要 node/nodespec_path/inline_nodespec。",
+        description="是否为临时节点（ephemeral）。True 时不需要 node/nodespec_path/inline_nodespec。",
+    )
+    prefab: bool = Field(
+        default=False,
+        description="是否为预制节点（prefab）。True 时不需要 node/nodespec_path/inline_nodespec。与 ephemeral 互斥。",
     )
     description: str = Field(
         default="",
-        description="临时节点的功能描述（Agent 据此生成脚本）。",
+        description="生成类节点的功能描述（Agent 据此生成脚本）。",
     )
     ports: Optional[EphemeralPorts] = Field(
         default=None,
-        description="临时节点的端口声明。ephemeral=True 时必填。",
+        description="生成类节点的端口声明。ephemeral=True 或 prefab=True 时必填。",
     )
     onboard_inputs: list[EphemeralOnboardInput] = Field(
         default_factory=list,
-        description="临时节点的可选 onboard 参数。",
+        description="生成类节点的可选 onboard 参数。",
     )
     parallel_sweep: Optional[ParallelSweep] = Field(
         default=None,
-        description="并行扫描声明。设置后节点将使用 Argo withParam 扇出执行。",
+        description="并行扫描声明。设置后节点将使用 Argo withParam 扇出执行。不可用于 ephemeral 或 prefab 节点。",
     )
     fan_in: bool = Field(
         default=False,
         description="显式标记此节点为 fan-in 收集点，不参与 sweep 传播。",
     )
-    nodegen_tmp_ref: Optional[str] = Field(
-        default=None,
-        description=(
-            "Node Generator tmp ref: ephemeral=True 时，"
-            "编译器从 proj/tmp/<name>/ 或 userdata/nodes/ 读取预生成 nodespec。"
-        ),
-    )
     pregenerate: Optional[dict[str, Any]] = Field(
         default=None,
         description=(
-            "Prefab -1 循环预生成信息。包含 stream_inputs / stream_outputs / "
-            "onboard_inputs / resources，编译器据此确定端口名（而非通用 I1/O1）。"
+            "Prefab -1 循环预生成信息。仅包含 stream_inputs / stream_outputs 端口名列表，"
+            "供编译器确定 wrapper 端口映射。完整 nodespec 在磁盘 tmp/<node_id>/nodespec.yaml。"
         ),
     )
 
     @model_validator(mode="after")
     def _check_node_source(self) -> MFNodeInstance:
-        """确保 node / nodespec_path / inline_nodespec 三选一（或 ephemeral）。"""
-        # nodegen_tmp_ref 仅在 ephemeral=True 时有效
-        if self.nodegen_tmp_ref is not None and not self.ephemeral:
-            raise ValueError(
-                "nodegen_tmp_ref 只能在 ephemeral=True 时使用"
-            )
-        if self.ephemeral:
-            # 临时节点模式：不需要传统节点源，但需要 ports
+        """确保 node / nodespec_path / inline_nodespec 三选一（或 ephemeral / prefab）。"""
+        # ephemeral 和 prefab 互斥
+        if self.ephemeral and self.prefab:
+            raise ValueError("ephemeral 和 prefab 互斥，不可同时为 True")
+
+        if self.ephemeral or self.prefab:
+            # 生成类节点模式：不需要传统节点源，但需要 ports
+            label = "ephemeral" if self.ephemeral else "prefab"
             if self.ports is None:
                 raise ValueError(
-                    "临时节点 (ephemeral=True) 必须提供 ports 声明"
+                    f"{label} 节点 ({label}=True) 必须提供 ports 声明"
                 )
             forbidden = []
             if self.node is not None:
@@ -142,12 +140,12 @@ class MFNodeInstance(BaseModel):
                 forbidden.append("inline_nodespec")
             if forbidden:
                 raise ValueError(
-                    f"临时节点不得指定 {', '.join(forbidden)}，"
-                    "请只使用 ephemeral + ports + description"
+                    f"{label} 节点不得指定 {', '.join(forbidden)}，"
+                    f"请只使用 {label} + ports + description"
                 )
             return self
 
-        # 非临时节点：三选一
+        # 非生成类节点：三选一
         sources = [
             ("node", self.node),
             ("nodespec_path", self.nodespec_path),
@@ -168,19 +166,20 @@ class MFNodeInstance(BaseModel):
     def get_generation_description(self) -> str:
         """获取用于脚本生成的 description。
 
-        临时节点：必须从 onboard_params.description 读取（Agent 据此生成脚本）。
+        生成类节点（ephemeral / prefab）：从 onboard_params.description 读取（Agent 据此生成）。
         正式节点：fallback 到顶层 description 字段。
         """
-        if self.ephemeral:
+        if self.ephemeral or self.prefab:
             return self.onboard_params.get("description", "")
         return self.onboard_params.get("description", "") or self.description
 
     @model_validator(mode="after")
-    def _check_sweep_ephemeral(self) -> MFNodeInstance:
-        """parallel_sweep 不可与 ephemeral 同时使用。"""
-        if self.parallel_sweep is not None and self.ephemeral:
+    def _check_sweep_generated(self) -> MFNodeInstance:
+        """parallel_sweep 不可与生成类节点（ephemeral / prefab）同时使用。"""
+        if self.parallel_sweep is not None and (self.ephemeral or self.prefab):
+            label = "ephemeral" if self.ephemeral else "prefab"
             raise ValueError(
-                "临时节点 (ephemeral=True) 不支持 parallel_sweep"
+                f"生成类节点 ({label}=True) 不支持 parallel_sweep"
             )
         return self
 

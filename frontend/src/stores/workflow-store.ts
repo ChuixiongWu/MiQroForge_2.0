@@ -29,10 +29,11 @@ export interface MFNodeData extends Record<string, unknown> {
   resources?: ResourceSpec
   onboard_params: Record<string, unknown>
 
-  // ── Sweep / Ephemeral 扩展字段 ────────────────────────────────────────────
+  // ── Sweep / 生成类节点 扩展字段 ────────────────────────────────────────────
   parallel_sweep?: { values: unknown[] }
   sweep_values?: unknown[]
   ephemeral?: boolean
+  prefab?: boolean
   ephemeral_description?: string
   ports?: { inputs: Array<{ name: string; type: string }>; outputs: Array<{ name: string; type: string }> }
   node?: string

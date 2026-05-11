@@ -1033,6 +1033,8 @@ def make_sandbox_tools(
         import yaml as _yaml_res
         cpu_cores = 4
         memory_gb = 8.0
+        # 默认 30 分钟 — 仅作为 Agent 上下文信息传递，Docker --detach 模式下无自动 kill。
+        # 若需终止容器，Agent 必须主动调用 kill_sandbox()。
         walltime_seconds = 1800  # 默认 30 分钟
         if nodespec_path.exists():
             try:

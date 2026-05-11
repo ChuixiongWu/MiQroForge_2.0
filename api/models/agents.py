@@ -93,9 +93,9 @@ class NodeRunAPIRequest(BaseModel):
     # 设计时生成的节点（可选，用于继续而非重新生成）
     existing_nodespec: Optional[str] = Field(default=None, description="设计时已生成的 nodespec.yaml")
     existing_run_sh: Optional[str] = Field(default=None, description="设计时已生成的 run.sh")
-    nodegen_tmp_ref: Optional[str] = Field(
+    prefab_node_id: Optional[str] = Field(
         default=None,
-        description="Node Generator tmp ref: API 从 proj/tmp/<name>/ 或 userdata/nodes/ 读取预生成 nodespec。",
+        description="Prefab 节点 ID：API 从 proj/tmp/<node_id>/ 或 userdata/nodes/ 读取预生成 nodespec。",
     )
     output_ports: Optional[list[str]] = Field(
         default=None,

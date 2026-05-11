@@ -194,49 +194,52 @@ def validate_workflow(
                     message="parallel_sweep 节点必须使用 'node' 字段引用正式节点",
                 ))
 
-        if node_inst.ephemeral:
-            # ── Nodegen 节点：pregenerate 非空时才去 disk 读预生成 nodespec ──
-            if node_inst.pregenerate is not None and node_inst.nodegen_tmp_ref is not None and node_inst.nodegen_tmp_ref.strip():
+        if node_inst.ephemeral or node_inst.prefab:
+            label = "prefab" if node_inst.prefab else "ephemeral"
+            # ── Prefab 节点：pregenerate 非空时才去 disk 读预生成 nodespec ──
+            if node_inst.prefab and node_inst.pregenerate is not None:
                 try:
                     spec = _resolve_nodegen_tmp_spec(node_inst, project_root, project_id)
                     resolved_nodes[node_inst.id] = spec
                     issues.append(ValidationIssue(
                         severity="info",
                         location=f"node: {node_inst.id}",
-                        message=f"Nodegen 节点 (pregenerated, nodegen_tmp_ref={node_inst.nodegen_tmp_ref!r}): "
+                        message=f"Prefab 节点 (pregenerated, node_id={node_inst.id!r}): "
                                 f"从 tmp/userdata 读取预生成 nodespec",
                     ))
                 except FileNotFoundError as e:
                     issues.append(ValidationIssue(
                         severity="error",
                         location=f"node: {node_inst.id}",
-                        message=f"Nodegen tmp nodespec 未找到: {e}",
+                        message=f"Prefab tmp nodespec 未找到: {e}",
                     ))
                     resolved_nodes[node_inst.id] = _build_ephemeral_nodespec(node_inst)
                 except Exception as e:
                     issues.append(ValidationIssue(
                         severity="error",
                         location=f"node: {node_inst.id}",
-                        message=f"Nodegen tmp nodespec 解析失败: {e}",
+                        message=f"Prefab tmp nodespec 解析失败: {e}",
                     ))
                     resolved_nodes[node_inst.id] = _build_ephemeral_nodespec(node_inst)
-            else:
-                # 无预生成（from scratch）或普通 ephemeral — 不读 disk
+            elif node_inst.prefab:
+                # Prefab from scratch（直接运行）— 不读 disk，运行时 Agent 将从零生成
                 spec = _build_ephemeral_nodespec(node_inst)
                 resolved_nodes[node_inst.id] = spec
-                if node_inst.nodegen_tmp_ref is not None and node_inst.nodegen_tmp_ref.strip():
-                    issues.append(ValidationIssue(
-                        severity="info",
-                        location=f"node: {node_inst.id}",
-                        message=f"Nodegen 节点 (from scratch, nodegen_tmp_ref={node_inst.nodegen_tmp_ref!r}): "
-                                f"运行时 Agent 将从零生成 nodespec",
-                    ))
-                else:
-                    issues.append(ValidationIssue(
-                        severity="info",
-                        location=f"node: {node_inst.id}",
-                        message=f"临时节点 (ephemeral): {node_inst.get_generation_description()}",
-                    ))
+                issues.append(ValidationIssue(
+                    severity="info",
+                    location=f"node: {node_inst.id}",
+                    message=f"Prefab 节点 (from scratch, node_id={node_inst.id!r}): "
+                            f"运行时 Agent 将从零生成 nodespec",
+                ))
+            else:
+                # 普通 ephemeral — 不读 disk
+                spec = _build_ephemeral_nodespec(node_inst)
+                resolved_nodes[node_inst.id] = spec
+                issues.append(ValidationIssue(
+                    severity="info",
+                    location=f"node: {node_inst.id}",
+                    message=f"临时节点 (ephemeral): {node_inst.get_generation_description()}",
+                ))
         else:
             try:
                 spec = resolve_nodespec(node_inst, project_root=project_root, project_id=project_id)
@@ -267,8 +270,8 @@ def validate_workflow(
     connected_inputs: set[tuple[str, str]] = set()  # (node_id, port_name)
     connected_outputs: set[tuple[str, str]] = set()
 
-    # 临时节点集合：跳过连接类型校验（端口统一 software_data_package，类型检查无意义）
-    ephemeral_ids = {n.id for n in workflow.nodes if n.ephemeral}
+    # 生成类节点集合：跳过连接类型校验（端口统一 software_data_package，类型检查无意义）
+    generated_ids = {n.id for n in workflow.nodes if n.ephemeral or n.prefab}
 
     for conn in workflow.connections:
         loc = f"connection: {conn.from_} → {conn.to}"
@@ -318,7 +321,7 @@ def validate_workflow(
             continue
 
         # 调用 validate_connection（临时节点间或与临时节点的连接跳过类型检查）
-        if src_node_id not in ephemeral_ids and tgt_node_id not in ephemeral_ids:
+        if src_node_id not in generated_ids and tgt_node_id not in generated_ids:
             result = validate_connection(src_port, tgt_port)
             if not result.valid:
                 issues.append(ValidationIssue(
@@ -387,9 +390,10 @@ def _resolve_nodegen_tmp_spec(
     project_root: Path | None,
     project_id: str,
 ) -> NodeSpec:
-    """为 nodegen 节点从 proj/tmp/ 或 userdata/nodes/ 读取预生成 nodespec。
+    """为 prefab 节点从 proj/tmp/ 或 userdata/nodes/ 读取预生成 nodespec。
 
     仅在 pregenerate 非空时调用（-1 循环已执行）。
+    使用 node_inst.id 作为 tmp 目录名（而非已弃用的 nodegen_tmp_ref）。
 
     Returns:
         解析后的 NodeSpec。
@@ -399,7 +403,7 @@ def _resolve_nodegen_tmp_spec(
     """
     if project_root is None:
         project_root = Path.cwd()
-    name = node_inst.nodegen_tmp_ref
+    name = node_inst.id  # 直接使用节点 ID
 
     # 1. 搜索 userdata/nodes/（已 Accept 的节点）
     userdata_nodes = project_root / "userdata" / "nodes"
@@ -417,7 +421,7 @@ def _resolve_nodegen_tmp_spec(
             return NodeSpec.from_yaml(spec_path)
 
     raise FileNotFoundError(
-        f"nodegen 节点 {name!r} 的 nodespec 在 userdata/nodes/ 和 "
+        f"prefab 节点 {name!r} 的 nodespec 在 userdata/nodes/ 和 "
         f"proj/{project_id}/tmp/ 中均未找到"
     )
 

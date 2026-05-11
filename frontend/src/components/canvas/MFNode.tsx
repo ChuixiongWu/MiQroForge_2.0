@@ -61,7 +61,7 @@ const PortRow = memo(({ name, displayName, category, required, direction, epheme
       </span>
 
       {required && (
-        <span className="text-red-400 text-[9px] flex-shrink-0" title="Required">*</span>
+        <span className="text-red-500 text-[9px] flex-shrink-0" title="Required">*</span>
       )}
     </div>
   )
@@ -96,7 +96,7 @@ function GateBadge({ gate, runValue }: GateBadgeProps) {
       />
       {gate.display_name}
       {hasResult && (
-        <span className={passed ? 'text-green-400' : 'text-red-400'}>
+        <span className={passed ? 'text-green-500' : 'text-red-500'}>
           {passed ? '✓' : '✗'}
         </span>
       )}
@@ -179,7 +179,7 @@ function RunOverlaySection({
             className="w-full text-left nodrag"
             onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
           >
-            <div className="bg-red-950/40 border border-red-500/30 rounded px-1.5 py-1 text-[9px] font-mono text-red-300">
+            <div className="bg-red-950/50 border border-red-500/30 rounded px-1.5 py-1 text-[9px] font-mono text-red-400">
               {!expanded ? (
                 // Collapsed: show last 2 lines
                 <span className="line-clamp-2 whitespace-pre-wrap break-all">
@@ -191,7 +191,7 @@ function RunOverlaySection({
                   {errorMsg}
                 </div>
               )}
-              <div className="text-[8px] text-red-400/60 mt-0.5 text-center">
+              <div className="text-[8px] text-red-500/50 mt-0.5 text-center">
                 {expanded ? '▲ collapse' : '▼ expand'}
               </div>
             </div>
@@ -199,12 +199,12 @@ function RunOverlaySection({
           {/* Download full log button */}
           {runName && (
             <button
-              className="w-full mt-0.5 text-[9px] text-red-400 hover:text-red-300 hover:bg-red-950/30 rounded px-1 py-0.5 transition-colors nodrag flex items-center justify-center gap-1"
+              className="w-full mt-0.5 text-[9px] text-red-500 hover:text-red-400 hover:bg-red-950/30 rounded px-1 py-0.5 transition-colors nodrag flex items-center justify-center gap-1"
               onClick={handleDownloadLog}
               disabled={downloading}
             >
               {downloading ? (
-                <span className="inline-block w-2.5 h-2.5 border border-red-400/30 border-t-red-400 rounded-full animate-spin" />
+                <span className="inline-block w-2.5 h-2.5 border border-red-500/30 border-t-red-500 rounded-full animate-spin" />
               ) : null}
               {downloading ? 'Downloading…' : '查看完整 log'}
             </button>
@@ -224,12 +224,12 @@ function RunOverlaySection({
               <div key={key} className="text-[9px] font-mono">
                 <span className="text-mf-text-muted">{key}: </span>
                 {isBool ? (
-                  <span className={value === 'true' ? 'text-green-400' : 'text-red-400'}>
+                  <span className={value === 'true' ? 'text-green-500' : 'text-red-500'}>
                     {value === 'true' ? '✓' : '✗'}
                   </span>
                 ) : (
                   <span
-                    className="text-green-300 break-all line-clamp-2"
+                    className="text-green-400 break-all line-clamp-2"
                     title={needsTooltip ? value : undefined}
                   >
                     {value}
@@ -502,7 +502,9 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
                 <div className="text-xs font-semibold text-mf-text-primary truncate leading-tight">
                   {data.display_name}
                 </div>
-                {data.ephemeral ? (
+                {data.prefab ? (
+                  <div className="text-[10px] text-purple-400 font-mono">prefab</div>
+                ) : data.ephemeral ? (
                   <div className="text-[10px] text-orange-400 font-mono">ephemeral</div>
                 ) : (
                   <div className="text-[10px] text-mf-text-muted truncate font-mono">
@@ -545,7 +547,7 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
                       category={port.category}
                       required={port.required}
                       direction="input"
-                      ephemeral={!!data.ephemeral}
+                      ephemeral={!!(data.ephemeral || data.prefab)}
                     />
                   ))}
                 </div>
@@ -559,7 +561,7 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
                       displayName={port.display_name}
                       category={port.category}
                       direction="output"
-                      ephemeral={!!data.ephemeral}
+                      ephemeral={!!(data.ephemeral || data.prefab)}
                     />
                   ))}
                 </div>
@@ -587,7 +589,7 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
           {/* Minimal error indicator for failed nodes — click to flip */}
           {isFailed && errorMsg && (
             <div
-              className="border-t border-mf-border/50 px-2 py-1 text-[9px] text-red-400 text-center cursor-pointer hover:bg-red-950/20 transition-colors nodrag"
+              className="border-t border-mf-border/50 px-2 py-1 text-[9px] text-red-500 text-center cursor-pointer hover:bg-red-950/20 transition-colors nodrag"
               onClick={handleFlipToggle}
             >
               ▼ 点击查看错误
@@ -618,16 +620,16 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
           onClick={handleFlipToggle}
           className="cursor-pointer"
         >
-          <div className="h-full flex flex-col bg-red-950/30 rounded-lg">
+          <div className="h-full flex flex-col bg-red-950/40 rounded-lg">
             {/* Header */}
-            <div className="mf-node-header bg-red-900/30">
+            <div className="mf-node-header bg-red-900/40">
               <div className="flex items-start gap-1.5">
                 <span className="text-base leading-none mt-0.5">❌</span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold text-red-300 truncate leading-tight">
+                  <div className="text-xs font-semibold text-red-400 truncate leading-tight">
                     {data.display_name}
                   </div>
-                  <div className="text-[10px] text-red-400/70 font-mono">
+                  <div className="text-[10px] text-red-500/60 font-mono">
                     {runStatus?.phase}
                   </div>
                 </div>
@@ -636,7 +638,7 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
 
             {/* Error content */}
             <div className="flex-1 overflow-y-auto mf-scroll px-2 py-1.5">
-              <div className="text-[9px] font-mono text-red-300 whitespace-pre-wrap break-all select-text">
+              <div className="text-[9px] font-mono text-red-400 whitespace-pre-wrap break-all select-text">
                 {errorMsg}
               </div>
             </div>
@@ -645,12 +647,12 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
             {activeRunName && (
               <div className="border-t border-red-500/20 px-2 py-1">
                 <button
-                  className="w-full text-[9px] text-red-400 hover:text-red-300 hover:bg-red-950/50 rounded px-1 py-0.5 transition-colors nodrag flex items-center justify-center gap-1"
+                  className="w-full text-[9px] text-red-500 hover:text-red-400 hover:bg-red-950/50 rounded px-1 py-0.5 transition-colors nodrag flex items-center justify-center gap-1"
                   onClick={handleDownloadLog}
                   disabled={downloading}
                 >
                   {downloading ? (
-                    <span className="inline-block w-2.5 h-2.5 border border-red-400/30 border-t-red-400 rounded-full animate-spin" />
+                    <span className="inline-block w-2.5 h-2.5 border border-red-500/30 border-t-red-500 rounded-full animate-spin" />
                   ) : null}
                   {downloading ? 'Downloading…' : '查看完整 log'}
                 </button>
@@ -658,7 +660,7 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
             )}
 
             {/* Flip back hint */}
-            <div className="text-[8px] text-red-400/50 text-center pb-1">
+            <div className="text-[8px] text-red-500/40 text-center pb-1">
               ▲ 点击返回
             </div>
           </div>

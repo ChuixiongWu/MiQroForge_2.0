@@ -190,7 +190,7 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
     <div key={param.name}>
       <label className="block text-[11px] text-mf-text-secondary mb-0.5">
         {param.display_name}
-        {param.default == null && <span className="text-red-400 ml-0.5">*</span>}
+        {param.default == null && <span className="text-red-500 ml-0.5">*</span>}
         {param.unit && <span className="text-mf-text-muted ml-1">({param.unit})</span>}
         {param.multiple_input && (
           <button
@@ -965,7 +965,7 @@ function PortList({ nodeId, direction }: { nodeId: string; direction: 'input' | 
           <span className="text-mf-text-secondary truncate">{p.display_name}</span>
           <span className="text-mf-text-muted font-mono text-[10px] ml-auto">{portCategoryLabel(p.category)}</span>
           {p.required && direction === 'input' && (
-            <span className="text-red-400 text-[10px]">req</span>
+            <span className="text-red-500 text-[10px]">req</span>
           )}
         </div>
       ))}
@@ -987,7 +987,7 @@ function OnboardOutputList({
   }
 
   return (
-    <div className="px-3 py-1.5 space-y-2.5">
+    <div className="px-3 py-1.5 space-y-1.5">
       {outputs.map((o) => {
         // Look up run value: quality-gate outputs are prefixed _qg_, others are plain name
         const isQg = o.quality_gate
@@ -1008,7 +1008,7 @@ function OnboardOutputList({
                 {o.quality_gate && o.gate_default && (
                   <span className={`text-[9px] font-mono px-1 rounded border ${
                     o.gate_default === 'must_pass'
-                      ? 'border-red-500/40 bg-red-500/10 text-red-400'
+                      ? 'border-red-500/40 bg-red-500/10 text-red-500'
                       : o.gate_default === 'warn'
                       ? 'border-amber-500/40 bg-amber-500/10 text-amber-400'
                       : 'border-mf-border text-mf-text-muted'
@@ -1021,8 +1021,8 @@ function OnboardOutputList({
               {hasValue && (
                 <span className={`text-xs font-mono flex-shrink-0 ${
                   isBool
-                    ? (runValue === 'true' ? 'text-green-400' : 'text-red-400')
-                    : 'text-green-300'
+                    ? (runValue === 'true' ? 'text-green-500' : 'text-red-500')
+                    : 'text-green-400'
                 }`}>
                   {isBool ? (runValue === 'true' ? '✓ true' : '✗ false') : runValue}
                 </span>
@@ -1030,11 +1030,11 @@ function OnboardOutputList({
             </div>
             {/* Descriptions */}
             {o.description && (
-              <p className="text-[10px] text-mf-text-muted mt-0.5 leading-relaxed">{o.description}</p>
+              <p className="text-[10px] text-mf-text-muted mt-0.5 leading-normal">{o.description}</p>
             )}
             {o.gate_description && (
-              <p className={`text-[10px] mt-0.5 leading-relaxed ${
-                o.gate_default === 'must_pass' ? 'text-red-400/70' :
+              <p className={`text-[10px] mt-0.5 leading-normal ${
+                o.gate_default === 'must_pass' ? 'text-red-500/60' :
                 o.gate_default === 'warn'      ? 'text-amber-400/70' :
                 'text-mf-text-muted'
               }`}>
@@ -1377,7 +1377,7 @@ export function NodeInspector() {
       <div className="px-3 py-2 border-t border-mf-border">
         <button
           onClick={() => { removeNode(node.id); selectNode(null) }}
-          className="w-full py-1 bg-red-900/30 border border-red-700/50 text-red-400 text-xs rounded hover:bg-red-900/50 transition-colors"
+          className="w-full py-1 bg-red-900/30 border border-red-700/50 text-red-500 text-xs rounded hover:bg-red-900/50 transition-colors"
         >
           Remove Node
         </button>

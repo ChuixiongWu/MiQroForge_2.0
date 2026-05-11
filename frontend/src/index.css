@@ -122,8 +122,8 @@
   }
 
   .badge-running   { @apply bg-blue-500/20 text-blue-300 border border-blue-500/30; }
-  .badge-succeeded { @apply bg-green-500/20 text-green-300 border border-green-500/30; }
-  .badge-failed    { @apply bg-red-500/20 text-red-300 border border-red-500/30; }
+  .badge-succeeded { @apply bg-green-500/20 text-green-400 border border-green-500/30; }
+  .badge-failed    { @apply bg-red-500/20 text-red-400 border border-red-500/30; }
   .badge-pending   { @apply bg-yellow-500/20 text-yellow-300 border border-yellow-500/30; }
   .badge-unknown   { @apply bg-gray-500/20 text-gray-400 border border-gray-500/30; }
   /* Node omitted due to when-condition false (quality gate blocked) */

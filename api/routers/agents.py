@@ -1,10 +1,14 @@
 """api/routers/agents.py — Phase 2 Agent API 端点。
 
-提供三个独立可调用的 Agent 端点：
-  POST /api/v1/agents/plan          — Planner Agent
-  POST /api/v1/agents/yaml          — YAML Coder Agent
-  POST /api/v1/agents/node          — Node Generator Agent
-  POST /api/v1/agents/save-session  — 保存对话会话到 userdata/agent_sessions/
+提供 8 个独立可调用的 Agent 端点：
+  POST /api/v1/agents/plan               — Planner Agent（意图解析 + 节点检索）
+  POST /api/v1/agents/yaml               — YAML Coder Agent（语义工作流 → MF YAML）
+  POST /api/v1/agents/node               — Node Generator Prefab（设计时 -1 循环：生成 nodespec）
+  POST /api/v1/agents/node/run           — Node Generator Prefab（运行时 sandbox + evaluate 外循环）
+  POST /api/v1/agents/node/accept        — 将 Prefab 生成的节点持久化到节点库
+  POST /api/v1/agents/ephemeral          — Ephemeral Agent（运行时临时节点脚本生成 + sandbox 执行）
+  POST /api/v1/agents/ephemeral/evaluate — 多模态视觉评估临时节点图像输出
+  POST /api/v1/agents/save-session       — 保存对话会话到 userdata/agent_sessions/
 """
 
 from __future__ import annotations
@@ -549,10 +553,10 @@ async def run_node_runtime(
         _internal_errors: list[str] = []
         profile_files: dict[str, str] = {}
 
-        # ── nodegen_tmp_ref: 从 proj/tmp/ 或 userdata/nodes/ 读取预生成 nodespec ──
-        if request.nodegen_tmp_ref and not nodespec_yaml:
+        # ── prefab_node_id: 从 proj/tmp/ 或 userdata/nodes/ 读取预生成 nodespec ──
+        if request.prefab_node_id and not nodespec_yaml:
             resolved = _resolve_nodegen_spec(
-                node_name=request.nodegen_tmp_ref,
+                node_name=request.prefab_node_id,
                 project_id=request.project_id,
                 project_root=settings.project_root,
                 userdata_root=settings.userdata_root,
@@ -578,7 +582,7 @@ async def run_node_runtime(
             _collected_outputs = {}
 
             # ── 确定节点工作目录（tmp/<node_name>/）──
-            _node_name_hint = request.nodegen_tmp_ref or ""
+            _node_name_hint = request.prefab_node_id or ""
             if not _node_name_hint and nodespec_yaml:
                 import yaml as _yaml_hint
                 try:

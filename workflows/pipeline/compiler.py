@@ -454,20 +454,20 @@ def _build_nodegen_wrapper_script(
     resolved_nodes: dict[str, NodeSpec],
     project_id: str,
 ) -> str:
-    """生成 Nodegen 节点的 Pod wrapper 脚本。
+    """生成 Prefab 节点的 Pod wrapper 脚本。
 
-    与 ephemeral wrapper 不同，此 wrapper 向 API 传递 nodegen_tmp_ref
-    （而非内嵌 nodespec 内容），由 API 服务端从 proj/tmp/ 或 userdata/nodes/
+    与 ephemeral wrapper 不同，此 wrapper 向 API 传递 prefab_node_id
+    （而非内嵌 nodespec 内容），由 API 服务端从 proj/tmp/<node_id>/ 或 userdata/nodes/
     读取预生成的 nodespec + run.sh。
 
     运行时流程：
     1. 读取 /mf/input/ 中的真实输入数据（含 onboard params 和 _software）
-    2. POST /api/v1/agents/node/run（传递 nodegen_tmp_ref + input_data + target_software）
+    2. POST /api/v1/agents/node/run（传递 prefab_node_id + input_data + target_software）
     3. 检查 evaluation.passed 和 error
     4. 将 outputs 写入 /mf/output/
     """
     description = node_inst.get_generation_description()
-    nodegen_tmp_ref = node_inst.nodegen_tmp_ref or ""
+    prefab_node_id = node_inst.id  # 直接使用节点 ID，对应 tmp/<node_id>/ 下的预生成文件
     # _software 来自 inspector software selector，不在 NodeSpec onboard_inputs 中
     software_hint = (node_inst.onboard_params or {}).get("_software", "")
 
@@ -475,14 +475,10 @@ def _build_nodegen_wrapper_script(
     stream_input_names: list[str] = []
     stream_output_names: list[str] = []
 
-    # 1) pregenerate: -1 循环产物直接包含端口定义
+    # 1) pregenerate: -1 循环产物，直接包含端口名列表
     if node_inst.pregenerate:
-        for p in node_inst.pregenerate.get("stream_inputs", []) or []:
-            if isinstance(p, dict) and p.get("name"):
-                stream_input_names.append(p["name"])
-        for p in node_inst.pregenerate.get("stream_outputs", []) or []:
-            if isinstance(p, dict) and p.get("name"):
-                stream_output_names.append(p["name"])
+        stream_input_names = node_inst.pregenerate.get("stream_inputs", []) or []
+        stream_output_names = node_inst.pregenerate.get("stream_outputs", []) or []
 
     # 2) resolved_nodes: validator 从 tmp/userdata 解析的 NodeSpec
     if not stream_input_names and resolved_nodes:
@@ -501,8 +497,8 @@ def _build_nodegen_wrapper_script(
     _jd = json.dumps
 
     return f'''#!/usr/bin/env python3
-# MF Nodegen Runtime Wrapper — calls /api/v1/agents/node/run
-# nodegen_tmp_ref → API 从 proj/tmp/ 或 userdata/nodes/ 读取预生成 nodespec
+# MF Prefab Runtime Wrapper — calls /api/v1/agents/node/run
+# prefab_node_id → API 从 proj/tmp/<node_id>/ 或 userdata/nodes/ 读取预生成 nodespec
 
 import os, sys, json, subprocess
 import requests
@@ -510,7 +506,7 @@ import requests
 MF_API_URL = os.environ.get("MF_API_URL", "http://10.36.160.16:8100")
 
 DESCRIPTION = {_jd(description)}
-NODEGEN_TMP_REF = {_jd(nodegen_tmp_ref)}
+PREFAB_NODE_ID = {_jd(prefab_node_id)}
 SOFTWARE_HINT = {_jd(software_hint)}
 INPUT_PORTS = {_jd(stream_input_names)}
 OUTPUT_PORTS = {_jd(stream_output_names)}
@@ -536,26 +532,26 @@ def main():
             "output_ports": OUTPUT_PORTS or None,
             "category": "chemistry",
             "input_data": input_data,
-            "nodegen_tmp_ref": NODEGEN_TMP_REF,
+            "prefab_node_id": PREFAB_NODE_ID,
             "run_name": os.environ.get("MF_RUN_NAME", ""),
             "project_id": os.environ.get("MF_PROJECT_ID", ""),
         }}, timeout=1800)
         resp.raise_for_status()
         result = resp.json()
     except Exception as e:
-        print(f"[MF Nodegen Wrapper] Agent API call failed: {{e}}", file=sys.stderr)
+        print(f"[MF Prefab Wrapper] Agent API call failed: {{e}}", file=sys.stderr)
         sys.exit(1)
 
     # 3. 检查 Agent 报告的状态
     error = result.get("error")
     if error:
-        print(f"[MF Nodegen Wrapper] Agent error: {{error}}", file=sys.stderr)
+        print(f"[MF Prefab Wrapper] Agent error: {{error}}", file=sys.stderr)
         sys.exit(1)
 
     evaluation = result.get("evaluation")
     if evaluation and not evaluation.get("passed", True):
         issues = evaluation.get("issues", [])
-        print(f"[MF Nodegen Wrapper] Evaluation failed: {{issues}}", file=sys.stderr)
+        print(f"[MF Prefab Wrapper] Evaluation failed: {{issues}}", file=sys.stderr)
         sys.exit(1)
 
     # 4. 将 outputs 写入 /mf/output/
@@ -574,7 +570,7 @@ def main():
             gate_path = _pl.Path("/mf/output") / gate_name
             gate_path.write_text(str(gate_val))
 
-    print("[MF Nodegen Wrapper] Done.")
+    print("[MF Prefab Wrapper] Done.")
 
 if __name__ == "__main__":
     main()
@@ -729,9 +725,10 @@ def _propagate_sweep(
 
     # BFS 从每个显式 sweep 节点出发
     queue: deque[str] = deque(explicit_sweeps)
-    # 阻止传播的节点集合：fan_in 或已有显式 parallel_sweep
+    # 阻止传播的节点集合：fan_in、显式 sweep、生成类节点（ephemeral / prefab 均不可在内部分支）
     blocked: set[str] = {
-        n.id for n in workflow.nodes if n.fan_in or n.parallel_sweep is not None
+        n.id for n in workflow.nodes
+        if n.fan_in or n.parallel_sweep is not None or n.ephemeral or n.prefab
     }
     # 记录已入队的节点，避免重复入队
     enqueued: set[str] = set(explicit_sweeps)
@@ -1224,15 +1221,15 @@ def _build_template(
     # 解析 parametrize（用实例的 onboard_params 覆盖静态资源值）
     resource_overrides = _resolve_resources(spec, node_inst.onboard_params)
 
-    # ── Nodegen 节点（ephemeral + nodegen_tmp_ref）：使用预生成的 nodespec ───
-    if node_inst.ephemeral and node_inst.nodegen_tmp_ref is not None:
+    # ── Prefab 节点：生成 wrapper 脚本，运行时调用 /agents/node/run ───
+    if node_inst.prefab:
         wrapper_source = _build_nodegen_wrapper_script(
             node_inst=node_inst,
             workflow=workflow,
             resolved_nodes=resolved_nodes or {},
             project_id=project_id,
         )
-        return _build_nodegen_ephemeral_template(
+        return _build_prefab_template(
             template_name=template_name,
             script_source=wrapper_source,
             registry=registry,
@@ -1599,7 +1596,7 @@ def _build_ephemeral_template(
     return template
 
 
-def _build_nodegen_ephemeral_template(
+def _build_prefab_template(
     *,
     template_name: str,
     script_source: str,
@@ -1610,7 +1607,7 @@ def _build_nodegen_ephemeral_template(
     onboard_params: dict[str, Any] | None = None,
     project_id: str = "",
 ) -> dict[str, Any]:
-    """构建 nodegen 运行时节点的 Argo script template。
+    """构建 Prefab 运行时节点的 Argo script template。
 
     与 _build_ephemeral_template 不同，此模板使用硬编码的最小资源
     （0.5 CPU, 1Gi memory），因为实际计算在 API 服务端的 Docker sandbox
