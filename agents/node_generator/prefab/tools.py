@@ -380,7 +380,17 @@ def make_schema_tools():
                     result[category] = software_params
 
             if not result:
-                return f"No shared params found for '{software}'. Available: orca, gaussian, psi4, cp2k"
+                # Dynamically list available software from shared_params.yaml
+                # Exclude metadata keys like 'display_name', 'kind', 'allow_other', 'description'
+                _META_KEYS = {'display_name', 'description', 'kind', 'allow_other'}
+                available = set()
+                for cat_data in [data.get("functionals", {}), data.get("basis_sets", {}), data.get("dispersions", {})]:
+                    for mapping in cat_data.values():
+                        if isinstance(mapping, dict):
+                            available.update(k for k, v in mapping.items()
+                                           if v is not None and k not in _META_KEYS)
+                avail_list = ", ".join(sorted(available)) if available else "none"
+                return f"No shared params found for '{software}'. Available software with shared params: {avail_list}"
 
             return json.dumps(result, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -981,9 +991,10 @@ def make_sandbox_tools(
         for port_name, content in _input_data.items():
             (input_dir / port_name).write_text(content, encoding="utf-8")
 
-        # 确保 output, workdir 目录
-        (exec_sandbox / "output").mkdir(parents=True, exist_ok=True)
-        (exec_sandbox / "workdir").mkdir(parents=True, exist_ok=True)
+        # 确保 output, workdir 目录（777 权限：部分镜像以非 root 用户运行，如 Psi4 mambauser）
+        for _d in [(exec_sandbox / "output"), (exec_sandbox / "workdir")]:
+            _d.mkdir(parents=True, exist_ok=True)
+            _d.chmod(0o777)
 
         # ── 应用 port_map 输入别名：通用名(I1) → 语义名(xyz_geometry) ──
         port_map_path = _sandbox_dir / "port_map.json"

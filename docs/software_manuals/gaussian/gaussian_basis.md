@@ -148,7 +148,7 @@ H 0
 ****
 ```
 
-## Pure vs. Cartesian Functions
+\## Pure vs. Cartesian Functions
 
 - `5D`: Use 5 pure d functions (default for most basis sets)
 - `6D`: Use 6 Cartesian d functions

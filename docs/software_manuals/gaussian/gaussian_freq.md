@@ -432,17 +432,17 @@ Initialization pass.
 Dipole        = 2.37312183D-16 -6.66133815D-16 -9.39281319D-01
 Polarizability= 7.83427191D-01  1.60008472D-15  6.80285860D+00
 
-##                -3.11369582D-17  2.72397709D-16  3.62729494D+00
+\##                -3.11369582D-17  2.72397709D-16  3.62729494D+00
 
 HyperPolar    = 3.08796953D-16 -6.27350412D-14  4.17080415D-16
 
 ##                 5.55019858D-14 -7.26773439D-01 -1.09052038D-14
 
 
-##                -2.07727337D+01  4.49920497D-16 -1.40402516D-13
+\##                -2.07727337D+01  4.49920497D-16 -1.40402516D-13
 
 
-##                -1.10991697D+01
+\##                -1.10991697D+01
 
    #P also produces a bar-graph of the simulated spectra for small cases.
    Thermochemistry analysis follows the frequency and normal mode data:
@@ -534,53 +534,53 @@ Sum of electronic and thermal Free Energies= -527.463147   G=H-TS
                           Interatomic distances:
                    1          2         3         4
 
-##      1  C    0.000000
+\##      1  C    0.000000
 
 
-##      2  O    1.206908   0.000000
+\##      2  O    1.206908   0.000000
 
 
-##      3  H    1.083243   2.008999   0.000000
+\##      3  H    1.083243   2.008999   0.000000
 
 
-##      4  H    1.083243   2.008999   1.826598   0.000000
+\##      4  H    1.083243   2.008999   1.826598   0.000000
 
                           Interatomic angles:
 
-##       O2-C1-H3=122.5294      O2-C1-H4=122.5294      H3-C1-H4=114.9412
+\##       O2-C1-H3=122.5294      O2-C1-H4=122.5294      H3-C1-H4=114.9412
 
 
-##       O2-H3-H4= 62.9605
+\##       O2-H3-H4= 62.9605
 
                              Dihedral angles:
 
-##       H4-C1-H3-O2= 180.
+\##       H4-C1-H3-O2= 180.
 
  Internal coordinates for the vibrationally average structure at 0K (Sz)
                           Interatomic distances:
                    1          2         3         4
 
-##      1  C    0.000000
+\##      1  C    0.000000
 
 
-##      2  O    1.210431   0.000000
+\##      2  O    1.210431   0.000000
 
 
-##      3  H    1.097064   2.024452   0.000000
+\##      3  H    1.097064   2.024452   0.000000
 
 
-##      4  H    1.097064   2.024452   1.849067   0.000000
+\##      4  H    1.097064   2.024452   1.849067   0.000000
 
                           Interatomic angles:
 
-##       O2-C1-H3=122.57        O2-C1-H4=122.57        H3-C1-H4=114.8601
+\##       O2-C1-H3=122.57        O2-C1-H4=122.57        H3-C1-H4=114.8601
 
 
-##       O2-H4-H3= 62.8267
+\##       O2-H4-H3= 62.8267
 
                              Dihedral angles:
 
-##       H4-C1-H3-O2= 180.
+\##       H4-C1-H3-O2= 180.
 
    Note that the bond lengths are slightly longer in the latter structure.
    The predicted coordinates at STP follow in the output.
@@ -636,13 +636,13 @@ Note: The normal coordinates of the final state (columns) are expressed
       in the basis set of the normal coordinates of the initial state (rows)
            1             2             3             4             5
 
-## 1  -0.539484D+00  0.839747D+00  0.139916D-01 -0.147815D-01  0.167387D-02
+\## 1  -0.539484D+00  0.839747D+00  0.139916D-01 -0.147815D-01  0.167387D-02
 
 
-## 2  -0.594185D+00 -0.373849D+00 -0.647845D+00  0.757424D-01 -0.627709D-02
+\## 2  -0.594185D+00 -0.373849D+00 -0.647845D+00  0.757424D-01 -0.627709D-02
 
 
-## 3   0.303582D-01  0.276954D-01  0.572527D-02  0.354162D+00 -0.933518D+00
+\## 3   0.303582D-01  0.276954D-01  0.572527D-02  0.354162D+00 -0.933518D+00
 
 …
    Note that this output reports the value of J[ij] for each pair of
@@ -1163,16 +1163,16 @@ Normal Modes
 Formaldehyde
 0 1
 
-##   C      -0.6067825443565   -0.0000000216230    0.0000000000000
+\##   C      -0.6067825443565   -0.0000000216230    0.0000000000000
 
 
-##   O       0.6033290944914    0.0000000215000    0.0000000000000
+\##   O       0.6033290944914    0.0000000215000    0.0000000000000
 
 
-##   H      -1.1752074085613    0.9201232113261    0.0000000000000
+\##   H      -1.1752074085613    0.9201232113261    0.0000000000000
 
 
-##   H      -1.1752073429832   -0.9201232950844    0.0000000000000
+\##   H      -1.1752073429832   -0.9201232950844    0.0000000000000
 
 PT2Model=GVPT2 Resonances=(NoDarDen,NoFermi)
 DataMod=SkipPT2=OptModes
@@ -2113,17 +2113,17 @@ Initialization pass.
 Dipole        = 2.37312183D-16 -6.66133815D-16 -9.39281319D-01
 Polarizability= 7.83427191D-01  1.60008472D-15  6.80285860D+00
 
-##                -3.11369582D-17  2.72397709D-16  3.62729494D+00
+\##                -3.11369582D-17  2.72397709D-16  3.62729494D+00
 
 HyperPolar    = 3.08796953D-16 -6.27350412D-14  4.17080415D-16
 
 ##                 5.55019858D-14 -7.26773439D-01 -1.09052038D-14
 
 
-##                -2.07727337D+01  4.49920497D-16 -1.40402516D-13
+\##                -2.07727337D+01  4.49920497D-16 -1.40402516D-13
 
 
-##                -1.10991697D+01
+\##                -1.10991697D+01
 
    #P also produces a bar-graph of the simulated spectra for small cases.
    Thermochemistry analysis follows the frequency and normal mode data:
@@ -2215,53 +2215,53 @@ Sum of electronic and thermal Free Energies= -527.463147   G=H-TS
                           Interatomic distances:
                    1          2         3         4
 
-##      1  C    0.000000
+\##      1  C    0.000000
 
 
-##      2  O    1.206908   0.000000
+\##      2  O    1.206908   0.000000
 
 
-##      3  H    1.083243   2.008999   0.000000
+\##      3  H    1.083243   2.008999   0.000000
 
 
-##      4  H    1.083243   2.008999   1.826598   0.000000
+\##      4  H    1.083243   2.008999   1.826598   0.000000
 
                           Interatomic angles:
 
-##       O2-C1-H3=122.5294      O2-C1-H4=122.5294      H3-C1-H4=114.9412
+\##       O2-C1-H3=122.5294      O2-C1-H4=122.5294      H3-C1-H4=114.9412
 
 
-##       O2-H3-H4= 62.9605
+\##       O2-H3-H4= 62.9605
 
                              Dihedral angles:
 
-##       H4-C1-H3-O2= 180.
+\##       H4-C1-H3-O2= 180.
 
  Internal coordinates for the vibrationally average structure at 0K (Sz)
                           Interatomic distances:
                    1          2         3         4
 
-##      1  C    0.000000
+\##      1  C    0.000000
 
 
-##      2  O    1.210431   0.000000
+\##      2  O    1.210431   0.000000
 
 
-##      3  H    1.097064   2.024452   0.000000
+\##      3  H    1.097064   2.024452   0.000000
 
 
-##      4  H    1.097064   2.024452   1.849067   0.000000
+\##      4  H    1.097064   2.024452   1.849067   0.000000
 
                           Interatomic angles:
 
-##       O2-C1-H3=122.57        O2-C1-H4=122.57        H3-C1-H4=114.8601
+\##       O2-C1-H3=122.57        O2-C1-H4=122.57        H3-C1-H4=114.8601
 
 
-##       O2-H4-H3= 62.8267
+\##       O2-H4-H3= 62.8267
 
                              Dihedral angles:
 
-##       H4-C1-H3-O2= 180.
+\##       H4-C1-H3-O2= 180.
 
    Note that the bond lengths are slightly longer in the latter structure.
    The predicted coordinates at STP follow in the output.
@@ -2317,13 +2317,13 @@ Note: The normal coordinates of the final state (columns) are expressed
       in the basis set of the normal coordinates of the initial state (rows)
            1             2             3             4             5
 
-## 1  -0.539484D+00  0.839747D+00  0.139916D-01 -0.147815D-01  0.167387D-02
+\## 1  -0.539484D+00  0.839747D+00  0.139916D-01 -0.147815D-01  0.167387D-02
 
 
-## 2  -0.594185D+00 -0.373849D+00 -0.647845D+00  0.757424D-01 -0.627709D-02
+\## 2  -0.594185D+00 -0.373849D+00 -0.647845D+00  0.757424D-01 -0.627709D-02
 
 
-## 3   0.303582D-01  0.276954D-01  0.572527D-02  0.354162D+00 -0.933518D+00
+\## 3   0.303582D-01  0.276954D-01  0.572527D-02  0.354162D+00 -0.933518D+00
 
 …
    Note that this output reports the value of J[ij] for each pair of
@@ -2842,16 +2842,16 @@ Normal Modes
 Formaldehyde
 0 1
 
-##   C      -0.6067825443565   -0.0000000216230    0.0000000000000
+\##   C      -0.6067825443565   -0.0000000216230    0.0000000000000
 
 
-##   O       0.6033290944914    0.0000000215000    0.0000000000000
+\##   O       0.6033290944914    0.0000000215000    0.0000000000000
 
 
-##   H      -1.1752074085613    0.9201232113261    0.0000000000000
+\##   H      -1.1752074085613    0.9201232113261    0.0000000000000
 
 
-##   H      -1.1752073429832   -0.9201232950844    0.0000000000000
+\##   H      -1.1752073429832   -0.9201232950844    0.0000000000000
 
 PT2Model=GVPT2 Resonances=(NoDarDen,NoFermi)
 DataMod=SkipPT2=OptModes

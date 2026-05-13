@@ -135,7 +135,9 @@ def run_explore_agent(
         "- Relevant commands/keywords and their format\n"
         "- Input file conventions (route section, molecule specification)\n"
         "- Reference node structure: ports, resource defaults, naming patterns\n"
-        "- Any important caveats or gotchas\n\n"
+        "- Any important caveats or gotchas\n"
+        "- Manual or tool issues: note any problems with the manuals (incomplete, "
+        "inaccurate, poorly formatted) or tools (wrong results, missing functionality)\n\n"
         "Be specific and factual. The parent agent depends on your findings.\n"
         "Plain text — no code blocks or JSON."
     )

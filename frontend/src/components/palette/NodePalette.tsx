@@ -234,7 +234,7 @@ function SemanticTypeCard({ semanticType, label, nodes, subGroups, expanded, onT
 // ─── NodePalette ──────────────────────────────────────────────────────────────
 
 export function NodePalette() {
-  const { isLoading, refetch } = useNodeCatalog()
+  const { isLoading, refreshWithReindex } = useNodeCatalog()
   const { filteredNodes, searchQuery, setSearchQuery, expandedTypes, toggleExpanded } = useNodeCatalogStore()
   const { paletteCollapsed, togglePalette } = useUIStore()
 
@@ -261,9 +261,9 @@ export function NodePalette() {
         <span className="text-xs font-semibold text-mf-text-secondary uppercase tracking-wide">Nodes</span>
         <div className="flex gap-1 items-center">
           <button
-            onClick={() => refetch()}
+            onClick={() => refreshWithReindex()}
             className="text-mf-text-muted hover:text-mf-text-primary p-0.5"
-            title="Refresh node catalog"
+            title="Refresh node catalog (re-scan filesystem)"
             disabled={isLoading}
           >
             <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />

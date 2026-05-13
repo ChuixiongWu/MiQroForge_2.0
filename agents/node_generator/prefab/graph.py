@@ -14,7 +14,6 @@ from langgraph.graph import StateGraph, END
 
 from agents.node_generator.prefab.state import PrefabGenState
 from agents.node_generator.prefab.generator import generate_prefab_node
-from agents.node_generator.prefab.evaluator import evaluate_prefab_node
 from agents.schemas import NodeGenResult
 
 

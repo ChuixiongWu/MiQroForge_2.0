@@ -218,7 +218,7 @@ Alpha=1.1
 - `SaveQ` (WriteQ): Write PCM charges to checkpoint
 - `LoadQ` (ReadQ): Read PCM charges from checkpoint
 
-## ONIOM+PCM
+\## ONIOM+PCM
 
 ```
 SCRF=ONIOMPCM=A  # Self-consistent with integrated ONIOM density (energy only)

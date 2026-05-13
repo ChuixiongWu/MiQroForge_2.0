@@ -81,31 +81,31 @@ InCore
    Examples
    The MP2 energy appears in the output as follows, labeled as EUMP2:
 
-## E2=        -.3906492545D-01 EUMP2=        -.75003727493390D+02
+\## E2=        -.3906492545D-01 EUMP2=        -.75003727493390D+02
 
    Here is the output from an MP4(SDTQ) calculation:
 Time for triples=         .04 seconds.
 
-## MP4(T)=    -.55601167D-04
+\## MP4(T)=    -.55601167D-04
 
 
-## E3=        -.10847902D-01        EUMP3=       -.75014575395D+02
+\## E3=        -.10847902D-01        EUMP3=       -.75014575395D+02
 
 
-## E4(DQ)=    -.32068082D-02        UMP4(DQ)=    -.75017782203D+02
+\## E4(DQ)=    -.32068082D-02        UMP4(DQ)=    -.75017782203D+02
 
 
-## E4(SDQ)=   -.33238377D-02        UMP4(SDQ)=   -.75017899233D+02
+\## E4(SDQ)=   -.33238377D-02        UMP4(SDQ)=   -.75017899233D+02
 
 
-## E4(SDTQ)=  -.33794389D-02        UMP4(SDTQ)=  -.75017954834D+02
+\## E4(SDTQ)=  -.33794389D-02        UMP4(SDTQ)=  -.75017954834D+02
 
    The energy labeled EUMP3 is the MP3 energy, and the various MP4-level
    corrections appear after it, with the MP4(SDTQ) value coming in the
    final line.
    The B2PLYP energy appears as follows in the output:
 
-##  E2(B2PLYP) =    -0.3262340664D-01 E(B2PLYP) =    -0.39113226645200D+02
+\##  E2(B2PLYP) =    -0.3262340664D-01 E(B2PLYP) =    -0.39113226645200D+02
 
      * Description
      * Option
@@ -190,30 +190,30 @@ InCore
    HF, SCF, Transformation, MaxDisk
    The MP2 energy appears in the output as follows, labeled as EUMP2:
 
-## E2=        -.3906492545D-01 EUMP2=        -.75003727493390D+02
+\## E2=        -.3906492545D-01 EUMP2=        -.75003727493390D+02
 
    Here is the output from an MP4(SDTQ) calculation:
 Time for triples=         .04 seconds.
 
-## MP4(T)=    -.55601167D-04
+\## MP4(T)=    -.55601167D-04
 
 
-## E3=        -.10847902D-01        EUMP3=       -.75014575395D+02
+\## E3=        -.10847902D-01        EUMP3=       -.75014575395D+02
 
 
-## E4(DQ)=    -.32068082D-02        UMP4(DQ)=    -.75017782203D+02
+\## E4(DQ)=    -.32068082D-02        UMP4(DQ)=    -.75017782203D+02
 
 
-## E4(SDQ)=   -.33238377D-02        UMP4(SDQ)=   -.75017899233D+02
+\## E4(SDQ)=   -.33238377D-02        UMP4(SDQ)=   -.75017899233D+02
 
 
-## E4(SDTQ)=  -.33794389D-02        UMP4(SDTQ)=  -.75017954834D+02
+\## E4(SDTQ)=  -.33794389D-02        UMP4(SDTQ)=  -.75017954834D+02
 
    The energy labeled EUMP3 is the MP3 energy, and the various MP4-level
    corrections appear after it, with the MP4(SDTQ) value coming in the
    final line.
    The B2PLYP energy appears as follows in the output:
 
-##  E2(B2PLYP) =    -0.3262340664D-01 E(B2PLYP) =    -0.39113226645200D+02
+\##  E2(B2PLYP) =    -0.3262340664D-01 E(B2PLYP) =    -0.39113226645200D+02
 
    Last updated on: 05 January 2017. [G16 Rev. C.01]

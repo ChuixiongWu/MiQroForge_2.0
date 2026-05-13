@@ -57,6 +57,52 @@ _RE_HEADING = re.compile(r"^(#{1,3})\s+(.+)$", re.MULTILINE)
 # 匹配带编号的 section（如 7.26.1 Geometry Optimization）
 _RE_SECTION_NUM = re.compile(r"^(\d+(?:\.\d+)*)\s+(.+)$", re.MULTILINE)
 
+# 匹配 Gaussian 数值输出行 — title 已去掉 ## 前缀，匹配科学记数法（如 -3.11369582D-17）等
+_RE_NUMERIC_OUTPUT = re.compile(r"^[-+]?(?:\d+\.?\d*[A-Z][-+]?\d+|:DEL\]|\s*=)")
+
+# lynx HTML→text 转换产生的 artifact 标记
+_RE_LYNX_ARTIFACT = re.compile(r"\[DEL:|:DEL\]")
+
+# 匹配自旋/角动量期望值行（如 "<Sx>= 0.0000" 或 "<L.S>= 0.000000000000E+00"）
+_RE_SPIN_EXPECT = re.compile(r"^<[A-Za-z.*^]+\d*\s*\*?\s*\d*\s*>\s*=")
+
+
+def _compute_code_block_lines(lines: list[str]) -> set[int]:
+    """计算所有位于 code fence (```) 内部的行的行号集合。"""
+    code_lines: set[int] = set()
+    in_block = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if in_block:
+                code_lines.add(i)  # closing fence 也算在内
+                in_block = False
+            else:
+                code_lines.add(i)  # opening fence 也算在内
+                in_block = True
+        elif in_block:
+            code_lines.add(i)
+    return code_lines
+
+
+def _is_valid_heading(title: str) -> bool:
+    """判断一个 heading 标题是否为有效的文档标题（而非数值输出/artifact）。"""
+    if not title:
+        return False
+    # 跳过 lynx artifact
+    if _RE_LYNX_ARTIFACT.search(title):
+        return False
+    # 跳过 Gaussian 数值输出（如 "-3.11369582D-17  2.7239..."，已去掉 ## 前缀）
+    if _RE_NUMERIC_OUTPUT.match(title):
+        return False
+    # 跳过自旋/角动量期望值（如 "<Sx>= 0.0000"）
+    if _RE_SPIN_EXPECT.match(title):
+        return False
+    # 跳过纯数值/等号行（如 "= 0.0000 = 0.0000 = 1.0000 [DEL: ..."）
+    if title.strip().startswith("=") and any(c.isdigit() for c in title):
+        return False
+    return True
+
 
 def _parse_sections(content: str, filename: str) -> list[Section]:
     """将 markdown 内容分割为 sections。"""
@@ -65,12 +111,14 @@ def _parse_sections(content: str, filename: str) -> list[Section]:
 
     # 策略：按 ## Page N 分割（PDF 提取的文档用这种格式）
     # 如果没有 Page 标记，则按 # Heading 分割
-    page_markers = [(i, int(m.group(1))) for i, m in enumerate(_RE_PAGE.finditer(content))]
+    # 使用 match 在 content 中的实际字节位置计算行号（而非 enumerate 索引）
+    page_markers = [(content[:m.start()].count("\n"), int(m.group(1)))
+                    for m in _RE_PAGE.finditer(content)]
 
     if page_markers:
         # 按 Page 分割
         for idx, (line_idx, page_num) in enumerate(page_markers):
-            # 找到下一个 page marker 或文件末尾
+            # 找到下一个 page marker 或文件末尾（使用实际行号）
             if idx + 1 < len(page_markers):
                 end_line = page_markers[idx + 1][0]
             else:
@@ -87,14 +135,18 @@ def _parse_sections(content: str, filename: str) -> list[Section]:
             title = f"Page {page_num}"
             first_heading = _RE_HEADING.search(section_text)
             if first_heading:
-                title = first_heading.group(2).strip()
-            else:
+                candidate = first_heading.group(2).strip()
+                if _is_valid_heading(candidate):
+                    title = candidate
+            if title == f"Page {page_num}":
                 # 尝试提取第一行非空文本作为标题
                 for sl in section_lines:
                     sl_stripped = sl.strip()
                     if sl_stripped and not sl_stripped.startswith("#"):
-                        title = sl_stripped[:80]
-                        break
+                        # 跳过 artifact 行
+                        if not _RE_LYNX_ARTIFACT.search(sl_stripped):
+                            title = sl_stripped[:80]
+                            break
 
             sections.append(Section(
                 section_id=f"page-{page_num}",
@@ -106,16 +158,29 @@ def _parse_sections(content: str, filename: str) -> list[Section]:
             ))
     else:
         # 按 # Heading 分割
+        # 预计算 code block 行号，用于跳过代码块内的伪标题
+        code_block_lines = _compute_code_block_lines(lines)
+
         headings = list(_RE_HEADING.finditer(content))
         for idx, match in enumerate(headings):
             line_idx = content[:match.start()].count("\n")
+
+            # 跳过 code block 内的伪标题
+            if line_idx in code_block_lines:
+                continue
+
+            title = match.group(2).strip()
+
+            # 跳过无效 heading（数值输出、artifact 等）
+            if not _is_valid_heading(title):
+                continue
+
             if idx + 1 < len(headings):
                 end_line = content[:headings[idx + 1].start()].count("\n")
             else:
                 end_line = len(lines)
 
             section_text = "\n".join(lines[line_idx:end_line]).strip()
-            title = match.group(2).strip()
 
             # 尝试提取 section 编号
             section_id = title.lower().replace(" ", "-")[:40]

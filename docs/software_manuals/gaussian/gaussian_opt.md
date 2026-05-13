@@ -310,7 +310,7 @@ Options Related to Initial Force Constants
        of the Hessian. This is specified in the ModRedundant input or on
        the variable definition lines in the Z-matrix. For example:
 
-## 1 2 H 0.55
+\## 1 2 H 0.55
 
        The letter H indicates that a diagonal force constant is being
        specified for this coordinate and that its value is 0.55
@@ -327,7 +327,7 @@ Options Related to Initial Force Constants
        requested by a flag (D) on the variable definition lines:
 1 2 D
 
-## 1 2 3 D
+\## 1 2 3 D
 
        This input tells the program to do three points before taking the
        first optimization step: the usual first point, a geometry with the
@@ -690,13 +690,13 @@ Optimization completed.
 ! Name  Definition              Value          Derivative Info.    !
 --------------------------------------------------------------------
 
-## ! R1    R(2,1)                  0.9892         -DE/DX =    0.0002 !
+\## ! R1    R(2,1)                  0.9892         -DE/DX =    0.0002 !
 
 
-## ! R2    R(3,1)                  0.9892         -DE/DX =    0.0002 !
+\## ! R2    R(3,1)                  0.9892         -DE/DX =    0.0002 !
 
 
-## ! A1    A(2,1,3)              100.004          -DE/DX =    0.0001 !
+\## ! A1    A(2,1,3)              100.004          -DE/DX =    0.0001 !
 
 --------------------------------------------------------------------
    The redundant internal coordinate definitions are given in the second
@@ -724,28 +724,28 @@ Optimization completed.
    Opt job
    0,1
 
-##    C1  0.000   0.000   0.000
+\##    C1  0.000   0.000   0.000
 
 
-##    C2  0.000   0.000   1.505
+\##    C2  0.000   0.000   1.505
 
 
-##    O3  1.047   0.000  -0.651
+\##    O3  1.047   0.000  -0.651
 
 
-##    H4 -1.000  -0.006  -0.484
+\##    H4 -1.000  -0.006  -0.484
 
 
-##    H5 -0.735   0.755   1.898
+\##    H5 -0.735   0.755   1.898
 
 
-##    H6 -0.295  -1.024   1.866
+\##    H6 -0.295  -1.024   1.866
 
 
-##    O7  1.242   0.364   2.065
+\##    O7  1.242   0.364   2.065
 
 
-##    H8  1.938  -0.001   1.499
+\##    H8  1.938  -0.001   1.499
 
    3  8 Adds hydrogen bond (but not angles or dihedrals).
    2  1  3 Adds C-C-O angle.
@@ -756,7 +756,7 @@ Optimization completed.
    two atoms The associated angles and dihedral angles could be added as
    well using the B action code:
 
-## 3  8  B
+\## 3  8  B
 
    Displaying the Value of a Desired Coordinate. The second input line for
    ModRedundant specifies the C-C=O bond angle, ensuring that its value
@@ -794,24 +794,24 @@ Optimization completed.
    -2,1
    Fe 15.2630 -1.0091  7.0068
 
-##    S  14.8495  1.1490  7.0431
+\##    S  14.8495  1.1490  7.0431
 
    Fe 17.0430  1.0091  7.0068
 
-##    S  17.4565 -1.1490  7.0431
+\##    S  17.4565 -1.1490  7.0431
 
 
-##    S  14.3762 -2.1581  8.7983
+\##    S  14.3762 -2.1581  8.7983
 
 
-##    C  12.5993 -2.1848  8.6878
+\##    C  12.5993 -2.1848  8.6878
 
    …
 
-##    C  14.8285 -3.8823  3.3884
+\##    C  14.8285 -3.8823  3.3884
 
 
-##    H  14.3660 -3.3149  2.7071
+\##    H  14.3660 -3.3149  2.7071
 
    noatoms atoms=1-4             ReadOpt input.
    The central cluster (the first four atoms) will be optimized while the
@@ -877,19 +877,19 @@ Optimization completed.
 ! Name  Definition    Value    Reactant  Product  Derivative Info.  !
 -------------------------------------------------------------------
 
-## ! R1    R(2,1)        1.0836    1.083     1.084    -DE/DX =    0.  !
+\## ! R1    R(2,1)        1.0836    1.083     1.084    -DE/DX =    0.  !
 
 
-## ! R2    R(3,1)        1.4233    1.4047    1.4426   -DE/DX =   -0.   !
+\## ! R2    R(3,1)        1.4233    1.4047    1.4426   -DE/DX =   -0.   !
 
 
-## ! R3    R(4,1)        1.4154    1.4347    1.3952   -DE/DX =   -0.   !
+\## ! R3    R(4,1)        1.4154    1.4347    1.3952   -DE/DX =   -0.   !
 
 
-## ! R4    R(5,3)        1.3989    1.3989    1.3984   -DE/DX =    0.   !
+\## ! R4    R(5,3)        1.3989    1.3989    1.3984   -DE/DX =    0.   !
 
 
-## ! R5    R(6,3)        1.1009    1.0985    1.0995   -DE/DX =    0.   !
+\## ! R5    R(6,3)        1.1009    1.0985    1.0995   -DE/DX =    0.   !
 
 ! …                                                              !
 -------------------------------------------------------------------
@@ -910,7 +910,7 @@ Optimization completed.
    step-size. For example, this input adds a bond between atoms 2 and 3,
    specifying three scan steps of 0.05 Å each:
 
-## 2 3 S 3 0.05
+\## 2 3 S 3 0.05
 
    Wildcards in the ModRedundant input may also be useful in setting up
    relaxed PES scans. For example, the following input is appropriate for
@@ -928,22 +928,22 @@ Optimization completed.
 Title
  0 1
 
-## O    0.0000    0.0000    0.0000
+\## O    0.0000    0.0000    0.0000
 
 
-## H    0.0000    0.0000    1.3112
+\## H    0.0000    0.0000    1.3112
 
 
-## H    1.0354    0.0000   -0.6225
+\## H    1.0354    0.0000   -0.6225
 
 
-## R(1,2)
+\## R(1,2)
 
 
-## R(1,3)
+\## R(1,3)
 
 
-## HOH=A(2,1,3)
+\## HOH=A(2,1,3)
 
    The atomic indexes 1, 2, and 3 refer to the oxygen atom, the first and
    the second hydrogen atom, respectively. The first and the second
@@ -976,18 +976,18 @@ Title
 Title
  0 1
 
-## O    0.0000    0.0000    0.0000
+\## O    0.0000    0.0000    0.0000
 
 
-## H    0.0000    0.0000    1.3112
+\## H    0.0000    0.0000    1.3112
 
 
-## H    1.0354    0.0000   -0.6225
+\## H    1.0354    0.0000   -0.6225
 
 OHSym1=(R(1,2)+R(1,3))/sqrt(2)
 OHSym2=(R(1,2)-R(1,3))/sqrt(2)
 
-## HOH=A(2,1,3)
+\## HOH=A(2,1,3)
 
    The first and the second expression in the example above define the
    symmetrized O-H bonds, and the third one is the H-O-H valence angle.
@@ -1018,16 +1018,16 @@ Title
  0 1
 O
 
-## H  1  1.3
+\## H  1  1.3
 
 
-## H  1  1.2  2  120.
+\## H  1  1.2  2  120.
 
 
-## R12=SQRT[{X(2)-X(1)}^2+{Y(2)-Y(1)}^2+{Z(2)-Z(1)}^2]
+\## R12=SQRT[{X(2)-X(1)}^2+{Y(2)-Y(1)}^2+{Z(2)-Z(1)}^2]
 
 
-## R13=SQRT[{X(3)-X(1)}^2+{Y(3)-Y(1)}^2+{Z(3)-Z(1)}^2]
+\## R13=SQRT[{X(3)-X(1)}^2+{Y(3)-Y(1)}^2+{Z(3)-Z(1)}^2]
 
 A0(Inactive)=DotDiff(2,1,3,1)/{R12*R13}
 A213=ArcCos(A0)
@@ -1127,10 +1127,10 @@ Structural Parameters
        bend involving atoms 1, 2 and 3 using atom 6 to determine the two
        orthogonal directions:
 
-## L(1,2,3,6,-1)
+\## L(1,2,3,6,-1)
 
 
-## L(1,2,3,6,-2)
+\## L(1,2,3,6,-2)
 
        If l is set to -4, then the fourth atom will be determined
        automatically based on the molecular geometry.
@@ -1140,10 +1140,10 @@ Structural Parameters
        also be used to request that the appropriate plane be determined
        automatically:
 
-## L(1,2,3,0,-1)
+\## L(1,2,3,0,-1)
 
 
-## L(1,2,3,0,-2)
+\## L(1,2,3,0,-2)
 
    X(i)
    Define the x Cartesian coordinate for atom i. Cartesian(i,-1) and
@@ -1372,18 +1372,18 @@ L(1,2,3,0,-2) Add IfNot A(1,2,3)
    coordinate:
 A(1,2,3) Remove Min=3.139847 ForceConstant=0.2
 
-## R(1,2) FC=0.5
+\## R(1,2) FC=0.5
 
    The following example sets the force constants for various coordinates.
    It also inactivates bond angle coordinates ≥ 179.8°:
 
-## R(1,*) FC=0.8
+\## R(1,*) FC=0.8
 
 
-## D(*,4,5,*) FC=0.4
+\## D(*,4,5,*) FC=0.4
 
 
-## A(*,1,*) FC=0.5
+\## A(*,1,*) FC=0.5
 
 A(*,*,*) R Min=179.8
 Limitations of GICs in the Current Implementation
@@ -1408,13 +1408,13 @@ Limitations of GICs in the Current Implementation
    such periodicity is important, typically, combinations of multiple
    dihedral angles. For example, consider these GICs:
 
-## D1 = D(1,2,3,4)
+\## D1 = D(1,2,3,4)
 
 
-## D2 = D(5,6,7,8)
+\## D2 = D(5,6,7,8)
 
 
-## V1 = D1 + 2*D2
+\## V1 = D1 + 2*D2
 
    D1 and D2 are dihedral angles, but they are intermediates and are not
    used as variables in the optimization. Their periodicity is not
@@ -1719,7 +1719,7 @@ Options Related to Initial Force Constants
        of the Hessian. This is specified in the ModRedundant input or on
        the variable definition lines in the Z-matrix. For example:
 
-## 1 2 H 0.55
+\## 1 2 H 0.55
 
        The letter H indicates that a diagonal force constant is being
        specified for this coordinate and that its value is 0.55
@@ -1736,7 +1736,7 @@ Options Related to Initial Force Constants
        requested by a flag (D) on the variable definition lines:
 1 2 D
 
-## 1 2 3 D
+\## 1 2 3 D
 
        This input tells the program to do three points before taking the
        first optimization step: the usual first point, a geometry with the
@@ -2095,13 +2095,13 @@ Optimization completed.
 ! Name  Definition              Value          Derivative Info.    !
 --------------------------------------------------------------------
 
-## ! R1    R(2,1)                  0.9892         -DE/DX =    0.0002 !
+\## ! R1    R(2,1)                  0.9892         -DE/DX =    0.0002 !
 
 
-## ! R2    R(3,1)                  0.9892         -DE/DX =    0.0002 !
+\## ! R2    R(3,1)                  0.9892         -DE/DX =    0.0002 !
 
 
-## ! A1    A(2,1,3)              100.004          -DE/DX =    0.0001 !
+\## ! A1    A(2,1,3)              100.004          -DE/DX =    0.0001 !
 
 --------------------------------------------------------------------
    The redundant internal coordinate definitions are given in the second
@@ -2129,28 +2129,28 @@ Optimization completed.
    Opt job
    0,1
 
-##    C1  0.000   0.000   0.000
+\##    C1  0.000   0.000   0.000
 
 
-##    C2  0.000   0.000   1.505
+\##    C2  0.000   0.000   1.505
 
 
-##    O3  1.047   0.000  -0.651
+\##    O3  1.047   0.000  -0.651
 
 
-##    H4 -1.000  -0.006  -0.484
+\##    H4 -1.000  -0.006  -0.484
 
 
-##    H5 -0.735   0.755   1.898
+\##    H5 -0.735   0.755   1.898
 
 
-##    H6 -0.295  -1.024   1.866
+\##    H6 -0.295  -1.024   1.866
 
 
-##    O7  1.242   0.364   2.065
+\##    O7  1.242   0.364   2.065
 
 
-##    H8  1.938  -0.001   1.499
+\##    H8  1.938  -0.001   1.499
 
    3  8 Adds hydrogen bond (but not angles or dihedrals).
    2  1  3 Adds C-C-O angle.
@@ -2161,7 +2161,7 @@ Optimization completed.
    two atoms The associated angles and dihedral angles could be added as
    well using the B action code:
 
-## 3  8  B
+\## 3  8  B
 
    Displaying the Value of a Desired Coordinate. The second input line for
    ModRedundant specifies the C-C=O bond angle, ensuring that its value
@@ -2199,24 +2199,24 @@ Optimization completed.
    -2,1
    Fe 15.2630 -1.0091  7.0068
 
-##    S  14.8495  1.1490  7.0431
+\##    S  14.8495  1.1490  7.0431
 
    Fe 17.0430  1.0091  7.0068
 
-##    S  17.4565 -1.1490  7.0431
+\##    S  17.4565 -1.1490  7.0431
 
 
-##    S  14.3762 -2.1581  8.7983
+\##    S  14.3762 -2.1581  8.7983
 
 
-##    C  12.5993 -2.1848  8.6878
+\##    C  12.5993 -2.1848  8.6878
 
    …
 
-##    C  14.8285 -3.8823  3.3884
+\##    C  14.8285 -3.8823  3.3884
 
 
-##    H  14.3660 -3.3149  2.7071
+\##    H  14.3660 -3.3149  2.7071
 
    noatoms atoms=1-4             ReadOpt input.
    The central cluster (the first four atoms) will be optimized while the
@@ -2282,19 +2282,19 @@ Optimization completed.
 ! Name  Definition    Value    Reactant  Product  Derivative Info.  !
 -------------------------------------------------------------------
 
-## ! R1    R(2,1)        1.0836    1.083     1.084    -DE/DX =    0.  !
+\## ! R1    R(2,1)        1.0836    1.083     1.084    -DE/DX =    0.  !
 
 
-## ! R2    R(3,1)        1.4233    1.4047    1.4426   -DE/DX =   -0.   !
+\## ! R2    R(3,1)        1.4233    1.4047    1.4426   -DE/DX =   -0.   !
 
 
-## ! R3    R(4,1)        1.4154    1.4347    1.3952   -DE/DX =   -0.   !
+\## ! R3    R(4,1)        1.4154    1.4347    1.3952   -DE/DX =   -0.   !
 
 
-## ! R4    R(5,3)        1.3989    1.3989    1.3984   -DE/DX =    0.   !
+\## ! R4    R(5,3)        1.3989    1.3989    1.3984   -DE/DX =    0.   !
 
 
-## ! R5    R(6,3)        1.1009    1.0985    1.0995   -DE/DX =    0.   !
+\## ! R5    R(6,3)        1.1009    1.0985    1.0995   -DE/DX =    0.   !
 
 ! …                                                              !
 -------------------------------------------------------------------
@@ -2315,7 +2315,7 @@ Optimization completed.
    step-size. For example, this input adds a bond between atoms 2 and 3,
    specifying three scan steps of 0.05 Å each:
 
-## 2 3 S 3 0.05
+\## 2 3 S 3 0.05
 
    Wildcards in the ModRedundant input may also be useful in setting up
    relaxed PES scans. For example, the following input is appropriate for
@@ -2333,22 +2333,22 @@ Optimization completed.
 Title
  0 1
 
-## O    0.0000    0.0000    0.0000
+\## O    0.0000    0.0000    0.0000
 
 
-## H    0.0000    0.0000    1.3112
+\## H    0.0000    0.0000    1.3112
 
 
-## H    1.0354    0.0000   -0.6225
+\## H    1.0354    0.0000   -0.6225
 
 
-## R(1,2)
+\## R(1,2)
 
 
-## R(1,3)
+\## R(1,3)
 
 
-## HOH=A(2,1,3)
+\## HOH=A(2,1,3)
 
    The atomic indexes 1, 2, and 3 refer to the oxygen atom, the first and
    the second hydrogen atom, respectively. The first and the second
@@ -2381,18 +2381,18 @@ Title
 Title
  0 1
 
-## O    0.0000    0.0000    0.0000
+\## O    0.0000    0.0000    0.0000
 
 
-## H    0.0000    0.0000    1.3112
+\## H    0.0000    0.0000    1.3112
 
 
-## H    1.0354    0.0000   -0.6225
+\## H    1.0354    0.0000   -0.6225
 
 OHSym1=(R(1,2)+R(1,3))/sqrt(2)
 OHSym2=(R(1,2)-R(1,3))/sqrt(2)
 
-## HOH=A(2,1,3)
+\## HOH=A(2,1,3)
 
    The first and the second expression in the example above define the
    symmetrized O-H bonds, and the third one is the H-O-H valence angle.
@@ -2423,16 +2423,16 @@ Title
  0 1
 O
 
-## H  1  1.3
+\## H  1  1.3
 
 
-## H  1  1.2  2  120.
+\## H  1  1.2  2  120.
 
 
-## R12=SQRT[{X(2)-X(1)}^2+{Y(2)-Y(1)}^2+{Z(2)-Z(1)}^2]
+\## R12=SQRT[{X(2)-X(1)}^2+{Y(2)-Y(1)}^2+{Z(2)-Z(1)}^2]
 
 
-## R13=SQRT[{X(3)-X(1)}^2+{Y(3)-Y(1)}^2+{Z(3)-Z(1)}^2]
+\## R13=SQRT[{X(3)-X(1)}^2+{Y(3)-Y(1)}^2+{Z(3)-Z(1)}^2]
 
 A0(Inactive)=DotDiff(2,1,3,1)/{R12*R13}
 A213=ArcCos(A0)

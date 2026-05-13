@@ -6,17 +6,15 @@ Check whether the generated node correctly implements the requested functionalit
 - Target Software: {{ request.target_software or 'N/A' }}
 - Description: {{ request.description }}
 
-## Generated nodespec.yaml:
-```yaml
-{{ nodespec_yaml }}
-```
+## Sandbox Directory:
+The generated node files are at `{{ sandbox_dir }}`. Use the available tools to inspect them:
+- `list_node_files` — see all files in the sandbox
+- `read_node_file` — read any file (nodespec.yaml, profile/run.sh, output files, etc.)
 
-{% if run_sh %}
-## Generated run.sh:
-```bash
-{{ run_sh }}
-```
-{% endif %}
+Key files to check:
+- `nodespec.yaml` — the node definition (schema validation already passed)
+- `profile/run.sh` — the execution script
+- `output/` — sandbox output files (check data correctness)
 
 {% if sandbox_result %}
 ## Sandbox Test Result:
@@ -37,29 +35,17 @@ Check whether the generated node correctly implements the requested functionalit
 {% if sandbox_result.generated_files %}
 - **Generated Files**: {{ sandbox_result.generated_files | join(', ') }}
 {% endif %}
-{% if output_previews %}
-### Output File Contents (for data correctness check):
-{% for fname, fcontent in output_previews.items() %}
-**{{ fname }}**:
-```
-{{ fcontent }}
-```
-{% endfor %}
-{% endif %}
 {% endif %}
 
 ## Evaluation Checklist:
 
-### Programmatic Checks:
-- nodespec.yaml: parseable as valid YAML? ✓/✗
-- NodeSpec Pydantic validation: passes? ✓/✗
-- Port names: snake_case? ✓/✗
-- semantic_type: in registry? ✓/✗
-- base_image_ref: in registry? ✓/✗
-- Resources: reasonable values? ✓/✗
-- run.sh: has `# MF2 init` marker? ✓/✗
-- run.sh: uses /mf/input/ and /mf/output/ paths? ✓/✗
-- Templates: use string.Template syntax ($var)? ✓/✗
+### Programmatic Checks (already passed):
+- nodespec.yaml: parseable YAML ✓
+- NodeSpec Pydantic validation ✓
+- Port names: snake_case ✓
+- semantic_type: in registry ✓
+- base_image_ref: in registry ✓
+- Resources: reasonable values ✓
 
 ### Sandbox Checks:
 {% if sandbox_result %}
@@ -69,12 +55,17 @@ Check whether the generated node correctly implements the requested functionalit
 - No sandbox test was performed
 {% endif %}
 
-### Intent Checks (most important):
+### Intent Checks (most important — use tools to read the files):
 1. Does the node correctly implement the requested semantic type?
 2. Are the ports minimal and correct for the operation?
 3. Is the run.sh script logically correct for the target software?
 4. Are on-board parameters complete and well-defined?
-5. Does the node match the software's actual capabilities (per manual)?
+5. Does the node match the software's actual capabilities?
+6. Are the output files and data correct (check actual values)?
+
+**Strategy**: Start by calling list_node_files to see the layout.
+Then read the key files (nodespec.yaml, profile/run.sh, output files).
+You have up to 2 rounds of tool calls before you must produce your final evaluation.
 
 Output ONLY this JSON (no prose):
 ```json

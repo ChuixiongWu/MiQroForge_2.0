@@ -62,16 +62,36 @@ cmd_ui() {
         # 端口空闲则直接返回
         ss -tlnp 2>/dev/null | grep -q ":${port} " || return 0
 
-        # 尝试用 fuser 找 PID（只能看到当前用户的进程）
-        local pid
-        pid=$(fuser "${port}/tcp" 2>/dev/null | tr -d ' ' || true)
+        # 尝试用 fuser 找 PID（可能返回多个，空格分隔）
+        local pids_str
+        pids_str=$(fuser "${port}/tcp" 2>/dev/null || true)
+        # fuser 输出末尾可能带空格，trim 一下
+        pids_str=$(echo "$pids_str" | xargs)
 
-        if [[ -n "$pid" ]]; then
-            _warn "端口 ${port} 被自身进程 PID ${pid} 占用，正在关闭..."
-            kill "$pid" 2>/dev/null || true
-            sleep 1
-        else
-            _error "端口 ${port} 已被其他进程占用。请在 .env 中设置 MF_API_PORT 或 MF_UI_PORT 换用其他端口，例如：
+        if [[ -n "$pids_str" ]]; then
+            # fuser 可能返回多个 PID，逐个 kill
+            local killed_any=0
+            for pid in $pids_str; do
+                _warn "端口 ${port} 被自身进程 PID ${pid} 占用，正在关闭..."
+                kill "$pid" 2>/dev/null || true
+                killed_any=1
+            done
+
+            if [[ $killed_any -eq 1 ]]; then
+                sleep 1
+                # 验证端口是否真的释放了
+                if ! ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+                    _ok "端口 ${port} 已释放"
+                    return 0
+                fi
+                _warn "端口 ${port} 未能完全释放，稍后重试..."
+                sleep 2
+            fi
+        fi
+
+        # 再次检查，仍被占用则报错
+        if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+            _error "端口 ${port} 无法释放。请在 .env 中设置 MF_API_PORT 或 MF_UI_PORT 换用其他端口，例如：
   MF_API_PORT=8200 bash scripts/mf2.sh ui --prod"
         fi
     }

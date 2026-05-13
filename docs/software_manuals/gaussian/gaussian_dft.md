@@ -93,19 +93,19 @@ Becke Three-Parameter Hybrid Functionals
    that since LYP includes both local and non-local terms, the correlation
    functional used is actually:
 
-##    C*E[C]^LYP+(1-C)*E[C]^VWN
+\##    C*E[C]^LYP+(1-C)*E[C]^VWN
 
    In other words, VWN is used to provide the excess local correlation
    required, since LYP contains a local term essentially equivalent to
 
-##    VWN.
+\##    VWN.
 
    B3P86 specifies the same functional with the non-local correlation
    provided by Perdew 86, and B3PW91 specifies this functional with the
    non-local correlation provided by Perdew/Wang 91.
    O3LYP is a three-parameter functional similar to B3LYP:
 
-##    A*E[X]^LSD+(1-A)*E[X]^HF+B*ΔE[X]^OPTX+C*ΔE[C]^LYP+(1-C)E[C]^VWN
+\##    A*E[X]^LSD+(1-A)*E[X]^HF+B*ΔE[X]^OPTX+C*ΔE[C]^LYP+(1-C)E[C]^VWN
 
    where A, B and C are as defined by Cohen and Handy in reference
    [Cohen01].
@@ -136,7 +136,7 @@ Long-Range-Corrected Functionals
    In addition, the prefix LC- may be added to most pure functionals to
    apply the long correction of Hirao and coworkers [Iikura01]: e.g.,
 
-##    LC-BLYP.
+\##    LC-BLYP.
 
 Other Hybrid Functionals
 Functionals from the Truhlar Group
@@ -196,7 +196,7 @@ Half-and-Half Functionals
      * BHandH: 0.5*E[X]^HF + 0.5*E[X]^LSDA + E[C]^LYP
      * BHandHLYP: 0.5*E[X]^HF + 0.5*E[X]^LSDA + 0.5*ΔE[X]^Becke88 +
 
-##        E[C]^LYP
+\##        E[C]^LYP
 
 User-Defined Hybrid Models
    Gaussian 16 can use any model of the general form:
@@ -346,26 +346,26 @@ GD2
    requested with EmpiricalDispersion=GD2.
    Functional S6     SR6
 
-##    B97D       1.2500 1.1000
+\##    B97D       1.2500 1.1000
 
 
-##    B2PLYPD    0.5500 1.1000
+\##    B2PLYPD    0.5500 1.1000
 
    mPW2PLYPD  0.4000 1.1000
 
-##    PBEPBE     0.7500 1.1000
+\##    PBEPBE     0.7500 1.1000
 
 
-##    BLYP       1.2000 1.1000
+\##    BLYP       1.2000 1.1000
 
 
-##    B3LYP      1.0500 1.1000
+\##    B3LYP      1.0500 1.1000
 
 
-##    BP86       1.0500 1.1000
+\##    BP86       1.0500 1.1000
 
 
-##    TPSSTPSS   1.0000 1.1000
+\##    TPSSTPSS   1.0000 1.1000
 
    The damping function used by this model also contains a D6 parameter
    with a fixed value of 6.0.
@@ -384,59 +384,59 @@ GD3
    Functional           S6     SR6    S8
    B2PLYPD3 [Goerigk11] 0.6400 1.4270 1.0220
 
-##    B97D3                1.0000 0.8920 0.9090
+\##    B97D3                1.0000 0.8920 0.9090
 
 
-##    B3LYP                1.0000 1.2610 1.7030
+\##    B3LYP                1.0000 1.2610 1.7030
 
 
-##    BLYP                 1.0000 1.0940 1.6820
+\##    BLYP                 1.0000 1.0940 1.6820
 
 
-##    PBE1PBE              1.0000 1.2870 0.9280
+\##    PBE1PBE              1.0000 1.2870 0.9280
 
 
-##    TPSSTPSS             1.0000 1.1660 1.1050
+\##    TPSSTPSS             1.0000 1.1660 1.1050
 
 
-##    PBEPBE               1.0000 1.2170 0.7220
+\##    PBEPBE               1.0000 1.2170 0.7220
 
 
-##    BP86                 1.0000 1.1390 1.6830
+\##    BP86                 1.0000 1.1390 1.6830
 
 
-##    BPBE                 1.0000 1.0870 2.0330
+\##    BPBE                 1.0000 1.0870 2.0330
 
 
-##    B3PW91               1.0000 1.1760 1.7750
+\##    B3PW91               1.0000 1.1760 1.7750
 
 
-##    BMK                  1.0000 1.9310 2.1680
+\##    BMK                  1.0000 1.9310 2.1680
 
 
-##    CAM–B3LYP            1.0000 1.3780 1.2170
+\##    CAM–B3LYP            1.0000 1.3780 1.2170
 
    LC-wPBE              1.0000 1.3550 1.2790
 
-##    M05                  1.0000 1.3730 0.5950
+\##    M05                  1.0000 1.3730 0.5950
 
 
-##    M052X                1.0000 1.4170 0.0000
+\##    M052X                1.0000 1.4170 0.0000
 
 
-##    M06L                 1.0000 1.5810 0.0000
+\##    M06L                 1.0000 1.5810 0.0000
 
 
-##    M06                  1.0000 1.3250 0.0000
+\##    M06                  1.0000 1.3250 0.0000
 
 
-##    M062X                1.0000 1.6190 0.0000
+\##    M062X                1.0000 1.6190 0.0000
 
 
-##    M06HF                1.0000 1.4460 0.0000
+\##    M06HF                1.0000 1.4460 0.0000
 
 
-##    PW6B95D3             1.0000 1.532  0.862
+\##    PW6B95D3             1.0000 1.532  0.862
 
    This model also uses an SR8 parameter with a fixed value of 1.0. The
    damping function used by this model also contains D6, IA6, D8, and IA8
@@ -453,40 +453,40 @@ GD3BJ
    Functional           S6     S8     ABJ1   ABJ2
    B2PLYPD3 [Goerigk11] 0.6400 0.9147 0.3065 5.0570
 
-##    B97D3                1.0000 2.2609 0.5545 3.2297
+\##    B97D3                1.0000 2.2609 0.5545 3.2297
 
 
-##    PW6B95D3             1.0000 0.7257 0.2076 6.3750
+\##    PW6B95D3             1.0000 0.7257 0.2076 6.3750
 
 
-##    B3LYP                1.0000 1.9889 0.3981 4.4211
+\##    B3LYP                1.0000 1.9889 0.3981 4.4211
 
 
-##    BLYP                 1.0000 2.6996 0.4298 4.2359
+\##    BLYP                 1.0000 2.6996 0.4298 4.2359
 
 
-##    PBE1PBE              1.0000 1.2177 0.4145 4.8593
+\##    PBE1PBE              1.0000 1.2177 0.4145 4.8593
 
 
-##    TPSSTPSS             1.0000 1.9435 0.4535 4.4752
+\##    TPSSTPSS             1.0000 1.9435 0.4535 4.4752
 
 
-##    PBEPBE               1.0000 0.7875 0.4289 4.4407
+\##    PBEPBE               1.0000 0.7875 0.4289 4.4407
 
 
-##    BP86                 1.0000 3.2822 0.3946 4.8516
+\##    BP86                 1.0000 3.2822 0.3946 4.8516
 
 
-##    BPBE                 1.0000 4.0728 0.4567 4.3908
+\##    BPBE                 1.0000 4.0728 0.4567 4.3908
 
 
-##    B3PW91               1.0000 2.8524 0.4312 4.4693
+\##    B3PW91               1.0000 2.8524 0.4312 4.4693
 
 
-##    BMK                  1.0000 2.0860 0.1940 5.9197
+\##    BMK                  1.0000 2.0860 0.1940 5.9197
 
 
-##    CAM–B3LYP            1.0000 2.0674 0.3708 5.4743
+\##    CAM–B3LYP            1.0000 2.0674 0.3708 5.4743
 
    LC-wPBE              1.0000 1.8541 0.3919 5.0897
    You can use this empirical dispersion method with other functionals via
@@ -596,19 +596,19 @@ Becke Three-Parameter Hybrid Functionals
    that since LYP includes both local and non-local terms, the correlation
    functional used is actually:
 
-##    C*E[C]^LYP+(1-C)*E[C]^VWN
+\##    C*E[C]^LYP+(1-C)*E[C]^VWN
 
    In other words, VWN is used to provide the excess local correlation
    required, since LYP contains a local term essentially equivalent to
 
-##    VWN.
+\##    VWN.
 
    B3P86 specifies the same functional with the non-local correlation
    provided by Perdew 86, and B3PW91 specifies this functional with the
    non-local correlation provided by Perdew/Wang 91.
    O3LYP is a three-parameter functional similar to B3LYP:
 
-##    A*E[X]^LSD+(1-A)*E[X]^HF+B*ΔE[X]^OPTX+C*ΔE[C]^LYP+(1-C)E[C]^VWN
+\##    A*E[X]^LSD+(1-A)*E[X]^HF+B*ΔE[X]^OPTX+C*ΔE[C]^LYP+(1-C)E[C]^VWN
 
    where A, B and C are as defined by Cohen and Handy in reference
    [Cohen01].
@@ -639,7 +639,7 @@ Long-Range-Corrected Functionals
    In addition, the prefix LC- may be added to most pure functionals to
    apply the long correction of Hirao and coworkers [Iikura01]: e.g.,
 
-##    LC-BLYP.
+\##    LC-BLYP.
 
 Other Hybrid Functionals
 Functionals from the Truhlar Group
@@ -699,7 +699,7 @@ Half-and-Half Functionals
      * BHandH: 0.5*E[X]^HF + 0.5*E[X]^LSDA + E[C]^LYP
      * BHandHLYP: 0.5*E[X]^HF + 0.5*E[X]^LSDA + 0.5*ΔE[X]^Becke88 +
 
-##        E[C]^LYP
+\##        E[C]^LYP
 
 User-Defined Hybrid Models
    Gaussian 16 can use any model of the general form:
@@ -847,26 +847,26 @@ GD2
    requested with EmpiricalDispersion=GD2.
    Functional S6     SR6
 
-##    B97D       1.2500 1.1000
+\##    B97D       1.2500 1.1000
 
 
-##    B2PLYPD    0.5500 1.1000
+\##    B2PLYPD    0.5500 1.1000
 
    mPW2PLYPD  0.4000 1.1000
 
-##    PBEPBE     0.7500 1.1000
+\##    PBEPBE     0.7500 1.1000
 
 
-##    BLYP       1.2000 1.1000
+\##    BLYP       1.2000 1.1000
 
 
-##    B3LYP      1.0500 1.1000
+\##    B3LYP      1.0500 1.1000
 
 
-##    BP86       1.0500 1.1000
+\##    BP86       1.0500 1.1000
 
 
-##    TPSSTPSS   1.0000 1.1000
+\##    TPSSTPSS   1.0000 1.1000
 
    The damping function used by this model also contains a D6 parameter
    with a fixed value of 6.0.
@@ -885,59 +885,59 @@ GD3
    Functional           S6     SR6    S8
    B2PLYPD3 [Goerigk11] 0.6400 1.4270 1.0220
 
-##    B97D3                1.0000 0.8920 0.9090
+\##    B97D3                1.0000 0.8920 0.9090
 
 
-##    B3LYP                1.0000 1.2610 1.7030
+\##    B3LYP                1.0000 1.2610 1.7030
 
 
-##    BLYP                 1.0000 1.0940 1.6820
+\##    BLYP                 1.0000 1.0940 1.6820
 
 
-##    PBE1PBE              1.0000 1.2870 0.9280
+\##    PBE1PBE              1.0000 1.2870 0.9280
 
 
-##    TPSSTPSS             1.0000 1.1660 1.1050
+\##    TPSSTPSS             1.0000 1.1660 1.1050
 
 
-##    PBEPBE               1.0000 1.2170 0.7220
+\##    PBEPBE               1.0000 1.2170 0.7220
 
 
-##    BP86                 1.0000 1.1390 1.6830
+\##    BP86                 1.0000 1.1390 1.6830
 
 
-##    BPBE                 1.0000 1.0870 2.0330
+\##    BPBE                 1.0000 1.0870 2.0330
 
 
-##    B3PW91               1.0000 1.1760 1.7750
+\##    B3PW91               1.0000 1.1760 1.7750
 
 
-##    BMK                  1.0000 1.9310 2.1680
+\##    BMK                  1.0000 1.9310 2.1680
 
 
-##    CAM–B3LYP            1.0000 1.3780 1.2170
+\##    CAM–B3LYP            1.0000 1.3780 1.2170
 
    LC-wPBE              1.0000 1.3550 1.2790
 
-##    M05                  1.0000 1.3730 0.5950
+\##    M05                  1.0000 1.3730 0.5950
 
 
-##    M052X                1.0000 1.4170 0.0000
+\##    M052X                1.0000 1.4170 0.0000
 
 
-##    M06L                 1.0000 1.5810 0.0000
+\##    M06L                 1.0000 1.5810 0.0000
 
 
-##    M06                  1.0000 1.3250 0.0000
+\##    M06                  1.0000 1.3250 0.0000
 
 
-##    M062X                1.0000 1.6190 0.0000
+\##    M062X                1.0000 1.6190 0.0000
 
 
-##    M06HF                1.0000 1.4460 0.0000
+\##    M06HF                1.0000 1.4460 0.0000
 
 
-##    PW6B95D3             1.0000 1.532  0.862
+\##    PW6B95D3             1.0000 1.532  0.862
 
    This model also uses an SR8 parameter with a fixed value of 1.0. The
    damping function used by this model also contains D6, IA6, D8, and IA8
@@ -954,40 +954,40 @@ GD3BJ
    Functional           S6     S8     ABJ1   ABJ2
    B2PLYPD3 [Goerigk11] 0.6400 0.9147 0.3065 5.0570
 
-##    B97D3                1.0000 2.2609 0.5545 3.2297
+\##    B97D3                1.0000 2.2609 0.5545 3.2297
 
 
-##    PW6B95D3             1.0000 0.7257 0.2076 6.3750
+\##    PW6B95D3             1.0000 0.7257 0.2076 6.3750
 
 
-##    B3LYP                1.0000 1.9889 0.3981 4.4211
+\##    B3LYP                1.0000 1.9889 0.3981 4.4211
 
 
-##    BLYP                 1.0000 2.6996 0.4298 4.2359
+\##    BLYP                 1.0000 2.6996 0.4298 4.2359
 
 
-##    PBE1PBE              1.0000 1.2177 0.4145 4.8593
+\##    PBE1PBE              1.0000 1.2177 0.4145 4.8593
 
 
-##    TPSSTPSS             1.0000 1.9435 0.4535 4.4752
+\##    TPSSTPSS             1.0000 1.9435 0.4535 4.4752
 
 
-##    PBEPBE               1.0000 0.7875 0.4289 4.4407
+\##    PBEPBE               1.0000 0.7875 0.4289 4.4407
 
 
-##    BP86                 1.0000 3.2822 0.3946 4.8516
+\##    BP86                 1.0000 3.2822 0.3946 4.8516
 
 
-##    BPBE                 1.0000 4.0728 0.4567 4.3908
+\##    BPBE                 1.0000 4.0728 0.4567 4.3908
 
 
-##    B3PW91               1.0000 2.8524 0.4312 4.4693
+\##    B3PW91               1.0000 2.8524 0.4312 4.4693
 
 
-##    BMK                  1.0000 2.0860 0.1940 5.9197
+\##    BMK                  1.0000 2.0860 0.1940 5.9197
 
 
-##    CAM–B3LYP            1.0000 2.0674 0.3708 5.4743
+\##    CAM–B3LYP            1.0000 2.0674 0.3708 5.4743
 
    LC-wPBE              1.0000 1.8541 0.3919 5.0897
    You can use this empirical dispersion method with other functionals via

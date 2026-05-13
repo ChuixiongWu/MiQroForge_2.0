@@ -51,13 +51,22 @@ class ProjectService:
     def _read_registry(self) -> dict[str, Any]:
         if self.registry_path.exists():
             try:
-                return json.loads(self.registry_path.read_text())
+                reg = json.loads(self.registry_path.read_text())
+                # 自动修复：registry 条目数明显少于磁盘目录数 → 重建
+                disk_count = sum(1 for c in self.projects_root.iterdir()
+                                 if c.is_dir() and c.name.startswith("proj_"))
+                if disk_count > len(reg.get("projects", [])):
+                    return self._rebuild_registry()
+                return reg
             except (json.JSONDecodeError, OSError):
                 pass
         return {"version": 1, "projects": []}
 
     def _write_registry(self, reg: dict[str, Any]) -> None:
-        self.registry_path.write_text(json.dumps(reg, indent=2, ensure_ascii=False))
+        # 原子写入：先写临时文件再 rename，避免并发覆盖
+        tmp = self.registry_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(reg, indent=2, ensure_ascii=False))
+        tmp.replace(self.registry_path)
 
     def _rebuild_registry(self) -> dict[str, Any]:
         """扫描 projects/ 目录重建 registry。"""

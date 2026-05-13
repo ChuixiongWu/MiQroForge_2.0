@@ -248,28 +248,28 @@ Molecular Orbital Coefficients
 ##                      O         O         O         V         V
 
 
-##  3 1 C    2PX     0.29536   0.00000   0.34716   0.37752   0.00000
+\##  3 1 C    2PX     0.29536   0.00000   0.34716   0.37752   0.00000
 
 
-##  7        3PX     0.16911   0.00000   0.21750   0.24339   0.00000
+\##  7        3PX     0.16911   0.00000   0.21750   0.24339   0.00000
 
 
-## 12 2 C    2PX     0.29536   0.00000   0.34716  -0.37752   0.00000
+\## 12 2 C    2PX     0.29536   0.00000   0.34716  -0.37752   0.00000
 
 
-## 16        3PX     0.16911   0.00000   0.21750  -0.24339   0.00000
+\## 16        3PX     0.16911   0.00000   0.21750  -0.24339   0.00000
 
 
-## 21 3 C    2PX     0.29536   0.00000  -0.34716  -0.37752   0.00000
+\## 21 3 C    2PX     0.29536   0.00000  -0.34716  -0.37752   0.00000
 
 
-## 25        3PX     0.16911   0.00000  -0.21750  -0.24339   0.00000
+\## 25        3PX     0.16911   0.00000  -0.21750  -0.24339   0.00000
 
 
-## 30 4 C    2PX     0.29536   0.00000  -0.34716   0.37752   0.00000
+\## 30 4 C    2PX     0.29536   0.00000  -0.34716   0.37752   0.00000
 
 
-## 34        3PX     0.16911   0.00000  -0.21750   0.24339   0.00000
+\## 34        3PX     0.16911   0.00000  -0.21750   0.24339   0.00000
 
    Orbital 10 is clearly also a π orbital. If we look at higher virtual
    orbitals, we will find that orbital 19 is also a π orbital. We have
@@ -299,16 +299,16 @@ Molecular Orbital Coefficients
 Final one electron symbolic density matrix:
              1            2            3            4
 
-##    1  0.191842D+01
+\##    1  0.191842D+01
 
 
-##    2 -0.139172D-05  0.182680D+01
+\##    2 -0.139172D-05  0.182680D+01
 
 
-##    3  0.345450D-05  0.130613D-05  0.172679D+00
+\##    3  0.345450D-05  0.130613D-05  0.172679D+00
 
 
-##    4  0.327584D-06  0.415187D-05  0.564187D-06  0.820965D-01
+\##    4  0.327584D-06  0.415187D-05  0.564187D-06  0.820965D-01
 
  MCSCF converged.
    The diagonal elements indicate the approximate occupancies for each
@@ -392,7 +392,7 @@ Excited state calculation
      state    energy
      1  -154.0503161      0.72053292         -0.48879229 …
 
-##                          -0.16028934E-02      0.31874441E-02 …
+\##                          -0.16028934E-02      0.31874441E-02 …
 
      2  -154.0501151      0.45467877          0.77417416 …
    If the two eigenvalues (the first entry in the lines labeled with a
@@ -412,10 +412,10 @@ Excited state calculation
     Transition Spin Density Matrix
                 1            2
 
-##       1  .000000D+00  .141313D+01
+\##       1  .000000D+00  .141313D+01
 
 
-##       2  .553225D-01  .000000D+00
+\##       2  .553225D-01  .000000D+00
 
     magnitude in x-direction=     .0000000 cm-1
     magnitude in y-direction=     .0000000 cm-1
@@ -436,7 +436,7 @@ Excited state calculation
    the active space are (assuming a spin singlet) the 8 highest occupieds
    and 10 lowest virtuals: i.e., same orbitals as for a regular
 
-##    CAS(16,18).
+\##    CAS(16,18).
 
      * Description
      * Options
@@ -504,7 +504,7 @@ NewFCBD
    the preceding:
  Time for triples=        0.14 seconds.
 
-##  T4(BD)= -0.12680940D-03
+\##  T4(BD)= -0.12680940D-03
 
  BD(T)= -0.75002034980D+02        Triples-corrected energy.
    Last updated on: 20 May 2021. [G16 Rev. C.01]

@@ -714,6 +714,7 @@ async def run_node_runtime(
                         "sandbox_test_passed": state.get("sandbox_test_passed", False),
                         "sandbox_call_count": state.get("sandbox_call_count", 0),
                         "_sandbox_enabled": True,
+                        "_sandbox_dir": state.get("_sandbox_dir", ""),
                         "iteration": outer_round,
                     }
                     eval_result = evaluate_prefab_node(eval_state)
@@ -852,8 +853,8 @@ async def run_node_runtime(
                     software_name = "general"
 
                 sandbox_ok = (
-                    sandbox_test_result.get("test_passed", False)
-                    if sandbox_test_result else False
+                    sandbox_result.get("test_passed", False)
+                    if sandbox_result else False
                 )
                 final_passed = (evaluation and evaluation.passed) if evaluation else False
                 result = "success" if (final_passed and sandbox_ok) else "failure"
@@ -871,7 +872,9 @@ async def run_node_runtime(
                 )
                 store.add(entry)
         except Exception:
-            pass
+            import traceback as _tb
+            _sw = locals().get('software_name', 'unknown')
+            print(f"[Memory] Failed to save experience for '{_sw}': {_tb.format_exc()}", flush=True)
 
         # 保存到 run 目录
         saved_path = None

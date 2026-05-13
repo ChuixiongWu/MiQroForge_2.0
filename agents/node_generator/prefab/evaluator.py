@@ -10,13 +10,16 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 
 from agents.llm_config import LLMConfig
 from agents.schemas import EvaluationResult
 from agents.common.prompt_loader import load_prompt
 from agents.common.session_logger import get_session
 from agents.node_generator.prefab.state import PrefabGenState
+
+# Evaluator 工具调用最大轮次（搜索/阅读文件阶段）
+_MAX_EVAL_TOOL_ROUNDS = 2
 
 
 def _extract_json(text: str) -> str:
@@ -224,54 +227,92 @@ def evaluate_prefab_node(state: PrefabGenState) -> dict[str, Any]:
             })
         return {"evaluation": result}
 
-    # 3. LLM 意图检查（含沙箱结果和输出文件内容）
+    # 3. LLM 意图检查 — 工具调用模式：evaluator 用 read_node_file/list_node_files
+    #    自行读取 sandbox 中的文件，而非将文件内容注入 prompt。
     request = state.get("request")
-    nodespec_yaml = state.get("nodespec_yaml", "")
-    run_sh = state.get("run_sh", "")
     sandbox_result = state.get("sandbox_test_result")
     _sandbox_dir = state.get("_sandbox_dir", "")
 
-    # 读取 sandbox 输出文件内容（供 evaluator 检查数据正确性）
-    output_previews: dict[str, str] = {}
-    if sandbox_result and sandbox_result.get("test_passed") and _sandbox_dir:
-        try:
-            from pathlib import Path as _Path
-            output_dir = _Path(_sandbox_dir) / "output"
-            if output_dir.exists():
-                for f in output_dir.iterdir():
-                    if f.is_file():
-                        try:
-                            content = f.read_text("utf-8")
-                            output_previews[f.name] = content[:500]  # 每个文件最多 500 字符
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+    sandbox_path = Path(_sandbox_dir) if _sandbox_dir else None
+
+    # 构建 evaluator 专用工具（复用 generator 的文件读取工具）
+    if sandbox_path and sandbox_path.exists():
+        from agents.node_generator.prefab.tools import make_filesystem_tools
+        fs_tools = make_filesystem_tools(sandbox_dir=sandbox_path)
+        eval_tools = [t for t in fs_tools if t.name in ('read_node_file', 'list_node_files')]
+    else:
+        eval_tools = []
 
     prompt = load_prompt(
         "node_generator/prompts/prefab/evaluate.jinja2",
         request=request,
-        nodespec_yaml=nodespec_yaml,
-        run_sh=run_sh,
+        sandbox_dir=_sandbox_dir or "N/A (no sandbox — evaluate from request description only)",
         sandbox_result=sandbox_result,
-        output_previews=output_previews,
     )
 
     llm = LLMConfig.get_chat_model(purpose="evaluator", temperature=0.0)
 
-    eval_messages = [HumanMessage(content=prompt)]
+    eval_messages: list = [HumanMessage(content=prompt)]
 
     try:
-        response = llm.invoke(eval_messages)
+        if eval_tools:
+            # ═══ 工具调用阶段：evaluator 自行读取 sandbox 文件 ═══
+            llm_with_tools = llm.bind_tools(eval_tools)
+
+            for round_idx in range(_MAX_EVAL_TOOL_ROUNDS):
+                try:
+                    response = llm_with_tools.invoke(eval_messages)
+                except Exception as e:
+                    session = get_session()
+                    if session:
+                        session.log_event("evaluate_tool_error", {
+                            "iteration": iteration, "round": round_idx, "error": str(e),
+                        })
+                    break
+
+                eval_messages.append(response)
+
+                if not response.tool_calls:
+                    break
+
+                for tc in response.tool_calls:
+                    name = tc.get("name", "")
+                    args = tc.get("args", {})
+                    tid = tc.get("id", "")
+
+                    tool_fn = next((t for t in eval_tools if t.name == name), None)
+                    if tool_fn is not None:
+                        try:
+                            tool_result = tool_fn.invoke(args)
+                        except Exception as te:
+                            tool_result = json.dumps({"error": f"Tool '{name}' failed: {te}"})
+                    else:
+                        tool_result = json.dumps({"error": f"Unknown tool: {name}"})
+
+                    eval_messages.append(ToolMessage(
+                        content=str(tool_result)[:8000],
+                        tool_call_id=tid,
+                    ))
+
+            # ═══ 强制合成阶段：不加工具，产出 JSON ═══
+            synthesize_prompt = (
+                "TOOLS ARE NOW REMOVED. Based on the file inspection above, "
+                "produce your final evaluation. Output ONLY the JSON (no prose)."
+            )
+            eval_messages.append(HumanMessage(content=synthesize_prompt))
+            final_response = llm.invoke(eval_messages)
+        else:
+            # 无 sandbox：单轮纯文本评估（从请求描述判断意图合理性）
+            final_response = llm.invoke(eval_messages)
 
         session = get_session()
         if session:
             session.log_llm_call(
-                "evaluate", eval_messages, response.content,
+                "evaluate", eval_messages, final_response.content,
                 iteration=iteration,
             )
 
-        raw_json = _extract_json(response.content)
+        raw_json = _extract_json(final_response.content)
         data = json.loads(raw_json)
 
         result = EvaluationResult(
