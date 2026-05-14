@@ -4,6 +4,7 @@ import type {
   NodeIndexInfoResponse,
   SemanticRegistryResponse,
 } from '../types/index-types'
+import type { DirectoryEntry, DirectoryListResponse } from './files-api'
 
 const BASE = '/api/v1'
 
@@ -50,6 +51,29 @@ export const nodesApi = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    })
+  },
+}
+
+export const nodeFilesApi = {
+  list(): Promise<DirectoryListResponse> {
+    return fetchJSON(`${BASE}/nodes/files`)
+  },
+
+  async read(path: string): Promise<string> {
+    const res = await fetch(`${BASE}/nodes/files/read?path=${encodeURIComponent(path)}`)
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText)
+      throw new Error(`API error ${res.status}: ${text}`)
+    }
+    return res.text()
+  },
+
+  async write(path: string, content: string): Promise<{ written: string }> {
+    return fetchJSON(`${BASE}/nodes/files/write`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, content }),
     })
   },
 }

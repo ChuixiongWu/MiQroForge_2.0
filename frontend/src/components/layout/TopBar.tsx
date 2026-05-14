@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkflowStore } from '../../stores/workflow-store'
-import type { MFNodeData } from '../../stores/workflow-store'
 import { useUIStore } from '../../stores/ui-store'
 import { useSavedWorkflowsStore } from '../../stores/saved-workflows-store'
 import { useRunOverlayStore } from '../../stores/run-overlay-store'
@@ -11,16 +10,8 @@ import { useWorkflowValidation } from '../../hooks/useWorkflowValidation'
 import { workflowsApi } from '../../api/workflows-api'
 import { projectsApi } from '../../api/projects-api'
 import {
-  rfStateToWorkflowDoc,
-  workflowDocToYaml,
-  parseWorkflowYaml,
-  workflowNodeToRF,
-  connectionToRFEdge,
-} from '../../lib/workflow-serializer'
-import { nodesApi } from '../../api/nodes-api'
-import {
   CheckCircle, AlertCircle,
-  FileDown, FileUp, Trash2, Save, FolderOpen, ExternalLink, Settings, Activity, PlayCircle,
+  Trash2, Save, FolderOpen, PlayCircle, Clock,
   MessageSquare,
 } from 'lucide-react'
 import type { RightPanel } from '../../stores/ui-store'
@@ -38,7 +29,7 @@ export function TopBar() {
     setPendingRunName,
   } = useUIStore()
   const { saveWorkflow, saveRunSnapshot } = useSavedWorkflowsStore()
-  const { setActiveRun } = useRunOverlayStore()
+  const { setActiveRun, activeRunName, workflowPhase } = useRunOverlayStore()
   const { validate, getYaml } = useWorkflowValidation()
   const { isOpen: chatOpen, toggleChat } = useAgentStore()
   const currentProjectMeta = useProjectStore((s) => s.currentProjectMeta)
@@ -48,16 +39,9 @@ export function TopBar() {
   const [nameVal, setNameVal] = useState(meta.name)
   const [isRunning, setIsRunning] = useState(false)
 
-  // Argo UI URL — fetched once from the backend config endpoint
-  const [argoUrl, setArgoUrl] = useState<string | null>(null)
-  useEffect(() => {
-    fetch('/api/v1/config')
-      .then((r) => r.json())
-      .then((d: { argo_ui_url?: string }) => {
-        if (d.argo_ui_url) setArgoUrl(d.argo_ui_url)
-      })
-      .catch(() => {})
-  }, [])
+  // Run button stays disabled while a workflow is actively running
+  const TERMINAL_PHASES = new Set<RunPhase>(['Succeeded', 'Failed', 'Error', 'PartialSuccess'])
+  const isWorkflowRunning = activeRunName !== null && workflowPhase !== null && !TERMINAL_PHASES.has(workflowPhase)
 
   const handleNameBlur = () => {
     setMeta({ name: nameVal })
@@ -88,129 +72,6 @@ export function TopBar() {
 
     // Also save to frontend localStorage for the Saved Workflows sidebar
     saveWorkflow(meta, nodes, edges)
-  }
-
-  // ── Export MF YAML ───────────────────────────────────────────────────────
-  const handleExport = () => {
-    const doc = rfStateToWorkflowDoc(nodes, edges, meta)
-    const yaml = workflowDocToYaml(doc)
-    const blob = new Blob([yaml], { type: 'text/yaml' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${meta.name.replace(/\s+/g, '-').toLowerCase()}-mf.yaml`
-    a.click()
-    URL.revokeObjectURL(url)
-    showNotification('success', 'Workflow exported')
-  }
-
-  // ── Import MF YAML ───────────────────────────────────────────────────────
-  const handleImport = () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.yaml,.yml'
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0]
-      if (!file) return
-      const text = await file.text()
-      try {
-        const parsed = parseWorkflowYaml(text)
-        setMeta(parsed.meta)
-
-        const rfNodes = await Promise.all(
-          parsed.nodes.map(async (wfNode) => {
-            // Generated nodes (ephemeral / prefab) have no nodespec — build directly from YAML data
-            if (wfNode.ephemeral || wfNode.prefab) {
-              return workflowNodeToRF(wfNode, {
-                name: wfNode.id,
-                version: '?',
-                display_name: wfNode.id,
-                description: wfNode.description ?? '',
-                node_type: 'lightweight',
-                category: '',
-                ephemeral: wfNode.ephemeral,
-                prefab: wfNode.prefab,
-                ephemeral_description: wfNode.description,
-                ports: wfNode.ports,
-                stream_inputs: wfNode.stream_inputs as never ?? [],
-                stream_outputs: wfNode.stream_outputs as never ?? [],
-                onboard_inputs: [],
-                onboard_params: wfNode.onboard_params ?? {},
-              })
-            }
-
-            const nodeName = wfNode.node || wfNode.nodespec_name || wfNode.nodespec_path.split('/').slice(-2, -1)[0]
-            try {
-              const detail = await nodesApi.get(nodeName)
-              const defaultParams = Object.fromEntries(
-                detail.onboard_inputs
-                  .filter((p) => p.default !== undefined && p.default !== null)
-                  .map((p) => [p.name, p.default]),
-              )
-              const mergedParams = { ...defaultParams, ...wfNode.onboard_params }
-              return workflowNodeToRF(
-                { ...wfNode, onboard_params: mergedParams },
-                {
-                  name: detail.name,
-                  version: detail.version,
-                  display_name: detail.display_name,
-                  description: detail.description,
-                  node_type: detail.node_type,
-                  category: detail.category,
-                  software: detail.software,
-                  stream_inputs: detail.stream_inputs as never,
-                  stream_outputs: detail.stream_outputs as never,
-                  onboard_inputs: detail.onboard_inputs.map((p) => ({
-                    name: p.name,
-                    display_name: p.display_name,
-                    type: p.kind,
-                    default: p.default,
-                    description: p.description,
-                    enum_values: p.allowed_values,
-                    min: p.min_value,
-                    max: p.max_value,
-                    unit: p.unit,
-                    multiple_input: p.multiple_input,
-                  })) as never,
-                },
-              )
-            } catch {
-              // Fallback: use wfNode data directly (especially important for ephemeral nodes)
-              const fallbackData: Record<string, unknown> = {
-                name: nodeName,
-                version: '?',
-                display_name: wfNode.id,
-                description: '',
-                node_type: (wfNode.ephemeral || wfNode.prefab) ? 'lightweight' : 'compute',
-                category: '',
-                stream_inputs: [],
-                stream_outputs: [],
-                onboard_inputs: [],
-              }
-              return workflowNodeToRF(wfNode, fallbackData as Partial<MFNodeData>)
-            }
-          }),
-        )
-        // Build source node outputs map for edge coloring
-        const nodeOutputsMap = new Map<string, Array<{ name: string; category: string }>>()
-        for (const rfNode of rfNodes) {
-          const data = rfNode.data as MFNodeData
-          nodeOutputsMap.set(
-            rfNode.id,
-            data.stream_outputs?.map((p) => ({ name: p.name, category: p.category })) ?? [],
-          )
-        }
-        const rfEdges = parsed.connections.map((c) => {
-          const sourceId = c.from.split('.')[0]
-          return connectionToRFEdge(c, nodeOutputsMap.get(sourceId))
-        })
-        loadFromNodes(rfNodes, rfEdges)
-        showNotification('success', `Imported "${parsed.meta.name}"`)
-      } catch (err) {
-        showNotification('error', `Import failed: ${err instanceof Error ? err.message : String(err)}`)
-      }
-    }
-    input.click()
   }
 
   // ── Validate → Submit → navigate to run detail ──────────────────────────
@@ -290,8 +151,7 @@ export function TopBar() {
 
   // ── Nav panel items ───────────────────────────────────────────────────────
   const navItems: Array<{ id: RightPanel; icon: React.ReactNode; label: string }> = [
-    { id: 'runs',      icon: <Activity size={14} />, label: 'Runs' },
-    { id: 'settings',  icon: <Settings size={14} />, label: 'Settings' },
+    { id: 'runs', icon: <Clock size={14} />, label: 'History' },
   ]
 
   return (
@@ -379,22 +239,6 @@ export function TopBar() {
         >
           <Save size={13} /> Save
         </button>
-        <div className="w-px h-4 bg-mf-border" />
-        <button
-          onClick={handleImport}
-          className="flex items-center gap-1 px-2 py-1 text-xs text-mf-text-muted hover:text-mf-text-primary hover:bg-mf-hover rounded transition-colors"
-          title="Import MF YAML"
-        >
-          <FileUp size={13} /> Import
-        </button>
-        <button
-          onClick={handleExport}
-          disabled={nodes.length === 0}
-          className="flex items-center gap-1 px-2 py-1 text-xs text-mf-text-muted hover:text-mf-text-primary hover:bg-mf-hover rounded transition-colors disabled:opacity-40"
-          title="Export MF YAML"
-        >
-          <FileDown size={13} /> Export
-        </button>
         <button
           onClick={() => { if (confirm('Clear canvas?')) clearCanvas() }}
           disabled={nodes.length === 0}
@@ -410,9 +254,9 @@ export function TopBar() {
       {/* ── One-click Run button ─────────────────────────────────────────── */}
       <button
         onClick={handleRun}
-        disabled={nodes.length === 0 || isRunning}
+        disabled={nodes.length === 0 || isRunning || isWorkflowRunning}
         className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-white bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
-        title="Validate and submit workflow (Ctrl+Enter)"
+        title={isWorkflowRunning ? 'A workflow is currently running' : 'Validate and submit workflow (Ctrl+Enter)'}
       >
         {isRunning
           ? <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -440,22 +284,6 @@ export function TopBar() {
         ))}
       </div>
 
-      {/* Argo UI link — only shown when backend provides the URL */}
-      {argoUrl && (
-        <>
-          <div className="w-px h-5 bg-mf-border" />
-          <a
-            href={argoUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 px-2 py-1 text-xs text-mf-text-muted hover:text-blue-300 hover:bg-mf-hover rounded transition-colors"
-            title={`Open Argo Workflow UI (${argoUrl})`}
-          >
-            <ExternalLink size={12} />
-            Argo UI
-          </a>
-        </>
-      )}
     </div>
   )
 }

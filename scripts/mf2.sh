@@ -111,14 +111,6 @@ cmd_ui() {
     local is_remote=0
     [[ -n "${SSH_CONNECTION:-}" ]] && is_remote=1
 
-    # ── 尝试获取 Argo NodePort（失败不影响启动） ────────────────────────────
-    local argo_node_port="" argo_node_ip="" argo_local_port="${MF_ARGO_LOCAL_PORT:-8088}"
-    argo_node_port=$(kubectl get svc argo-server -n argo \
-        -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-    argo_node_ip=$(kubectl get nodes \
-        -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
-        2>/dev/null || echo "")
-
     # ── 打印访问地址 ────────────────────────────────────────────────────────
     echo
     echo -e "${BLUE}${BOLD}══ MiQroForge 2.0 WebUI ══${NC}"
@@ -130,36 +122,25 @@ cmd_ui() {
         if [[ $prod_mode -eq 1 ]]; then
             echo -e "    ${GREEN}ssh -L ${api_port}:localhost:${api_port} -N <你的SSH别名>${NC}"
             echo
-            echo -e "  端口转发建立后，打开：${BOLD}http://localhost:${api_port}${NC}"
-            echo -e "  API 文档            ：${BOLD}http://localhost:${api_port}/docs${NC}"
+            echo -e "  端口转发建立后，打开："
+            echo -e "  ${GREEN}➜  Local:   http://localhost:${api_port}/${NC}"
+            echo -e "  ${GREEN}➜  API Doc: http://localhost:${api_port}/docs${NC}"
         else
             echo -e "    ${GREEN}ssh -L ${ui_port}:localhost:${ui_port} \\${NC}"
             echo -e "    ${GREEN}    -L ${api_port}:localhost:${api_port} \\${NC}"
             echo -e "    ${GREEN}    -N <你的SSH别名>${NC}"
             echo
-            echo -e "  端口转发建立后，打开：${BOLD}http://localhost:${ui_port}${NC}"
-            echo -e "  API 文档            ：${BOLD}http://localhost:${api_port}/docs${NC}"
-        fi
-        if [[ -n "$argo_node_port" ]]; then
-            echo
-            echo -e "  ${BOLD}追加以下参数可同时访问 Argo UI：${NC}"
-            echo -e "    ${GREEN}-L ${argo_local_port}:${argo_node_ip}:${argo_node_port}${NC}"
-            echo -e "  Argo UI：${BOLD}https://localhost:${argo_local_port}${NC}  ${YELLOW}（自签名证书，直接跳过）${NC}"
-            echo
-            echo -e "  ${YELLOW}将下行写入 .env，前端顶部「Argo UI」链接将自动指向本地端口：${NC}"
-            echo -e "    ${GREEN}ARGO_UI_URL=https://localhost:${argo_local_port}${NC}"
+            echo -e "  端口转发建立后，打开："
+            echo -e "  ${GREEN}➜  Local:   http://localhost:${ui_port}/${NC}"
+            echo -e "  ${GREEN}➜  API Doc: http://localhost:${api_port}/docs${NC}"
         fi
     else
         if [[ $prod_mode -eq 1 ]]; then
-            echo -e "  MiQroForge UI ：${BOLD}http://localhost:${api_port}${NC}"
-            echo -e "  API 文档      ：${BOLD}http://localhost:${api_port}/docs${NC}"
+            echo -e "  ${GREEN}➜  Local:   http://localhost:${api_port}/${NC}"
+            echo -e "  ${GREEN}➜  API Doc: http://localhost:${api_port}/docs${NC}"
         else
-            echo -e "  MiQroForge UI ：${BOLD}http://localhost:${ui_port}${NC}"
-            echo -e "  API 文档      ：${BOLD}http://localhost:${api_port}/docs${NC}"
-        fi
-        if [[ -n "$argo_node_port" ]]; then
-            local argo_url="https://${argo_node_ip:-localhost}:${argo_node_port}"
-            echo -e "  Argo UI       ：${BOLD}${argo_url}${NC}  ${YELLOW}（自签名证书）${NC}"
+            echo -e "  ${GREEN}➜  Local:   http://localhost:${ui_port}/${NC}"
+            echo -e "  ${GREEN}➜  API Doc: http://localhost:${api_port}/docs${NC}"
         fi
     fi
 

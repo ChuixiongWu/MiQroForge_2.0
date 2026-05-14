@@ -48,6 +48,9 @@ def list_runs(
     for d in sorted(project_runs_dir.iterdir(), key=lambda p: p.name, reverse=True):
         if not d.is_dir():
             continue
+        # 跳过孤儿目录：必须包含 outputs.json 或 mf-workflow.yaml 才算有效运行
+        if not (d / "outputs.json").exists() and not (d / "mf-workflow.yaml").exists():
+            continue
         name = d.name
         phase = "Local"
         started_at = None
@@ -471,9 +474,9 @@ def save_run_outputs(
                     output_values: dict[str, str] = {}
                     for f in output_dir.iterdir():
                         if f.is_file() and f.name in onboard_output_names:
-                            name = f.name
+                            fname = f.name
                             # quality gate 输出加 _qg_ 前缀，匹配前端 inspector 的 runKey
-                            key = f"_qg_{name}" if name in qg_names else name
+                            key = f"_qg_{fname}" if fname in qg_names else fname
                             try:
                                 output_values[key] = f.read_text("utf-8").strip()
                             except Exception:

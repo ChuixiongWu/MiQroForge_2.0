@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Package, BookOpen, Ruler, ExternalLink, Settings, Trash2, Brain } from 'lucide-react'
+import { Plus, Package, BookOpen, Ruler, ExternalLink, Settings, Trash2, Brain, X, FolderOpen } from 'lucide-react'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { ProjectCard } from '../components/gallery/ProjectCard'
 import { projectsApi } from '../api/projects-api'
 import type { ProjectMeta } from '../api/projects-api'
+import { SettingsContent } from '../components/settings/SettingsPanel'
 
 // ─── Migration from old localStorage keys ─────────────────────────────────────
 
@@ -122,6 +123,57 @@ function RefDropdown() {
   )
 }
 
+// ─── Node Repository dropdown ─────────────────────────────────────────────────
+
+const NODE_REPO_PAGES = [
+  { path: '/node-repository/preference', icon: <Settings size={13} />, label: 'Preferences' },
+  { path: '/node-repository/nodefiles', icon: <FolderOpen size={13} />, label: 'Node Files' },
+]
+
+function NodeRepoDropdown() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-mf-border rounded-md transition-colors ${
+          open
+            ? 'bg-blue-600 text-white border-blue-600'
+            : 'text-mf-text-secondary hover:text-mf-text-primary hover:bg-mf-hover'
+        }`}
+      >
+        <Package size={14} /> Node Repository
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-48 bg-mf-panel border border-mf-border rounded-md shadow-lg z-50 py-1">
+          {NODE_REPO_PAGES.map((page) => (
+            <a
+              key={page.path}
+              href={page.path}
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs text-mf-text-secondary hover:text-mf-text-primary hover:bg-mf-hover transition-colors"
+            >
+              {page.icon}
+              {page.label}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Gallery page ─────────────────────────────────────────────────────────────
 
 export function ProjectGallery() {
@@ -131,6 +183,7 @@ export function ProjectGallery() {
   const [migrated, setMigrated] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -252,12 +305,13 @@ export function ProjectGallery() {
         >
           <Brain size={14} /> Memory
         </a>
-        <a
-          href="/node-repository"
+        <NodeRepoDropdown />
+        <button
+          onClick={() => setSettingsOpen(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-mf-text-secondary hover:text-mf-text-primary border border-mf-border rounded-md hover:bg-mf-hover transition-colors"
         >
-          <Package size={14} /> Node Repository
-        </a>
+          <Settings size={14} /> Settings
+        </button>
         <button
           onClick={() => { setEditMode(!editMode); setSelectedIds(new Set()) }}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-md transition-colors ${
@@ -266,7 +320,7 @@ export function ProjectGallery() {
               : 'text-mf-text-secondary hover:text-mf-text-primary border-mf-border hover:bg-mf-hover'
           }`}
         >
-          <Settings size={14} /> {editMode ? 'Done' : 'Edit'}
+          {editMode ? 'Done' : 'Edit'}
         </button>
         <button
           onClick={handleCreate}
@@ -341,6 +395,29 @@ export function ProjectGallery() {
           </div>
         )}
       </div>
+
+      {/* Settings modal */}
+      {settingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSettingsOpen(false)} />
+          <div className="relative bg-mf-panel border border-mf-border rounded-lg shadow-2xl w-80 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-mf-border flex-shrink-0">
+              <span className="text-xs font-semibold text-mf-text-secondary uppercase tracking-wide">
+                Settings
+              </span>
+              <button
+                onClick={() => setSettingsOpen(false)}
+                className="text-mf-text-muted hover:text-mf-text-primary"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto mf-scroll p-4">
+              <SettingsContent />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

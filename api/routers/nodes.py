@@ -19,9 +19,11 @@ from pathlib import Path
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from api.config import Settings, get_settings
+from api.routers.projects import DirectoryEntry, DirectoryListResponse, _scan_directory
 from api.models.nodes import (
     NodeDetailResponse,
     NodeIndexInfoResponse,
@@ -305,6 +307,72 @@ def put_node_preferences(
         show_deprecated=body.show_deprecated,
         node_preferences=body.node_preferences,
     )
+
+
+# ── Node files (userdata/nodes/ 文件浏览与编辑) ─────────────────────────────────
+
+def _safe_node_path(filename: str) -> str:
+    """校验节点文件路径安全性（允许子目录，拒绝路径遍历）。"""
+    if not filename or filename.startswith("/") or ".." in filename:
+        raise HTTPException(status_code=400, detail="非法文件路径")
+    return filename
+
+
+def _get_userdata_nodes_dir(settings: Settings) -> Path:
+    d = settings.userdata_root / "nodes"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+class NodeFilesReadRequest(BaseModel):
+    path: str
+
+
+class NodeFilesWriteRequest(BaseModel):
+    path: str
+    content: str
+
+
+@router.get("/files", response_model=DirectoryListResponse, summary="列出 userdata/nodes/ 下所有文件")
+def list_node_files(settings: Settings = Depends(get_settings)) -> DirectoryListResponse:
+    d = _get_userdata_nodes_dir(settings)
+    entries = _scan_directory(d, d)
+    return DirectoryListResponse(entries=entries)
+
+
+@router.get("/files/read", summary="读取 userdata/nodes/ 中的文件内容")
+def read_node_file(
+    path: str = Query(..., description="相对于 userdata/nodes/ 的文件路径"),
+    settings: Settings = Depends(get_settings),
+) -> PlainTextResponse:
+    safe_path = _safe_node_path(path)
+    d = _get_userdata_nodes_dir(settings)
+    file_path = d / safe_path
+    if not file_path.is_file():
+        raise HTTPException(404, detail=f"文件 '{safe_path}' 不存在")
+    try:
+        file_path.resolve().relative_to(d.resolve())
+    except ValueError:
+        raise HTTPException(403, detail="禁止访问 userdata/nodes/ 外的文件")
+    content = file_path.read_text()
+    return PlainTextResponse(content)
+
+
+@router.put("/files/write", summary="写入/修改 userdata/nodes/ 中的文件")
+def write_node_file(
+    req: NodeFilesWriteRequest,
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    safe_path = _safe_node_path(req.path)
+    d = _get_userdata_nodes_dir(settings)
+    file_path = d / safe_path
+    try:
+        file_path.resolve().relative_to(d.resolve())
+    except ValueError:
+        raise HTTPException(403, detail="禁止访问 userdata/nodes/ 外的文件")
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(req.content)
+    return {"written": safe_path}
 
 
 @router.get("/{name}", response_model=NodeDetailResponse, summary="节点详情")

@@ -1,7 +1,8 @@
 import React, { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Upload, Download, Trash2, FolderOpen, Copy } from 'lucide-react'
+import { Upload, Download, Trash2, FolderOpen, Copy, ChevronDown, ChevronRight, X } from 'lucide-react'
 import { filesApi, projectFilesApi } from '../../api/files-api'
+import type { DirectoryEntry } from '../../api/files-api'
 import { useProjectStore } from '../../stores/project-store'
 import type { FileEntry } from '../../types/index-types'
 
@@ -13,7 +14,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function handleDownload(blob: Blob, filename: string) {
+function handleDownloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -119,7 +120,7 @@ function WorkspaceTab() {
   const handleDownload = async (entry: FileEntry) => {
     try {
       const blob = await filesApi.download(entry.name)
-      handleDownload(blob, entry.name)
+      handleDownloadBlob(blob, entry.name)
     } catch (err) {
       console.error('Download failed:', err)
     }
@@ -211,7 +212,7 @@ function ProjectTab({ projectId }: { projectId: string }) {
   const handleDownload = async (entry: FileEntry) => {
     try {
       const blob = await projectFilesApi.download(projectId, entry.name)
-      handleDownload(blob, entry.name)
+      handleDownloadBlob(blob, entry.name)
     } catch (err) {
       console.error('Download failed:', err)
     }
@@ -286,17 +287,258 @@ function ProjectTab({ projectId }: { projectId: string }) {
   )
 }
 
+// ─── Directory tab (project file system browser) ─────────────────────────────
+
+/** Files to hide from the project directory browser. */
+const HIDDEN_FILES = new Set(['canvas.json', 'project.json', 'afterrun_canvas.json'])
+const HIDDEN_DIRS = new Set(['files'])
+
+interface TreeNode {
+  name: string
+  path: string
+  isDir: boolean
+  sizeBytes: number
+  children: TreeNode[]
+}
+
+function buildTree(entries: DirectoryEntry[]): TreeNode[] {
+  // Filter hidden entries
+  const visible = entries.filter((e) => {
+    const parts = e.path.split('/')
+    // Check each path segment for hidden dirs/files
+    for (const part of parts) {
+      if (HIDDEN_DIRS.has(part)) return false
+    }
+    if (!e.is_dir && HIDDEN_FILES.has(e.name)) return false
+    return true
+  })
+
+  const root: TreeNode[] = []
+  const dirMap = new Map<string, TreeNode>()
+
+  for (const e of visible) {
+    const parts = e.path.split('/')
+    const node: TreeNode = {
+      name: e.name,
+      path: e.path,
+      isDir: e.is_dir,
+      sizeBytes: e.size_bytes,
+      children: [],
+    }
+
+    if (parts.length === 1) {
+      root.push(node)
+    } else {
+      const parentPath = parts.slice(0, -1).join('/')
+      const parent = dirMap.get(parentPath)
+      if (parent) {
+        parent.children.push(node)
+      } else {
+        // Parent not found (shouldn't happen if list is complete) — add to root
+        root.push(node)
+      }
+    }
+
+    if (e.is_dir) {
+      dirMap.set(e.path, node)
+    }
+  }
+
+  // Sort: dirs first, then alphabetically
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+    for (const n of nodes) sortNodes(n.children)
+  }
+  sortNodes(root)
+  return root
+}
+
+function TreeRow({
+  node,
+  depth,
+  onView,
+  onDownload,
+}: {
+  node: TreeNode
+  depth: number
+  onView: (entry: TreeNode) => void
+  onDownload: (entry: TreeNode) => void
+}) {
+  const [expanded, setExpanded] = useState(depth < 1)
+  const hasChildren = node.isDir && node.children.length > 0
+
+  return (
+    <>
+      <div
+        className="px-3 py-1.5 border-b border-mf-border/30 hover:bg-mf-hover/40 transition-colors select-none"
+        style={{ paddingLeft: `${12 + depth * 14}px` }}
+      >
+        <div className="flex items-center gap-1.5">
+          {hasChildren ? (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-mf-text-muted hover:text-mf-text-primary flex-shrink-0"
+            >
+              {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+            </button>
+          ) : node.isDir ? (
+            <span className="w-2.5 flex-shrink-0" />
+          ) : (
+            <span className="w-2.5 flex-shrink-0" />
+          )}
+          <span className="text-mf-text-secondary text-[10px] flex-shrink-0">
+            {node.isDir ? (expanded ? '📂' : '📁') : '📄'}
+          </span>
+          <span
+            className="flex-1 text-[11px] text-mf-text-primary truncate font-mono cursor-pointer"
+            title={node.path}
+            onClick={() => {
+              if (node.isDir && hasChildren) setExpanded(!expanded)
+              else if (!node.isDir) onView(node)
+            }}
+          >
+            {node.name}
+          </span>
+          {!node.isDir && (
+            <span className="text-[10px] text-mf-text-muted flex-shrink-0">
+              {formatSize(node.sizeBytes)}
+            </span>
+          )}
+        </div>
+        {!node.isDir && (
+          <div className="flex gap-1 mt-0.5" style={{ marginLeft: `${2 + 10 + 4}px` }}>
+            <button
+              onClick={() => onView(node)}
+              className="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] text-mf-text-secondary hover:text-blue-300 hover:bg-mf-hover rounded transition-colors"
+              title="View"
+            >
+              View
+            </button>
+            <button
+              onClick={() => onDownload(node)}
+              className="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] text-mf-text-secondary hover:text-green-300 hover:bg-mf-hover rounded transition-colors"
+              title="Download"
+            >
+              <Download size={10} /> Download
+            </button>
+          </div>
+        )}
+      </div>
+      {hasChildren && expanded && node.children.map((child) => (
+        <TreeRow
+          key={child.path}
+          node={child}
+          depth={depth + 1}
+          onView={onView}
+          onDownload={onDownload}
+        />
+      ))}
+    </>
+  )
+}
+
+function DirectoryTab({ projectId }: { projectId: string }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['files', 'directory', projectId],
+    queryFn: () => projectFilesApi.listDirectory(projectId),
+  })
+
+  const [modalPath, setModalPath] = useState<string | null>(null)
+  const [modalContent, setModalContent] = useState<string | null>(null)
+  const [modalLoading, setModalLoading] = useState(false)
+
+  const handleView = async (node: TreeNode) => {
+    if (node.isDir) return
+    setModalPath(node.path)
+    setModalContent(null)
+    setModalLoading(true)
+    try {
+      const blob = await projectFilesApi.downloadFromDirectory(projectId, node.path)
+      setModalContent(await blob.text())
+    } catch {
+      setModalContent('[Failed to read file]')
+    } finally {
+      setModalLoading(false)
+    }
+  }
+
+  const handleDownload = async (node: TreeNode) => {
+    if (node.isDir) return
+    try {
+      const blob = await projectFilesApi.downloadFromDirectory(projectId, node.path)
+      handleDownloadBlob(blob, node.name)
+    } catch (err) {
+      console.error('Download failed:', err)
+    }
+  }
+
+  const tree = buildTree(data?.entries ?? [])
+  const fileCount = data?.entries?.filter((e) => !e.is_dir).length ?? 0
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex-1 overflow-y-auto mf-scroll">
+        {isLoading && <p className="text-xs text-mf-text-muted px-3 py-4 text-center">Loading...</p>}
+        {isError && <p className="text-xs text-red-500 px-3 py-4 text-center">Failed to load directory</p>}
+        {tree.map((node) => (
+          <TreeRow
+            key={node.path}
+            node={node}
+            depth={0}
+            onView={handleView}
+            onDownload={handleDownload}
+          />
+        ))}
+        {tree.length === 0 && !isLoading && (
+          <p className="text-xs text-mf-text-muted px-3 py-4 text-center">No files</p>
+        )}
+      </div>
+      <div className="px-3 py-1.5 border-t border-mf-border flex-shrink-0">
+        <span className="text-[10px] text-mf-text-muted">
+          project dir/ • {fileCount} file{fileCount !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {/* View file modal */}
+      {modalPath && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => { setModalPath(null); setModalContent(null) }} />
+          <div className="relative bg-mf-panel border border-mf-border rounded-lg shadow-2xl w-[70vw] max-w-4xl max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-mf-border flex-shrink-0">
+              <span className="text-xs font-mono text-mf-text-secondary truncate">{modalPath}</span>
+              <button onClick={() => { setModalPath(null); setModalContent(null) }}
+                className="text-mf-text-muted hover:text-mf-text-primary">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto mf-scroll p-4">
+              {modalLoading ? (
+                <p className="text-xs text-mf-text-muted">Loading...</p>
+              ) : (
+                <pre className="text-xs text-mf-text-primary font-mono whitespace-pre-wrap break-all">{modalContent}</pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main FilesPanel ────────────────────────────────────────────────────────
 
 export function FilesPanel() {
   const projectId = useProjectStore((s) => s.currentProjectId)
-  const [tab, setTab] = useState<'workspace' | 'project'>(projectId ? 'project' : 'workspace')
+  const [tab, setTab] = useState<'workspace' | 'project' | 'directory'>(projectId ? 'project' : 'workspace')
 
   // If projectId changes while panel is open, switch tab
   const effectiveTab = projectId ? tab : 'workspace'
 
   return (
-    <div className="w-56 mf-panel border-r border-l-0 flex-shrink-0 flex flex-col">
+    <div className="w-64 mf-panel border-r border-l-0 flex-shrink-0 flex flex-col">
       {/* Header with tabs */}
       <div className="flex items-center border-b border-mf-border flex-shrink-0">
         <span className="flex items-center gap-1.5 text-xs font-semibold text-mf-text-secondary uppercase tracking-wide px-3 py-2">
@@ -325,12 +567,24 @@ export function FilesPanel() {
             >
               Project
             </button>
+            <button
+              onClick={() => setTab('directory')}
+              className={`px-2 py-2 text-[10px] transition-colors ${
+                effectiveTab === 'directory'
+                  ? 'text-blue-300 border-b-2 border-blue-400'
+                  : 'text-mf-text-muted hover:text-mf-text-secondary'
+              }`}
+            >
+              Dir
+            </button>
           </div>
         )}
       </div>
 
       {/* Tab content */}
-      {effectiveTab === 'project' && projectId ? (
+      {effectiveTab === 'directory' && projectId ? (
+        <DirectoryTab projectId={projectId} />
+      ) : effectiveTab === 'project' && projectId ? (
         <ProjectTab projectId={projectId} />
       ) : (
         <WorkspaceTab />

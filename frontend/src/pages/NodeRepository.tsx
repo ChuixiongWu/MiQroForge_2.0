@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ArrowLeft, Eye, EyeOff, ChevronDown, ChevronRight, Save } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, ChevronDown, ChevronRight, Save, FolderOpen } from 'lucide-react'
 import { useNodeCatalog } from '../hooks/useNodeCatalog'
 import { buildSemanticGroups, useNodeCatalogStore } from '../stores/node-catalog-store'
 import { semanticIcon } from '../lib/semantic-labels'
@@ -274,10 +274,19 @@ export function NodeRepository() {
             Gallery
           </a>
           <div className="w-px h-5 bg-mf-border" />
+          <a
+            href="/node-repository/nodefiles"
+            className="flex items-center gap-1.5 text-xs text-mf-text-muted hover:text-mf-text-primary transition-colors"
+          >
+            <FolderOpen size={13} />
+            Node Files
+          </a>
+          <div className="w-px h-5 bg-mf-border" />
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="MiQroForge" className="h-5 w-auto" />
-            <h1 className="text-sm font-semibold tracking-tight">Node Repository</h1>
+            <h1 className="text-sm font-semibold tracking-tight">Node Preferences</h1>
           </div>
+          <span className="text-[10px] text-mf-text-muted">preference</span>
           <div className="flex-1" />
           <label className="flex items-center gap-1.5 text-[11px] text-mf-text-muted cursor-pointer select-none">
             <input
@@ -295,12 +304,12 @@ export function NodeRepository() {
         {/* Intro */}
         <div className="mb-6 p-4 rounded-lg border border-mf-border bg-mf-panel">
           <h2 className="text-xs font-semibold text-mf-text-secondary uppercase tracking-wide mb-2">
-            Node Parameter Preferences
+            Node Preferences
           </h2>
           <p className="text-[12px] text-mf-text-muted">
             Configure parameter visibility (visible / collapsed / hidden) for each node.
             Changes saved here apply <strong className="text-mf-text-primary">globally</strong> to all projects.
-            Per-project overrides can be made in the Inspector panel within each project.
+            Includes both built-in nodes and user-added nodes from userdata/nodes/.
           </p>
         </div>
 

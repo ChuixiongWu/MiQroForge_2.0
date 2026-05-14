@@ -84,4 +84,31 @@ export const projectFilesApi = {
       },
     )
   },
+
+  listDirectory(projectId: string): Promise<DirectoryListResponse> {
+    return fetchJSON<DirectoryListResponse>(`${BASE}/projects/${projectId}/directory`)
+  },
+
+  async downloadFromDirectory(projectId: string, relPath: string): Promise<Blob> {
+    const res = await fetch(
+      `${BASE}/projects/${projectId}/directory/download?path=${encodeURIComponent(relPath)}`,
+    )
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText)
+      throw new Error(`API error ${res.status}: ${text}`)
+    }
+    return res.blob()
+  },
+}
+
+export interface DirectoryEntry {
+  name: string
+  path: string
+  size_bytes: number
+  is_dir: boolean
+  modified_at: string
+}
+
+export interface DirectoryListResponse {
+  entries: DirectoryEntry[]
 }

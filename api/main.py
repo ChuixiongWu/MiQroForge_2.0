@@ -24,7 +24,6 @@ from fastapi.staticfiles import StaticFiles
 
 from api.config import get_settings
 from api.routers import nodes, runs, workflows
-from api.routers import argo_proxy
 from api.routers import files
 from api.routers import agents
 from api.routers import projects
@@ -122,7 +121,6 @@ app.include_router(runs.router, prefix=API_PREFIX)
 app.include_router(files.router, prefix=API_PREFIX)
 app.include_router(agents.router, prefix=API_PREFIX)
 app.include_router(projects.router, prefix=API_PREFIX)
-app.include_router(argo_proxy.router)   # /argo/* → Argo server
 from api.routers import memory
 app.include_router(memory.router, prefix=API_PREFIX)
 
@@ -141,12 +139,8 @@ def health_check() -> dict:
 
 @app.get("/api/v1/config", tags=["system"])
 def get_config() -> dict:
-    """返回前端所需的运行时配置（如 Argo UI 地址）。"""
-    s = get_settings()
-    return {
-        "argo_ui_url": s.argo_ui_url,
-        "argo_namespace": s.argo_namespace,
-    }
+    """返回前端所需的运行时配置。"""
+    return {}
 
 
 # 仅在没有静态文件服务时注册 JSON 根路由，

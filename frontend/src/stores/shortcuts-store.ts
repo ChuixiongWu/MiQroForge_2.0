@@ -29,8 +29,8 @@ export const SHORTCUT_DEFS: Record<ShortcutId, ShortcutMeta> = {
   },
   toggleRuns: {
     id: 'toggleRuns',
-    label: 'Toggle Runs panel',
-    description: 'Show / hide the Runs panel',
+    label: 'Toggle History panel',
+    description: 'Show / hide the History panel',
     defaultKey: 'r',
   },
   toggleFiles: {

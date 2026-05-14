@@ -3,7 +3,7 @@ import { create } from 'zustand'
 // 'files' and 'inspector' are no longer right-panel slots:
 //  - Files has its own toggle on the left side
 //  - Inspector is always shown when a node is selected
-export type RightPanel = 'runs' | 'settings' | null
+export type RightPanel = 'runs' | null
 
 interface UIState {
   selectedNodeId: string | null

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -303,3 +304,77 @@ def copy_from_workspace(project_id: str, req: CopyFromWorkspaceRequest) -> FileE
     dest = d / safe_name
     shutil.copy2(src, dest)
     return _file_entry(dest)
+
+
+# ── 项目目录浏览 ───────────────────────────────────────────────────────────────
+
+class DirectoryEntry(BaseModel):
+    name: str
+    path: str          # relative path from project root
+    size_bytes: int
+    is_dir: bool
+    modified_at: str   # ISO-8601
+
+
+class DirectoryListResponse(BaseModel):
+    entries: list[DirectoryEntry]
+
+
+def _safe_project_path(path: str) -> str:
+    """校验项目目录内文件路径（允许子目录，拒绝路径遍历）。"""
+    if not path or ".." in path or path.startswith("/"):
+        raise HTTPException(status_code=400, detail="非法文件路径")
+    return path
+
+
+def _get_project_dir(project_id: str) -> Path:
+    settings = get_settings()
+    d = settings.userdata_root / "projects" / project_id
+    if not d.is_dir():
+        raise HTTPException(404, detail=f"项目 '{project_id}' 不存在")
+    return d
+
+
+def _scan_directory(root: Path, base: Path) -> list[DirectoryEntry]:
+    """递归扫描目录，返回所有文件和子目录的 DirectoryEntry 列表。"""
+    entries: list[DirectoryEntry] = []
+    for child in sorted(root.iterdir()):
+        rel = str(child.relative_to(base))
+        stat = child.stat()
+        entries.append(DirectoryEntry(
+            name=child.name,
+            path=rel,
+            size_bytes=stat.st_size if child.is_file() else 0,
+            is_dir=child.is_dir(),
+            modified_at=datetime.fromtimestamp(
+                stat.st_mtime, tz=timezone.utc
+            ).isoformat(),
+        ))
+        if child.is_dir() and not child.is_symlink():
+            entries.extend(_scan_directory(child, base))
+    return entries
+
+
+@router.get("/{project_id}/directory", response_model=DirectoryListResponse, summary="列出项目目录下所有文件")
+def list_project_directory(project_id: str) -> DirectoryListResponse:
+    d = _get_project_dir(project_id)
+    entries = _scan_directory(d, d)
+    return DirectoryListResponse(entries=entries)
+
+
+@router.get("/{project_id}/directory/download", summary="下载项目目录中的文件")
+def download_from_project_directory(
+    project_id: str,
+    path: str,
+) -> FileResponse:
+    safe_path = _safe_project_path(path)
+    d = _get_project_dir(project_id)
+    file_path = d / safe_path
+    if not file_path.is_file():
+        raise HTTPException(404, detail=f"文件 '{safe_path}' 不存在")
+    # 安全检查：确保文件在项目目录内
+    try:
+        file_path.resolve().relative_to(d.resolve())
+    except ValueError:
+        raise HTTPException(403, detail="禁止访问项目目录外的文件")
+    return FileResponse(str(file_path), filename=file_path.name)

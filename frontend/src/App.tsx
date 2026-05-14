@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReactFlowProvider } from '@xyflow/react'
-import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { useEffect } from 'react'
 
 import { TopBar, StatusBar } from './components/layout/TopBar'
@@ -10,12 +10,13 @@ import { WorkflowCanvas } from './components/canvas/WorkflowCanvas'
 import { NodeInspector } from './components/inspector/NodeInspector'
 import { RunsPanel } from './components/runs/RunsPanel'
 import { FilesPanel } from './components/files/FilesPanel'
-import { SettingsPanel } from './components/settings/SettingsPanel'
+
 import { UnitsPage } from './components/docs/UnitsPage'
 import { SharedParamsPage } from './components/docs/SharedParamsPage'
 import { ChatPanel } from './components/chat/ChatPanel'
 import { ProjectGallery } from './pages/ProjectGallery'
 import { NodeRepository } from './pages/NodeRepository'
+import { NodeFilesPage } from './pages/NodeFilesPage'
 import { MemoryManager } from './pages/MemoryManager'
 import { useUIStore } from './stores/ui-store'
 import { useRunOverlayStore } from './stores/run-overlay-store'
@@ -131,9 +132,8 @@ function CanvasLayout() {
         {/* Right: Inspector (always when node selected) */}
         {selectedNodeId && <NodeInspector />}
 
-        {/* Right: Context panel (runs / settings) */}
+        {/* Right: Context panel (history) */}
         {rightPanel === 'runs'      && <RunsPanel />}
-        {rightPanel === 'settings'  && <SettingsPanel />}
 
         {/* Far right: Chat panel (AI Assistant) */}
         {chatOpen && <ChatPanel />}
@@ -165,7 +165,9 @@ function AppRoutes() {
       } />
       <Route path="/ref/units" element={<UnitsPage />} />
       <Route path="/ref/shared-params" element={<SharedParamsPage />} />
-      <Route path="/node-repository" element={<NodeRepository />} />
+      <Route path="/node-repository" element={<Navigate to="/node-repository/preference" replace />} />
+      <Route path="/node-repository/preference" element={<NodeRepository />} />
+      <Route path="/node-repository/nodefiles" element={<NodeFilesPage />} />
       <Route path="/memory" element={<MemoryManager />} />
     </Routes>
   )

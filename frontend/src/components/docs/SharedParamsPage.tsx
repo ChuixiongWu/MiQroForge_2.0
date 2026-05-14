@@ -48,9 +48,9 @@ export function SharedParamsPage() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-mf-base text-mf-text-primary">
+    <div className="h-screen flex flex-col bg-mf-base text-mf-text-primary">
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-mf-panel border-b border-mf-border">
+      <header className="sticky top-0 z-10 bg-mf-panel border-b border-mf-border flex-shrink-0">
         <div className="max-w-5xl mx-auto px-6 py-3 flex items-center gap-4">
           <a
             href="/"
@@ -67,7 +67,7 @@ export function SharedParamsPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-6">
+      <main className="flex-1 overflow-y-auto max-w-5xl mx-auto px-6 py-6 w-full">
         {/* Intro */}
         <div className="mb-6 p-4 rounded-lg border border-mf-border bg-mf-panel">
           <h2 className="text-xs font-semibold text-mf-text-secondary uppercase tracking-wide mb-2">
