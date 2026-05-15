@@ -169,6 +169,7 @@ def validate_workflow(
     *,
     project_root: Path | None = None,
     project_id: str = "",
+    username: str = "",
 ) -> ValidationReport:
     """对 MF 工作流进行全量校验。
 
@@ -176,6 +177,7 @@ def validate_workflow(
         workflow: 已加载的 MFWorkflow 实例。
         project_root: 项目根目录，用于解析 nodespec 路径。
         project_id: 当前项目 ID，用于搜索项目 tmp 目录中的未 Accept 节点。
+        username: 当前用户名，用于多用户项目路径。
 
     Returns:
         ValidationReport，包含所有问题和解析后的 NodeSpec。
@@ -199,7 +201,7 @@ def validate_workflow(
             # ── Prefab 节点：pregenerate 非空时才去 disk 读预生成 nodespec ──
             if node_inst.prefab and node_inst.pregenerate is not None:
                 try:
-                    spec = _resolve_nodegen_tmp_spec(node_inst, project_root, project_id)
+                    spec = _resolve_nodegen_tmp_spec(node_inst, project_root, project_id, username)
                     resolved_nodes[node_inst.id] = spec
                     issues.append(ValidationIssue(
                         severity="info",
@@ -389,6 +391,7 @@ def _resolve_nodegen_tmp_spec(
     node_inst: MFNodeInstance,
     project_root: Path | None,
     project_id: str,
+    username: str = "",
 ) -> NodeSpec:
     """为 prefab 节点从 proj/tmp/ 或 userdata/nodes/ 读取预生成 nodespec。
 
@@ -405,17 +408,29 @@ def _resolve_nodegen_tmp_spec(
         project_root = Path.cwd()
     name = node_inst.id  # 直接使用节点 ID
 
-    # 1. 搜索 userdata/nodes/（已 Accept 的节点）
-    userdata_nodes = project_root / "userdata" / "nodes"
-    if userdata_nodes.exists():
-        for spec_path in userdata_nodes.rglob(f"{name}/nodespec.yaml"):
+    # 1. 搜索 userdata/users/{username}/nodes/（用户自定义节点）
+    if username:
+        user_nodes = project_root / "userdata" / "users" / username / "nodes"
+        if user_nodes.exists():
+            for spec_path in user_nodes.rglob(f"{name}/nodespec.yaml"):
+                if "schemas" in spec_path.parts or "base_images" in spec_path.parts:
+                    continue
+                return NodeSpec.from_yaml(spec_path)
+
+    # 2. 搜索 userdata/nodes/（共享节点 / 向后兼容）
+    shared_nodes = project_root / "userdata" / "nodes"
+    if shared_nodes.exists():
+        for spec_path in shared_nodes.rglob(f"{name}/nodespec.yaml"):
             if "schemas" in spec_path.parts or "base_images" in spec_path.parts:
                 continue
             return NodeSpec.from_yaml(spec_path)
 
-    # 2. 搜索 proj/tmp/（未 Accept 的节点）
+    # 3. 搜索 userdata/users/{username}/projects/{project_id}/tmp/{name}/
     if project_id:
-        tmp_dir = project_root / "userdata" / "projects" / project_id / "tmp" / name
+        if username:
+            tmp_dir = project_root / "userdata" / "users" / username / "projects" / project_id / "tmp" / name
+        else:
+            tmp_dir = project_root / "userdata" / "projects" / project_id / "tmp" / name
         spec_path = tmp_dir / "nodespec.yaml"
         if spec_path.exists():
             return NodeSpec.from_yaml(spec_path)

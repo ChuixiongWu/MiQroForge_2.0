@@ -17,7 +17,10 @@ import yaml
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
+from api.auth import CurrentUser, require_user
 from api.config import Settings, get_settings
+from api.dependencies import get_user_paths
+from api.user_paths import UserPaths
 from api.models.runs import RunDetailResponse, RunListResponse, RunLogsResponse, RunSummaryResponse
 from api.services.argo_service import ArgoService
 from api.services.project_service import ProjectService
@@ -32,6 +35,8 @@ def get_argo_service(settings: Settings = Depends(get_settings)) -> ArgoService:
 @router.get("", response_model=RunListResponse, summary="列出所有运行")
 def list_runs(
     project_id: str | None = None,
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> RunListResponse:
     """纯本地 runs 列表，不依赖 Argo。"""
@@ -41,7 +46,7 @@ def list_runs(
     if not project_id:
         return RunListResponse(total=0, runs=[])
 
-    project_runs_dir = settings.userdata_root / "projects" / project_id / "runs"
+    project_runs_dir = paths.projects_dir / project_id / "runs" if paths else settings.userdata_root / "projects" / project_id / "runs"
     if not project_runs_dir.exists():
         return RunListResponse(total=0, runs=[])
 
@@ -104,6 +109,8 @@ def get_run(
     name: str,
     project_id: str | None = None,
     argo: ArgoService = Depends(get_argo_service),
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> RunDetailResponse:
     # Try Argo first
@@ -124,7 +131,8 @@ def get_run(
     if not project_id:
         raise HTTPException(status_code=404, detail=f"Run '{name}' not found in Argo or locally")
 
-    run_dir = settings.userdata_root / "projects" / project_id / "runs" / name
+    projects_root = paths.projects_dir if paths else settings.userdata_root / "projects"
+    run_dir = projects_root / project_id / "runs" / name
     if not run_dir.is_dir():
         raise HTTPException(status_code=404, detail=f"Run '{name}' not found")
 
@@ -157,14 +165,42 @@ def get_run(
 def delete_run(
     name: str,
     project_id: str | None = None,
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> None:
     """只删除本地 run 数据。Argo 数据由 TTL 策略自动清理。"""
     if not project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
-    run_dir = settings.userdata_root / "projects" / project_id / "runs" / name
+    projects_root = paths.projects_dir if paths else settings.userdata_root / "projects"
+    run_dir = projects_root / project_id / "runs" / name
     if run_dir.exists():
         shutil.rmtree(run_dir)
+
+
+@router.post("/{name}/stop", summary="中止运行中的工作流")
+def stop_run(
+    name: str,
+    project_id: str | None = None,
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
+    argo: ArgoService = Depends(get_argo_service),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """终止 Argo 工作流并清理本地数据。"""
+    if not project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    # 1. 终止 Argo 工作流
+    try:
+        argo.delete_workflow(name)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=f"终止 Argo 工作流失败: {e}")
+    # 2. 清理本地数据
+    projects_root = paths.projects_dir if paths else settings.userdata_root / "projects"
+    run_dir = projects_root / project_id / "runs" / name
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    return {"stopped": name, "project_id": project_id}
 
 
 @router.get("/{name}/logs", response_model=RunLogsResponse, summary="运行日志")
@@ -274,10 +310,12 @@ def save_run_outputs(
     project_id: str | None = Query(None),
     canvas: dict[str, Any] | None = Body(None),
     argo: ArgoService = Depends(get_argo_service),
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     """
-    从 Argo 拉取工作流状态，将输出参数写入 userdata/runs/{name}/outputs.json。
+    从 Argo 拉取工作流状态，将输出参数写入 runs/{name}/outputs.json。
     可选附带 canvas 状态（body），保存为 afterrun_canvas.json。
     由前端在运行到达终态时调用。
     """
@@ -336,7 +374,8 @@ def save_run_outputs(
 
     if not project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
-    run_dir = settings.userdata_root / "projects" / project_id / "runs" / name
+    projects_root = paths.projects_dir if paths else settings.userdata_root / "projects"
+    run_dir = projects_root / project_id / "runs" / name
     run_dir.mkdir(parents=True, exist_ok=True)
     outputs_path = run_dir / "outputs.json"
     # Workflow-level timing from Argo
@@ -372,7 +411,7 @@ def save_run_outputs(
                 continue
             # 从 tmp/<node_id>/ 读取运行时生成的 nodespec + run.sh
             try:
-                tmp_dir = settings.userdata_root / "projects" / project_id / "tmp" / cn_id
+                tmp_dir = paths.projects_dir / project_id / "tmp" / cn_id if paths else settings.userdata_root / "projects" / project_id / "tmp" / cn_id
                 ns_path = tmp_dir / "nodespec.yaml"
                 rs_path = tmp_dir / "profile" / "run.sh"
                 if ns_path.exists():
@@ -425,7 +464,8 @@ def save_run_outputs(
 
         # ── 用 port_map.json 重映射 edge handles（Agent 可能重命名了端口）──
         for cn_id in list(nodegen_updates.keys()):
-            port_map_path = settings.userdata_root / "projects" / project_id / "tmp" / cn_id / "port_map.json"
+            projects_root = paths.projects_dir if paths else settings.userdata_root / "projects"
+            port_map_path = projects_root / project_id / "tmp" / cn_id / "port_map.json"
             if not port_map_path.exists():
                 continue
             try:
@@ -497,7 +537,7 @@ def save_run_outputs(
                     cn_id, exc_info=True,
                 )
 
-        svc = ProjectService()
+        svc = ProjectService(paths)
         svc.save_afterrun_canvas(project_id, name, canvas)
 
     # Collect _error texts for failed nodes (so frontend can update nodeStatuses)
@@ -506,6 +546,14 @@ def save_run_outputs(
         if key.endswith("._error"):
             canvas_id = key.rsplit("._error", 1)[0]
             error_texts[canvas_id] = val
+
+    # Record compute usage for billing
+    try:
+        from api.tracking.compute_tracker import ComputeUsageTracker
+        ct = ComputeUsageTracker(paths, settings.argo_namespace)
+        ct.record_workflow(wf, project_id)
+    except Exception:
+        pass  # Non-critical, don't block the main flow
 
     return {
         "saved": True,
@@ -520,10 +568,11 @@ def save_run_outputs(
 def get_afterrun_canvas(
     name: str,
     project_id: str,
-    settings: Settings = Depends(get_settings),
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
 ) -> dict:
     """返回 run 完成后保存的画布状态（含节点输出值）。"""
-    svc = ProjectService()
+    svc = ProjectService(paths)
     canvas = svc.load_afterrun_canvas(project_id, name)
     if canvas is None:
         raise HTTPException(status_code=404, detail="afterrun_canvas.json not found")
@@ -535,6 +584,7 @@ def get_node_pod_logs(
     name: str,
     node_id: str,
     argo: ArgoService = Depends(get_argo_service),
+    user: CurrentUser = Depends(require_user),
 ) -> dict:
     """返回指定节点的完整 pod 日志。Pod 已删除时返回 404。"""
     try:

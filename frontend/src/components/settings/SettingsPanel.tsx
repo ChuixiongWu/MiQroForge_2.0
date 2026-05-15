@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X } from 'lucide-react'
+// X icon imported where needed
 import { useSettingsStore } from '../../stores/settings-store'
 import type { Theme, FontSize } from '../../stores/settings-store'
 import {

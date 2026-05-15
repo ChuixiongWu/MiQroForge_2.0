@@ -4,23 +4,29 @@
 # 节点容器内的 /mf/workspace 与宿主机路径是同一个目录，
 # 通过 API 上传的文件节点运行时立即可读，无需任何同步。
 #
+# 多用户：项目文件在 userdata/workspace/proj_{pid}/，subPath=proj_{pid}，
+# 全程真实目录，零 symlink。
+#
+# PVC 名用 ARGO_NAMESPACE 环境变量，方便开发版/稳定版并行。
+#
 # 前提：单节点集群（宿主机即 k8s-master），hostPath 即宿主机本地路径。
 #
-# ⚠️  此文件中的 hostPath 包含路径占位符 __MF_PROJECT_ROOT__，不可直接 kubectl apply。
+# ⚠️  此文件中的 hostPath 与 namespace 含占位符，不可直接 kubectl apply。
 #
 # 推荐部署方式（setup_infra.sh 已集成，会自动运行）：
 #   sudo bash scripts/setup_infra.sh
 #
 # 手动部署（在项目根目录下运行）：
-#   sed "s|__MF_PROJECT_ROOT__|$(pwd)|g" infrastructure/k8s/workspace.yaml \
-#       | kubectl apply -f -
-#   kubectl get pvc mf-workspace -n miqroforge-v2   # 应显示 Bound
+#   MF_NS=miqroforge-v2
+#   sed "s|__MF_PROJECT_ROOT__|$(pwd)|g; s|__MF_NAMESPACE__|$MF_NS|g" \
+#       infrastructure/k8s/workspace.yaml | kubectl apply -f -
+#   kubectl get pvc $MF_NS -n $MF_NS   # 应显示 Bound
 ---
 # 静态 PV — 指向宿主机上的 userdata/workspace/ 目录
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: mf-workspace-pv
+  name: __MF_NAMESPACE__-workspace-pv
   labels:
     miqroforge.io/role: workspace
 spec:
@@ -28,7 +34,7 @@ spec:
     storage: 50Gi
   accessModes: [ReadWriteMany]
   persistentVolumeReclaimPolicy: Retain
-  storageClassName: ""          # 静态绑定，不走 provisioner
+  storageClassName: ""
   hostPath:
     path: __MF_PROJECT_ROOT__/userdata/workspace
     type: DirectoryOrCreate
@@ -37,12 +43,12 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: mf-workspace
-  namespace: miqroforge-v2
+  name: __MF_NAMESPACE__
+  namespace: __MF_NAMESPACE__
 spec:
   accessModes: [ReadWriteMany]
   storageClassName: ""
-  volumeName: mf-workspace-pv
+  volumeName: __MF_NAMESPACE__-workspace-pv
   resources:
     requests:
       storage: 50Gi

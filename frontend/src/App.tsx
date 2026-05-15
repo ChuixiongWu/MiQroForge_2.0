@@ -3,6 +3,8 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { useEffect } from 'react'
 
+import { isAuthenticated } from './lib/auth'
+import { LoginPage } from './pages/LoginPage'
 import { TopBar, StatusBar } from './components/layout/TopBar'
 import { NodePalette } from './components/palette/NodePalette'
 import { WorkflowsSidebar } from './components/palette/WorkflowsSidebar'
@@ -144,6 +146,15 @@ function CanvasLayout() {
   )
 }
 
+// ─── Protected Route wrapper ──────────────────────────────────────────────────
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  if (!isAuthenticated()) {
+    return <Navigate to="/login" replace />
+  }
+  return <>{children}</>
+}
+
 // ─── App root ─────────────────────────────────────────────────────────────────
 
 function AppRoutes() {
@@ -157,18 +168,23 @@ function AppRoutes() {
 
   return (
     <Routes>
-      <Route path="/" element={<ProjectGallery />} />
-      <Route path="/project/:projectId" element={
-        <ReactFlowProvider>
-          <CanvasLayout />
-        </ReactFlowProvider>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/" element={
+        <ProtectedRoute><ProjectGallery /></ProtectedRoute>
       } />
-      <Route path="/ref/units" element={<UnitsPage />} />
-      <Route path="/ref/shared-params" element={<SharedParamsPage />} />
+      <Route path="/project/:projectId" element={
+        <ProtectedRoute>
+          <ReactFlowProvider>
+            <CanvasLayout />
+          </ReactFlowProvider>
+        </ProtectedRoute>
+      } />
+      <Route path="/ref/units" element={<ProtectedRoute><UnitsPage /></ProtectedRoute>} />
+      <Route path="/ref/shared-params" element={<ProtectedRoute><SharedParamsPage /></ProtectedRoute>} />
       <Route path="/node-repository" element={<Navigate to="/node-repository/preference" replace />} />
-      <Route path="/node-repository/preference" element={<NodeRepository />} />
-      <Route path="/node-repository/nodefiles" element={<NodeFilesPage />} />
-      <Route path="/memory" element={<MemoryManager />} />
+      <Route path="/node-repository/preference" element={<ProtectedRoute><NodeRepository /></ProtectedRoute>} />
+      <Route path="/node-repository/nodefiles" element={<ProtectedRoute><NodeFilesPage /></ProtectedRoute>} />
+      <Route path="/memory" element={<ProtectedRoute><MemoryManager /></ProtectedRoute>} />
     </Routes>
   )
 }

@@ -15,7 +15,9 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from api.config import Settings, get_settings
+from api.auth import CurrentUser, require_user
+from api.dependencies import get_user_paths
+from api.user_paths import UserPaths
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -36,11 +38,11 @@ class FileListResponse(BaseModel):
 
 # ── 辅助 ─────────────────────────────────────────────────────────────────────
 
-def _get_workspace(settings: Settings) -> Path:
-    """返回 workspace 目录（userdata/workspace/，自动创建）。"""
-    ws = settings.userdata_root / "workspace"
-    ws.mkdir(parents=True, exist_ok=True)
-    return ws
+def _get_globalfiles(paths: UserPaths) -> Path:
+    """返回用户全局文件目录（自动创建）。"""
+    d = paths.globalfiles_dir
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _safe_filename(filename: str) -> str:
@@ -67,9 +69,10 @@ def _file_entry(path: Path) -> FileEntry:
 
 @router.get("", response_model=FileListResponse, summary="列出 workspace 文件")
 def list_files(
-    settings: Settings = Depends(get_settings),
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
 ) -> FileListResponse:
-    ws = _get_workspace(settings)
+    ws = _get_globalfiles(paths)
     entries = sorted(
         [
             _file_entry(p)
@@ -90,12 +93,13 @@ def upload_method_hint() -> dict:
 @router.post("/upload", summary="上传文件到 workspace")
 async def upload_file(
     file: UploadFile,
-    settings: Settings = Depends(get_settings),
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
 ) -> FileEntry:
     if not file.filename:
         raise HTTPException(status_code=400, detail="缺少文件名")
     safe_name = _safe_filename(file.filename)
-    ws = _get_workspace(settings)
+    ws = _get_globalfiles(paths)
     dest = ws / safe_name
 
     content = await file.read()
@@ -109,25 +113,27 @@ async def upload_file(
 @router.get("/{filename}", summary="下载 workspace 文件")
 def download_file(
     filename: str,
-    settings: Settings = Depends(get_settings),
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
 ) -> FileResponse:
     safe_name = _safe_filename(filename)
-    ws = _get_workspace(settings)
-    path = ws / safe_name
-    if not path.is_file():
+    ws = _get_globalfiles(paths)
+    file_path = ws / safe_name
+    if not file_path.is_file():
         raise HTTPException(status_code=404, detail=f"文件 '{safe_name}' 不存在")
-    return FileResponse(str(path), filename=safe_name)
+    return FileResponse(str(file_path), filename=safe_name)
 
 
 @router.delete("/{filename}", summary="删除 workspace 文件")
 def delete_file(
     filename: str,
-    settings: Settings = Depends(get_settings),
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
 ) -> dict:
     safe_name = _safe_filename(filename)
-    ws = _get_workspace(settings)
-    path = ws / safe_name
-    if not path.is_file():
+    ws = _get_globalfiles(paths)
+    file_path = ws / safe_name
+    if not file_path.is_file():
         raise HTTPException(status_code=404, detail=f"文件 '{safe_name}' 不存在")
-    os.remove(path)
+    os.remove(file_path)
     return {"deleted": safe_name}

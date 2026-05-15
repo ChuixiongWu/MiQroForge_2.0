@@ -9,7 +9,7 @@ def get_chroma_persist_dir() -> Path:
     """返回 ChromaDB 持久化目录（userdata/vectorstore/chroma）。"""
     from api.config import get_settings
     settings = get_settings()
-    chroma_dir = settings.userdata_root / "vectorstore" / "chroma"
+    chroma_dir = settings.shared_root / "vectorstore" / "chroma"
     chroma_dir.mkdir(parents=True, exist_ok=True)
     return chroma_dir
 

@@ -392,7 +392,7 @@ export const MFNode = memo(({ id, data, selected }: NodeProps<MFNodeType>) => {
   const errorMsg = runStatus?.error || runStatus?.outputs?._error
 
   // Auto-reset flip when run status changes away from failed
-  const prevPhaseRef = useState(runStatus?.phase)[0]
+  void useState(runStatus?.phase)[0]  // prevPhaseRef — trigger re-render on phase change
   if (isFailed === false && flipped) setFlipped(false)
 
   // ── Pending variant ────────────────────────────────────────────────────────

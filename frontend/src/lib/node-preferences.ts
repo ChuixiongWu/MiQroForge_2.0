@@ -15,7 +15,6 @@ export interface NodePreference {
   hiddenParams: string[]
 }
 
-const STORAGE_PREFIX = 'mf-node-pref-'
 const PROJECT_PREFIX = 'mf-project-node-pref-'
 
 /** 默认折叠的参数名 */

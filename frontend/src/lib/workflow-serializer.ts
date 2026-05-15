@@ -47,8 +47,8 @@ export function rfStateToWorkflowDoc(
     // Pass through stream I/O so workflowDocToYaml can derive ephemeral ports
     if (n.data.stream_inputs) wfNode.stream_inputs = n.data.stream_inputs
     if (n.data.stream_outputs) wfNode.stream_outputs = n.data.stream_outputs
-    if (n.data.onboard_inputs) wfNode.onboard_inputs = n.data.onboard_inputs
-    if (n.data.resources) wfNode.resources = n.data.resources
+    if (n.data.onboard_inputs) (wfNode as Record<string, unknown>).onboard_inputs = n.data.onboard_inputs as unknown
+    if (n.data.resources) (wfNode as Record<string, unknown>).resources = n.data.resources as unknown
     // Pass through node_generator for nodegen serialization detection
     if (n.data.node_generator) wfNode.node_generator = n.data.node_generator
     return wfNode

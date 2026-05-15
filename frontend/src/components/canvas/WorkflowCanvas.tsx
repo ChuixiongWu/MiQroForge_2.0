@@ -53,7 +53,7 @@ export function WorkflowCanvas() {
     [onEdgesChange],
   )
   const { selectNode, showNotification } = useUIStore()
-  const _projectId = useWorkflowStore((s) => s._projectId)
+  const _projectId = useWorkflowStore((s) => s._projectId); void _projectId
   const { isValidConnection: checkConnection } = useConnectionValidator()
   const { fitView } = useReactFlow()
   const theme = useSettingsStore((s) => s.theme)

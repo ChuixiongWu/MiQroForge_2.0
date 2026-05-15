@@ -1,4 +1,9 @@
-"""项目管理服务 — 文件系统 CRUD。"""
+"""项目管理服务 — 文件系统 CRUD。
+
+多用户支持：
+    构造时传入 UserPaths → 数据存储在用户私有目录下。
+    未传入 UserPaths → 回退到旧 flat 布局（用于迁移/测试兼容）。
+"""
 
 from __future__ import annotations
 
@@ -7,7 +12,10 @@ import secrets
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from api.user_paths import UserPaths
 
 from api.config import get_settings
 from api.models.projects import (
@@ -27,6 +35,16 @@ def _new_project_id() -> str:
     return f"proj_{secrets.token_hex(5)}"
 
 
+def _project_files_dir(pid: str) -> Path:
+    """项目文件存储在 userdata/workspace/proj_{pid}/。
+    这是 PVC 挂载点下的真实目录，subPath=proj_{pid}，全程无 symlink。
+    """
+    settings = get_settings()
+    d = settings.data_root / "workspace" / f"proj_{pid}"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def _new_conversation_id() -> str:
     date_part = datetime.now(timezone.utc).strftime("%Y%m%d")
     rand = secrets.token_hex(3)
@@ -40,9 +58,15 @@ def _new_snapshot_id() -> str:
 
 
 class ProjectService:
-    def __init__(self) -> None:
+    def __init__(self, user_paths: Optional["UserPaths"] = None) -> None:
         self.settings = get_settings()
-        self.projects_root: Path = self.settings.userdata_root / "projects"
+        self._user_paths = user_paths
+
+        if user_paths is not None:
+            self.projects_root: Path = user_paths.projects_dir
+        else:
+            self.projects_root = self.settings.userdata_root / "projects"
+
         self.projects_root.mkdir(parents=True, exist_ok=True)
         self.registry_path = self.projects_root / "registry.json"
 
@@ -161,12 +185,8 @@ class ProjectService:
         (project_dir / "conversations").mkdir()
         (project_dir / "runs").mkdir()
         (project_dir / "snapshots").mkdir()
-        # 项目文件实际存储在 workspace/.files/{pid}/，此处 symlink 方便查找
-        files_real = self.settings.userdata_root / "workspace" / ".files" / pid
-        files_real.mkdir(parents=True, exist_ok=True)
-        files_link = project_dir / "files"
-        if not files_link.exists():
-            files_link.symlink_to(files_real)
+        # 项目文件存储在 userdata/workspace/proj_{pid}/（PVC 挂载，真实目录）
+        _project_files_dir(pid)
 
         # Compute order: max existing order + 1
         reg = self._read_registry()
@@ -238,10 +258,10 @@ class ProjectService:
         project_dir = self.projects_root / project_id
         if not project_dir.is_dir():
             return False
-        # 清理 workspace 文件目录
-        files_dir = self.settings.userdata_root / "workspace" / ".files" / project_id
-        if files_dir.is_dir():
-            shutil.rmtree(files_dir)
+        # 清理 PVC 上的项目文件目录
+        pvc_dir = _project_files_dir(project_id)
+        if pvc_dir.is_dir() and pvc_dir != project_dir:
+            shutil.rmtree(pvc_dir)
         shutil.rmtree(project_dir)
         self._remove_registry_entry(project_id)
         return True

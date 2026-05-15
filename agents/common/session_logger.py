@@ -59,6 +59,7 @@ class AgentSessionLog:
         response_content: str,
         iteration: int = 0,
         max_content_len: int = 50000,
+        token_usage: dict | None = None,
         **extra: Any,
     ) -> None:
         """记录一次 LLM 调用的完整输入和输出。
@@ -71,6 +72,7 @@ class AgentSessionLog:
         iteration:  当前迭代轮次
         max_content_len: 单条消息内容的最大字符数（超长则截断）。默认 50000，
             保证 SystemMessage/HumanMessage 完整显示。
+        token_usage: 可选 token 用量信息 {'input_tokens': N, 'output_tokens': N, 'total_tokens': N}
         **extra:    额外元数据（如 parsed_json, error 等）
         """
         serialized_messages = []
@@ -86,14 +88,17 @@ class AgentSessionLog:
                 "content": content,
             })
 
-        self.steps.append({
+        entry = {
             "step": step_name,
             "timestamp": datetime.now().isoformat(),
             "iteration": iteration,
             "messages_to_llm": serialized_messages,
             "llm_response": response_content,
             **extra,
-        })
+        }
+        if token_usage:
+            entry["token_usage"] = token_usage
+        self.steps.append(entry)
 
     def log_event(
         self,

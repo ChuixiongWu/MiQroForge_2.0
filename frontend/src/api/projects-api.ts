@@ -1,13 +1,4 @@
-const BASE = '/api/v1'
-
-async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options)
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText)
-    throw new Error(`API error ${res.status}: ${text}`)
-  }
-  return res.json() as Promise<T>
-}
+import { fetchJSON } from './client'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,11 +63,11 @@ export interface SnapshotListResponse {
 
 export const projectsApi = {
   list(): Promise<ProjectListResponse> {
-    return fetchJSON<ProjectListResponse>(`${BASE}/projects`)
+    return fetchJSON<ProjectListResponse>(`/projects`)
   },
 
   create(req: ProjectCreateRequest): Promise<ProjectMeta> {
-    return fetchJSON<ProjectMeta>(`${BASE}/projects`, {
+    return fetchJSON<ProjectMeta>(`/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
@@ -84,11 +75,11 @@ export const projectsApi = {
   },
 
   get(id: string): Promise<ProjectMeta> {
-    return fetchJSON<ProjectMeta>(`${BASE}/projects/${id}`)
+    return fetchJSON<ProjectMeta>(`/projects/${id}`)
   },
 
   update(id: string, req: ProjectUpdateRequest): Promise<ProjectMeta> {
-    return fetchJSON<ProjectMeta>(`${BASE}/projects/${id}`, {
+    return fetchJSON<ProjectMeta>(`/projects/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
@@ -96,13 +87,13 @@ export const projectsApi = {
   },
 
   delete(id: string): Promise<{ deleted: string }> {
-    return fetchJSON<{ deleted: string }>(`${BASE}/projects/${id}`, {
+    return fetchJSON<{ deleted: string }>(`/projects/${id}`, {
       method: 'DELETE',
     })
   },
 
   duplicate(id: string, name?: string): Promise<ProjectMeta> {
-    return fetchJSON<ProjectMeta>(`${BASE}/projects/${id}/duplicate`, {
+    return fetchJSON<ProjectMeta>(`/projects/${id}/duplicate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(name ? { name } : {}),
@@ -110,7 +101,7 @@ export const projectsApi = {
   },
 
   reorder(ids: string[]): Promise<{ reordered: number }> {
-    return fetchJSON(`${BASE}/projects/reorder`, {
+    return fetchJSON(`/projects/reorder`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids }),
@@ -118,7 +109,7 @@ export const projectsApi = {
   },
 
   batchDelete(ids: string[]): Promise<{ deleted: string[] }> {
-    return fetchJSON(`${BASE}/projects/batch-delete`, {
+    return fetchJSON(`/projects/batch-delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids }),
@@ -126,11 +117,11 @@ export const projectsApi = {
   },
 
   getCanvas(id: string): Promise<CanvasState> {
-    return fetchJSON<CanvasState>(`${BASE}/projects/${id}/canvas`)
+    return fetchJSON<CanvasState>(`/projects/${id}/canvas`)
   },
 
   saveCanvas(id: string, canvas: CanvasState): Promise<{ saved: boolean }> {
-    return fetchJSON<{ saved: boolean }>(`${BASE}/projects/${id}/canvas`, {
+    return fetchJSON<{ saved: boolean }>(`/projects/${id}/canvas`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(canvas),
@@ -139,11 +130,11 @@ export const projectsApi = {
 
   // Conversations
   listConversations(id: string): Promise<ConversationMeta[]> {
-    return fetchJSON<ConversationMeta[]>(`${BASE}/projects/${id}/conversations`)
+    return fetchJSON<ConversationMeta[]>(`/projects/${id}/conversations`)
   },
 
   createConversation(id: string, title?: string): Promise<ConversationMeta> {
-    return fetchJSON<ConversationMeta>(`${BASE}/projects/${id}/conversations`, {
+    return fetchJSON<ConversationMeta>(`/projects/${id}/conversations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(title ? { title } : {}),
@@ -152,11 +143,11 @@ export const projectsApi = {
 
   // Snapshots
   listSnapshots(id: string): Promise<SnapshotListResponse> {
-    return fetchJSON<SnapshotListResponse>(`${BASE}/projects/${id}/snapshots`)
+    return fetchJSON<SnapshotListResponse>(`/projects/${id}/snapshots`)
   },
 
   createSnapshot(id: string, name: string, canvas: Record<string, unknown>): Promise<SnapshotMeta> {
-    return fetchJSON<SnapshotMeta>(`${BASE}/projects/${id}/snapshots`, {
+    return fetchJSON<SnapshotMeta>(`/projects/${id}/snapshots`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, canvas }),
@@ -164,7 +155,7 @@ export const projectsApi = {
   },
 
   deleteSnapshot(id: string, snapshotId: string): Promise<{ deleted: string }> {
-    return fetchJSON<{ deleted: string }>(`${BASE}/projects/${id}/snapshots/${snapshotId}`, {
+    return fetchJSON<{ deleted: string }>(`/projects/${id}/snapshots/${snapshotId}`, {
       method: 'DELETE',
     })
   },

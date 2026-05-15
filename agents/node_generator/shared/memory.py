@@ -66,7 +66,7 @@ class EmbeddingMemoryStore:
             return
         from api.config import get_settings
         settings = get_settings()
-        self._jsonl_path = settings.userdata_root / "node_gen_memory" / f"{self._software}.jsonl"
+        self._jsonl_path = settings.shared_root / "node_gen_memory" / f"{self._software}.jsonl"
 
     def add(self, entry: dict) -> None:
         """添加一条经验（ChromaDB + JSONL 双写）。"""

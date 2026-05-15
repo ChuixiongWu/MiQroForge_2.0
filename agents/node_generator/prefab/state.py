@@ -54,5 +54,6 @@ class PrefabGenState(TypedDict, total=False):
     _input_ports: list[str]               # Argo DAG 输入端口名（供 port_mapping 和 prompt 使用）
     _output_ports: list[str]              # Argo DAG 输出端口名（供 port_mapping 和 prompt 使用）
     _project_id: str                      # 项目 ID（用于 workspace 和 sandbox 定位）
+    _projects_root: str                   # 用户 projects 目录根路径（多用户场景下替代 userdata/projects）
     _run_name: str                        # 运行名称（用于 sandbox 定位）
     _sandbox_dir: str                     # 沙箱持久化目录（API 端点读取输出文件）

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Package, BookOpen, Ruler, ExternalLink, Settings, Trash2, Brain, X, FolderOpen } from 'lucide-react'
+import { Plus, Package, BookOpen, Ruler, ExternalLink, Settings, Trash2, Brain, X, FolderOpen, LogOut, User } from 'lucide-react'
+import { getStoredUser, clearToken } from '../lib/auth'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { ProjectCard } from '../components/gallery/ProjectCard'
@@ -184,6 +185,7 @@ export function ProjectGallery() {
   const [editMode, setEditMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const storedUser = getStoredUser()
 
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -298,6 +300,20 @@ export function ProjectGallery() {
         </div>
         <div className="flex-1" />
         <div className="flex items-center gap-3">
+          {/* User */}
+          <span className="flex items-center gap-1 text-[11px] text-mf-text-muted">
+            <User size={12} />
+            {storedUser?.username ?? '用户'}
+          </span>
+          <button
+            title="登出"
+            onClick={() => { clearToken(); navigate('/login') }}
+            className="flex items-center gap-1 px-2 py-1 text-[11px] text-mf-text-muted
+                       hover:text-red-400 hover:bg-mf-hover rounded transition-colors border border-transparent hover:border-red-800/40"
+          >
+            <LogOut size={11} /> Logout
+          </button>
+          <div className="w-px h-4 bg-mf-border" />
           <RefDropdown />
         <a
           href="/memory"

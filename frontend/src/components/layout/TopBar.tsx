@@ -9,10 +9,11 @@ import { useProjectStore } from '../../stores/project-store'
 import { useWorkflowValidation } from '../../hooks/useWorkflowValidation'
 import { workflowsApi } from '../../api/workflows-api'
 import { projectsApi } from '../../api/projects-api'
+import { getStoredUser } from '../../lib/auth'
 import {
   CheckCircle, AlertCircle,
   Trash2, Save, FolderOpen, PlayCircle, Clock,
-  MessageSquare,
+  MessageSquare, User,
 } from 'lucide-react'
 import type { RightPanel } from '../../stores/ui-store'
 import type { RunPhase } from '../../types/index-types'
@@ -22,7 +23,7 @@ import { phaseEmoji } from '../../lib/phase-utils'
 
 export function TopBar() {
   const navigate = useNavigate()
-  const { meta, setMeta, nodes, edges, clearCanvas, loadFromNodes, setCompilingNodeIds, clearCompilingNodeIds } = useWorkflowStore()
+  const { meta, setMeta, nodes, edges, clearCanvas, setCompilingNodeIds, clearCompilingNodeIds } = useWorkflowStore()
   const {
     rightPanel, setRightPanel, filesOpen, toggleFiles,
     showNotification, runTrigger,
@@ -282,6 +283,14 @@ export function TopBar() {
             {item.icon} {item.label}
           </button>
         ))}
+      </div>
+
+      {/* User indicator */}
+      <div className="ml-auto flex items-center gap-2">
+        <span className="flex items-center gap-1 text-xs text-mf-text-muted">
+          <User size={12} />
+          {getStoredUser()?.username ?? '用户'}
+        </span>
       </div>
 
     </div>

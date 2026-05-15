@@ -20,7 +20,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from api.auth import CurrentUser, require_user
 from api.config import Settings, get_settings
+from api.dependencies import get_user_paths
+from api.user_paths import UserPaths
 from api.models.agents import (
     PlanRequest, PlanResponse,
     YAMLRequest, YAMLResponse,
@@ -31,11 +34,13 @@ from api.models.agents import (
     EphemeralEvalRequest, EphemeralEvalResponse,
     SaveSessionRequest, SaveSessionResponse,
 )
+from agents.llm_config import LLMConfig
 from agents.schemas import NodeGenRequest, EvaluationResult
 from agents.common.session_logger import (
     start_session, end_session,
     save_agent_log, save_conversation,
 )
+from api.tracking.llm_tracker import TokenUsageTracker
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -45,11 +50,17 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 @router.post("/plan", response_model=PlanResponse, summary="运行 Planner Agent")
 async def plan_workflow(
     request: PlanRequest,
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> PlanResponse:
     """解析用户意图，通过 RAG 检索节点，生成语义工作流蓝图。"""
     try:
         from agents.planner.graph import run_planner
+        from agents.llm_config import LLMConfig
+        from api.tracking.llm_tracker import TokenUsageTracker
+
+        tracker = TokenUsageTracker(paths, purpose="planner")
 
         # 前端未传 session_id 时，服务端自动生成（确保日志总能被保存）
         effective_session_id = (
@@ -58,6 +69,7 @@ async def plan_workflow(
         )
 
         def _run_with_session():
+            LLMConfig.set_token_tracker(tracker)
             session = start_session("planner", {
                 "intent": request.intent,
                 "molecule": request.molecule,
@@ -77,10 +89,12 @@ async def plan_workflow(
                         save_agent_log(
                             log.to_dict(),
                             session_id=effective_session_id,
-                            userdata_root=settings.userdata_root,
+                            userdata_root=paths.agent_sessions_dir.parent.parent,
                         )
                     except Exception:
                         pass
+                tracker.flush()
+                LLMConfig.clear_token_tracker()
 
         state = await asyncio.to_thread(_run_with_session)
 
@@ -107,11 +121,14 @@ async def plan_workflow(
 @router.post("/yaml", response_model=YAMLResponse, summary="运行 YAML Coder Agent")
 async def generate_yaml(
     request: YAMLRequest,
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> YAMLResponse:
     """将语义工作流翻译为可执行的 MF YAML。"""
     try:
         from agents.yaml_coder.graph import run_yaml_coder
+        tracker = TokenUsageTracker(paths, purpose="yaml_coder")
 
         effective_session_id = (
             request.session_id
@@ -119,6 +136,7 @@ async def generate_yaml(
         )
 
         def _run_with_session():
+            LLMConfig.set_token_tracker(tracker)
             start_session("yaml_coder", {
                 "workflow_name": request.semantic_workflow.name,
                 "step_count": len(request.semantic_workflow.steps),
@@ -138,7 +156,7 @@ async def generate_yaml(
                         save_agent_log(
                             log.to_dict(),
                             session_id=effective_session_id,
-                            userdata_root=settings.userdata_root,
+                            userdata_root=paths.agent_sessions_dir.parent.parent,
                         )
                     except Exception:
                         pass
@@ -176,6 +194,8 @@ async def generate_yaml(
 @router.post("/node", response_model=NodeGenAPIResponse, summary="设计时生成节点（无 sandbox）")
 async def generate_node(
     request: NodeGenAPIRequest,
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> NodeGenAPIResponse:
     """设计时生成节点（-1 循环）：仅生成 nodespec.yaml + run.sh，无 sandbox 测试。
@@ -207,14 +227,17 @@ async def generate_node(
         # 使用 proj/tmp/pending/ 作为工作目录，Agent 通过 write_file 写入
         pending_dir = None
         if request.project_id:
-            pending_dir = settings.userdata_root / "projects" / request.project_id / "tmp" / "pending"
+            pending_dir = paths.projects_dir / request.project_id / "tmp" / "pending"
             pending_dir.mkdir(parents=True, exist_ok=True)
 
         prefab_cfg = _load_prefab_settings()
         mf_test_design = prefab_cfg.get("mf_test", False)
 
+        tracker2 = TokenUsageTracker(paths, purpose="node_generator")
+
         def _run_with_session():
             nonlocal last_state, last_error
+            LLMConfig.set_token_tracker(tracker2)
             start_session("node_generator_design", {
                 "semantic_type": request.semantic_type,
                 "target_software": request.target_software,
@@ -231,6 +254,7 @@ async def generate_node(
                     extra["_sandbox_dir"] = str(pending_dir)
                 if request.project_id:
                     extra["_project_id"] = request.project_id
+                    extra["_projects_root"] = str(paths.projects_dir)
                 state = run_prefab_node_generator(gen_request, **extra)
                 last_state = state
                 last_error = state.get("error")
@@ -243,7 +267,7 @@ async def generate_node(
                         if request.project_id:
                             from agents.common.session_logger import save_agent_log_text
                             proj_conv_dir = (
-                                settings.userdata_root / "projects"
+                                paths.projects_dir
                                 / request.project_id / "conversations"
                             )
                             # 人类可读文本格式（保留所有换行符）
@@ -262,6 +286,8 @@ async def generate_node(
                             )
                     except Exception:
                         pass
+                tracker2.flush()
+                LLMConfig.clear_token_tracker()
 
         await asyncio.to_thread(_run_with_session)
 
@@ -315,7 +341,7 @@ async def generate_node(
         if request.project_id:
             # 目录名：优先使用前端传来的 canvas node ID
             dir_name = request.node_id or node_name
-            tmp_dir = settings.userdata_root / "projects" / request.project_id / "tmp" / dir_name
+            tmp_dir = paths.projects_dir / request.project_id / "tmp" / dir_name
             tmp_dir.mkdir(parents=True, exist_ok=True)
             (tmp_dir / "nodespec.yaml").write_text(nodespec_yaml, encoding="utf-8")
             if run_sh:
@@ -512,6 +538,8 @@ def _apply_onboard_overrides_to_nodespec(
 @router.post("/node/run", response_model=NodeGenAPIResponse, summary="运行时节点生成循环（sandbox + evaluate）")
 async def run_node_runtime(
     request: NodeRunAPIRequest,
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> NodeGenAPIResponse:
     """运行时节点生成：完整 generate → sandbox → evaluate → retry 循环。
@@ -559,7 +587,7 @@ async def run_node_runtime(
                 node_name=request.prefab_node_id,
                 project_id=request.project_id,
                 project_root=settings.project_root,
-                userdata_root=settings.userdata_root,
+                userdata_root=paths.agent_sessions_dir.parent.parent,
             )
             if resolved:
                 nodespec_yaml, run_sh, profile_files = resolved
@@ -572,10 +600,13 @@ async def run_node_runtime(
         _exec_sandbox_dirs: list[str] = []
         _collected_outputs: dict[str, str] = {}
 
+        tracker3 = TokenUsageTracker(paths, purpose="node_generator")
+
         def _run_with_session():
             nonlocal evaluation, last_state, last_error
             nonlocal nodespec_yaml, run_sh, sandbox_result, eval_issues, _internal_errors, profile_files
             nonlocal _sandbox_dir, _exec_sandbox_dirs, _collected_outputs
+            LLMConfig.set_token_tracker(tracker3)
 
             _sandbox_dir = ""
             _exec_sandbox_dirs = []
@@ -591,7 +622,7 @@ async def run_node_runtime(
                 except Exception:
                     pass
             if _node_name_hint and request.project_id:
-                _node_work_dir = settings.userdata_root / "projects" / request.project_id / "tmp" / _node_name_hint
+                _node_work_dir = paths.projects_dir / request.project_id / "tmp" / _node_name_hint
                 _node_work_dir.mkdir(parents=True, exist_ok=True)
                 _sandbox_dir = str(_node_work_dir)
 
@@ -610,6 +641,7 @@ async def run_node_runtime(
                         "_input_data": request.input_data,
                         "_sandbox_enabled": True,
                         "_project_id": request.project_id,
+                        "_projects_root": str(paths.projects_dir),
                         "_run_name": request.run_name,
                         "_mf_test": mf_test,
                         "_max_inner": max_inner,
@@ -649,7 +681,7 @@ async def run_node_runtime(
                             log_dict = log.to_dict()
                             if request.run_name and request.project_id:
                                 run_log_dir = (
-                                    settings.userdata_root / "projects" / request.project_id
+                                    paths.projects_dir / request.project_id
                                     / "runs" / request.run_name
                                 )
                                 run_log_dir.mkdir(parents=True, exist_ok=True)
@@ -741,7 +773,7 @@ async def run_node_runtime(
                             log_dict = log.to_dict()
                             if request.run_name and request.project_id:
                                 run_log_dir = (
-                                    settings.userdata_root / "projects" / request.project_id
+                                    paths.projects_dir / request.project_id
                                     / "runs" / request.run_name
                                 )
                                 run_log_dir.mkdir(parents=True, exist_ok=True)
@@ -796,6 +828,8 @@ async def run_node_runtime(
         try:
             await asyncio.to_thread(_run_with_session)
         finally:
+            tracker3.flush()
+            LLMConfig.clear_token_tracker()
             # ── 清理执行沙箱目录 + 节点工作目录临时文件 ──
             import shutil as _shutil
             # 1) 清理追踪到的 exec sandbox 目录
@@ -925,6 +959,8 @@ async def run_node_runtime(
 @router.post("/node/accept", response_model=NodeAcceptResponse, summary="将生成的节点持久化到节点库")
 async def accept_generated_node(
     request: NodeAcceptRequest,
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> NodeAcceptResponse:
     """将 prefab generator 生成的节点保存到 userdata/nodes/。
@@ -940,7 +976,7 @@ async def accept_generated_node(
         category = request.category
 
         # ── 重名检测与自动后缀 ──
-        nodes_root = settings.userdata_root / "nodes" / category
+        nodes_root = paths.nodes_dir / category
         builtin_nodes_root = settings.project_root / "nodes" / category
         target_dir = nodes_root / node_name
         collision_renamed = False
@@ -1032,6 +1068,8 @@ def _load_prefab_settings() -> dict[str, Any]:
 @router.post("/ephemeral", response_model=EphemeralGenResponse, summary="运行临时节点 Agent")
 async def ephemeral_generate(
     request: EphemeralGenRequest,
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> EphemeralGenResponse:
     """为临时节点生成 Python 脚本并在服务端沙箱执行。
@@ -1065,9 +1103,12 @@ async def ephemeral_generate(
         evaluation = None
         sandbox_dirs: list[str] = []
 
+        tracker4 = TokenUsageTracker(paths, purpose="ephemeral")
+
         def _run_with_session():
             nonlocal script, exec_stdout, exec_stderr, exec_return_code
             nonlocal generated_files, image_files, vision_feedback, evaluation
+            LLMConfig.set_token_tracker(tracker4)
 
             try:
                 for outer_round in range(max_outer):
@@ -1098,7 +1139,7 @@ async def ephemeral_generate(
                                 log_dict = log.to_dict()
                                 if request.run_name and request.project_id:
                                     run_log_dir = (
-                                        settings.userdata_root / "projects" / request.project_id
+                                        paths.projects_dir / request.project_id
                                         / "runs" / request.run_name
                                     )
                                     run_log_dir.mkdir(parents=True, exist_ok=True)
@@ -1159,7 +1200,7 @@ async def ephemeral_generate(
                                 log_dict = log.to_dict()
                                 if request.run_name and request.project_id:
                                     run_log_dir = (
-                                        settings.userdata_root / "projects" / request.project_id
+                                        paths.projects_dir / request.project_id
                                         / "runs" / request.run_name
                                     )
                                     run_log_dir.mkdir(parents=True, exist_ok=True)
@@ -1190,19 +1231,21 @@ async def ephemeral_generate(
                     cleanup_sandbox_dir(Path(sb_dir))
 
         await asyncio.to_thread(_run_with_session)
+        tracker4.flush()
+        LLMConfig.clear_token_tracker()
 
         # success 要求：脚本执行成功 且 evaluator 通过（或未评估）
         eval_passed = evaluation.passed if evaluation else True
         overall_success = (exec_return_code == 0) and eval_passed
 
-        # 将 sandbox 中生成的图片复制到项目作用域 workspace，使前端可通过项目 files API 访问
+        # 将 sandbox 中生成的图片复制到项目文件目录，使前端可通过项目 files API 访问
         if image_files:
             import shutil as _shutil
             if request.project_id:
-                target_dir = settings.userdata_root / "workspace" / ".files" / request.project_id
+                from api.services.project_service import _project_files_dir
+                target_dir = _project_files_dir(request.project_id)
             else:
-                target_dir = settings.userdata_root / "workspace"
-            target_dir.mkdir(parents=True, exist_ok=True)
+                target_dir = paths.globalfiles_dir
             for img_path in image_files:
                 try:
                     src = Path(img_path)
@@ -1228,6 +1271,8 @@ async def ephemeral_generate(
 @router.post("/ephemeral/evaluate", response_model=EphemeralEvalResponse, summary="视觉评估临时节点输出")
 async def ephemeral_evaluate(
     request: EphemeralEvalRequest,
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> EphemeralEvalResponse:
     """对临时节点的输出进行多模态视觉评估。
@@ -1269,7 +1314,10 @@ async def ephemeral_evaluate(
                 tmp_image_paths.append(img_path)
             state["image_files"] = tmp_image_paths
 
+        tracker5 = TokenUsageTracker(paths, purpose="ephemeral_evaluator")
+
         def _run_eval():
+            LLMConfig.set_token_tracker(tracker5)
             start_session("ephemeral_evaluator", {
                 "description": request.description,
                 "ports": request.ports,
@@ -1286,7 +1334,7 @@ async def ephemeral_evaluate(
                         log_dict = log.to_dict()
                         if request.run_name and request.project_id:
                             run_log_dir = (
-                                settings.userdata_root / "projects" / request.project_id
+                                paths.projects_dir / request.project_id
                                 / "runs" / request.run_name
                             )
                             run_log_dir.mkdir(parents=True, exist_ok=True)
@@ -1301,6 +1349,8 @@ async def ephemeral_evaluate(
                         pass
 
         result = await asyncio.to_thread(_run_eval)
+        tracker5.flush()
+        LLMConfig.clear_token_tracker()
 
         # 清理临时文件
         for p in tmp_image_paths:
@@ -1327,6 +1377,8 @@ async def ephemeral_evaluate(
 @router.post("/save-session", response_model=SaveSessionResponse, summary="保存对话会话")
 async def save_session(
     request: SaveSessionRequest,
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> SaveSessionResponse:
     """将前端对话消息保存到 userdata/agent_sessions/{date}/{session_id}/conversation.json。
@@ -1339,7 +1391,7 @@ async def save_session(
             save_conversation,
             messages=request.messages,
             session_id=request.session_id,
-            userdata_root=settings.userdata_root,
+            userdata_root=paths.agent_sessions_dir.parent.parent,
         )
         return SaveSessionResponse(
             saved=True,

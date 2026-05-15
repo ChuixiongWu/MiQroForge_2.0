@@ -12,7 +12,10 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from api.auth import CurrentUser, require_user
 from api.config import Settings, get_settings
+from api.dependencies import get_user_paths
+from api.user_paths import UserPaths
 from api.models.workflows import (
     WorkflowCompileRequest,
     WorkflowCompileResponse,
@@ -41,6 +44,7 @@ def get_argo_service(settings: Settings = Depends(get_settings)) -> ArgoService:
 def validate_workflow(
     req: WorkflowValidateRequest,
     svc: WorkflowService = Depends(get_workflow_service),
+    user: CurrentUser = Depends(require_user),
 ) -> WorkflowValidateResponse:
     """
     校验 MF 格式工作流 YAML。
@@ -53,7 +57,7 @@ def validate_workflow(
     校验失败返回 422（validation errors 在响应体中）。
     """
     try:
-        report = svc.validate_yaml_str(req.yaml_content, project_id=req.project_id or "")
+        report = svc.validate_yaml_str(req.yaml_content, project_id=req.project_id or "", username=user.username)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse workflow: {str(e)}")
 
@@ -75,6 +79,7 @@ def validate_workflow(
 async def compile_workflow(
     req: WorkflowCompileRequest,
     svc: WorkflowService = Depends(get_workflow_service),
+    user: CurrentUser = Depends(require_user),
 ) -> WorkflowCompileResponse:
     """
     校验并编译 MF YAML 为 Argo Workflow YAML + ConfigMaps。
@@ -83,7 +88,7 @@ async def compile_workflow(
     编译可能较慢（含 LLM 调用），使用线程池避免阻塞事件循环。
     """
     try:
-        result = await asyncio.to_thread(svc.compile_yaml_str, req.yaml_content, req.project_id or "")
+        result = await asyncio.to_thread(svc.compile_yaml_str, req.yaml_content, req.project_id or "", user.username)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -103,6 +108,8 @@ async def submit_workflow(
     req: WorkflowSubmitRequest,
     svc: WorkflowService = Depends(get_workflow_service),
     argo: ArgoService = Depends(get_argo_service),
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
     settings: Settings = Depends(get_settings),
 ) -> WorkflowSubmitResponse:
     """
@@ -114,16 +121,23 @@ async def submit_workflow(
     """
     # 1. 编译（含 LLM 调用，在线程池中运行以避免阻塞）
     try:
-        result = await asyncio.to_thread(svc.compile_yaml_str, req.yaml_content, req.project_id or "")
+        result = await asyncio.to_thread(svc.compile_yaml_str, req.yaml_content, req.project_id or "", user.username)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Compilation failed: {str(e)}")
 
-    # 2. 提交
+    # 2. 提交（带用户标签）
     try:
+        # Add MiQroForge user/project labels to the Argo workflow
+        workflow_yaml = result["workflow"]
+        if "metadata" in workflow_yaml and "labels" not in workflow_yaml["metadata"]:
+            workflow_yaml["metadata"]["labels"] = {}
+        if "metadata" in workflow_yaml:
+            workflow_yaml["metadata"]["labels"]["miqroforge.io/user"] = user.username
+            workflow_yaml["metadata"]["labels"]["miqroforge.io/project"] = req.project_id or ""
         submit_result = await asyncio.to_thread(
-            argo.submit, result["workflow"], result["configmaps"]
+            argo.submit, workflow_yaml, result["configmaps"]
         )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=f"Argo submission failed: {str(e)}")
@@ -132,10 +146,10 @@ async def submit_workflow(
     run_name = submit_result["workflow_name"]
     if not req.project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
-    # 确保项目 files/ 目录存在（编译器 subPath=.files/{project_id} 需要）
-    files_dir = settings.userdata_root / "workspace" / ".files" / req.project_id
-    files_dir.mkdir(parents=True, exist_ok=True)
-    run_dir = settings.userdata_root / "projects" / req.project_id / "runs" / run_name
+    # 确保项目文件目录存在（编译器 subPath=proj_{pid} 需要）
+    from api.services.project_service import _project_files_dir
+    _project_files_dir(req.project_id)
+    run_dir = paths.projects_dir / req.project_id / "runs" / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "mf-workflow.yaml").write_text(req.yaml_content, encoding="utf-8")
     (run_dir / "argo-workflow.yaml").write_text(result["argo_yaml"], encoding="utf-8")

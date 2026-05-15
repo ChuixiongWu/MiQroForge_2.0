@@ -219,9 +219,13 @@ def generate_prefab_node(state: PrefabGenState) -> dict[str, Any]:
                 f"Got _project_id={pid!r}"
             )
         # 设计时 fallback：使用 tmp/pending/
-        from api.config import get_settings
-        settings = get_settings()
-        sandbox_dir = settings.userdata_root / "projects" / pid / "tmp" / "pending"
+        projects_root = state.get("_projects_root", "")
+        if projects_root:
+            sandbox_dir = Path(projects_root) / pid / "tmp" / "pending"
+        else:
+            from api.config import get_settings
+            settings = get_settings()
+            sandbox_dir = settings.userdata_root / "projects" / pid / "tmp" / "pending"
         sandbox_dir.mkdir(parents=True, exist_ok=True)
 
     # ── 构建输入数据 ──
@@ -247,6 +251,7 @@ def generate_prefab_node(state: PrefabGenState) -> dict[str, Any]:
             env_overrides[str(k)] = str(v)
 
     # ── 构建工具 ──
+    projects_root = state.get("_projects_root", "")
     tools = build_all_tools(
         software=software,
         input_data=input_data,
@@ -256,6 +261,7 @@ def generate_prefab_node(state: PrefabGenState) -> dict[str, Any]:
         project_id=project_id,
         input_ports=state.get("_input_ports") or [],
         output_ports=state.get("_output_ports") or [],
+        projects_root=projects_root,
     )
 
     # ── 构建 prompt ──

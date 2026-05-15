@@ -300,7 +300,7 @@ function OnBoardParamForm({ nodeId }: { nodeId: string }) {
                 {isCustom && (
                   <input
                     type="text"
-                    value={customMode[param.name] ? (storedParams[param.name] ?? '') : curVal}
+                    value={customMode[param.name] ? ((storedParams[param.name] as string) ?? '') : curVal}
                     onChange={(e) => setValue(param.name, e.target.value)}
                     placeholder="Type custom value..."
                     className="w-full px-2 py-1 bg-mf-input border border-purple-500/50 rounded text-xs text-mf-text-primary focus:outline-none focus:border-purple-400 font-mono"

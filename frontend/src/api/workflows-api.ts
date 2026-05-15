@@ -3,17 +3,7 @@ import type {
   WorkflowCompileResponse,
   WorkflowSubmitResponse,
 } from '../types/index-types'
-
-const BASE = '/api/v1'
-
-async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options)
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText)
-    throw new Error(`API error ${res.status}: ${text}`)
-  }
-  return res.json() as Promise<T>
-}
+import { fetchJSON } from './client'
 
 function jsonBody(body: unknown) {
   return {
@@ -25,14 +15,14 @@ function jsonBody(body: unknown) {
 
 export const workflowsApi = {
   validate(yamlContent: string, projectId?: string): Promise<WorkflowValidateResponse> {
-    return fetchJSON(`${BASE}/workflows/validate`, jsonBody({ yaml_content: yamlContent, project_id: projectId || undefined }))
+    return fetchJSON(`/workflows/validate`, jsonBody({ yaml_content: yamlContent, project_id: projectId || undefined }))
   },
 
   compile(yamlContent: string, projectId?: string): Promise<WorkflowCompileResponse> {
-    return fetchJSON(`${BASE}/workflows/compile`, jsonBody({ yaml_content: yamlContent, project_id: projectId || undefined }))
+    return fetchJSON(`/workflows/compile`, jsonBody({ yaml_content: yamlContent, project_id: projectId || undefined }))
   },
 
   submit(yamlContent: string, projectId?: string): Promise<WorkflowSubmitResponse> {
-    return fetchJSON(`${BASE}/workflows/submit`, jsonBody({ yaml_content: yamlContent, project_id: projectId || undefined }))
+    return fetchJSON(`/workflows/submit`, jsonBody({ yaml_content: yamlContent, project_id: projectId || undefined }))
   },
 }

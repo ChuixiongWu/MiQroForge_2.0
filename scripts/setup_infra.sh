@@ -107,25 +107,28 @@ export KUBECONFIG="${KUBE_CONFIG}"
 bash "${SCRIPT_DIR}/install/install_argo.sh" --server-only
 
 # ── 5. Workspace PVC ──────────────────────────────────────────────────────────
-section "5 / 5  Workspace PVC（mf-workspace）"
-# hostPath 路径与机器相关，动态替换占位符后再 apply
-if kubectl get pvc mf-workspace -n miqroforge-v2 &>/dev/null 2>&1; then
-    success "Workspace PVC mf-workspace 已存在，跳过。"
+# 从 .env 读取 ARGO_NAMESPACE（默认 miqroforge-v2）
+ARGO_NAMESPACE="${ARGO_NAMESPACE:-miqroforge-v2}"
+
+section "5 / 5  Workspace PVC（${ARGO_NAMESPACE}）"
+# hostPath 路径与 namespace 动态替换后再 apply
+if kubectl get pvc "${ARGO_NAMESPACE}" -n "${ARGO_NAMESPACE}" &>/dev/null 2>&1; then
+    success "Workspace PVC ${ARGO_NAMESPACE} 已存在，跳过。"
 else
     info "部署 Workspace PV/PVC（hostPath → ${PROJECT_ROOT}/userdata/workspace）..."
     mkdir -p "${PROJECT_ROOT}/userdata/workspace"
-    sed "s|__MF_PROJECT_ROOT__|${PROJECT_ROOT}|g" \
+    sed "s|__MF_PROJECT_ROOT__|${PROJECT_ROOT}|g; s|__MF_NAMESPACE__|${ARGO_NAMESPACE}|g" \
         "${PROJECT_ROOT}/infrastructure/k8s/workspace.yaml" \
         | kubectl apply -f -
     # 等待 PVC 绑定
     for i in $(seq 1 15); do
-        STATUS=$(kubectl get pvc mf-workspace -n miqroforge-v2 \
+        STATUS=$(kubectl get pvc "${ARGO_NAMESPACE}" -n "${ARGO_NAMESPACE}" \
             -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
         if [[ "$STATUS" == "Bound" ]]; then
-            success "mf-workspace PVC 已 Bound。"
+            success "${ARGO_NAMESPACE} PVC 已 Bound。"
             break
         fi
-        [[ $i -eq 15 ]] && warn "PVC 未在 30s 内绑定，请手动检查：kubectl get pvc -n miqroforge-v2"
+        [[ $i -eq 15 ]] && warn "PVC 未在 30s 内绑定，请手动检查：kubectl get pvc -n ${ARGO_NAMESPACE}"
         sleep 2
     done
 fi

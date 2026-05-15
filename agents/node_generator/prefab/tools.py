@@ -676,10 +676,11 @@ def make_port_tools(sandbox_dir: Path | None = None, input_ports: list[str] | No
     return [port_mapping]
 
 
-def make_workspace_tools(project_id: str | None = None):
+def make_workspace_tools(project_id: str | None = None, projects_root: str = ""):
     """创建 workspace 访问工具。闭包绑定 project_id，直接访问项目 workspace 目录。"""
 
     _project_id = project_id
+    _projects_root = projects_root
 
     def _get_workspace_dir() -> Path | None:
         """解析项目 workspace 目录路径。"""
@@ -688,7 +689,10 @@ def make_workspace_tools(project_id: str | None = None):
         try:
             from api.config import get_settings
             settings = get_settings()
-            wspath = settings.userdata_root / "projects" / _project_id / "files"
+            if _projects_root:
+                wspath = Path(_projects_root) / _project_id / "files"
+            else:
+                wspath = settings.userdata_root / "projects" / _project_id / "files"
             if wspath.exists():
                 return wspath.resolve()  # 解析 symlink
             return None
@@ -899,6 +903,7 @@ def make_sandbox_tools(
     env_overrides: dict[str, str] | None = None,
     sandbox_dir: Path | None = None,
     project_id: str | None = None,
+    projects_root: str = "",
 ):
     """创建沙箱测试和 pip_install 工具。闭包绑定输入数据和环境。"""
     from agents.node_generator.shared.sandbox_base import _ensure_docker, _scan_output_files
@@ -908,6 +913,7 @@ def make_sandbox_tools(
     _env_overrides = env_overrides or {}
     _sandbox_dir = sandbox_dir  # 节点工作目录（tmp/<node_name>/）
     _project_id = project_id
+    _projects_root = projects_root
     # container_id → 执行沙箱目录映射（check_sandbox 需要知道输出文件在哪）
     _container_exec_map: dict[str, Path] = {}
 
@@ -1015,7 +1021,10 @@ def make_sandbox_tools(
             try:
                 from api.config import get_settings
                 settings = get_settings()
-                wspath = settings.userdata_root / "projects" / _project_id / "files"
+                if _projects_root:
+                    wspath = Path(_projects_root) / _project_id / "files"
+                else:
+                    wspath = settings.userdata_root / "projects" / _project_id / "files"
                 if wspath.exists():
                     workspace_mount = f"{wspath.resolve()}:/mf/workspace"
             except Exception:
@@ -1344,6 +1353,7 @@ def build_all_tools(
     project_id: str | None = None,
     input_ports: list[str] | None = None,
     output_ports: list[str] | None = None,
+    projects_root: str = "",
 ) -> list:
     """构建工具列表，返回 LangChain tool 列表。
 
@@ -1365,6 +1375,8 @@ def build_all_tools(
         Argo DAG 输入端口名列表（用于 port_mapping 工具描述）。
     output_ports : list[str] | None
         Argo DAG 输出端口名列表（用于 port_mapping 工具描述）。
+    projects_root : str
+        用户 projects 目录根路径（多用户场景）。
     """
     from agents.node_generator.shared.manual_index import get_manual_index, list_available_manuals
 
@@ -1392,7 +1404,7 @@ def build_all_tools(
     tools.extend(make_explore_tool(default_software=software, project_id=project_id or ""))
 
     # Workspace（2 个）— 始终注册，无 project_id 时返回错误提示
-    tools.extend(make_workspace_tools(project_id=project_id))
+    tools.extend(make_workspace_tools(project_id=project_id, projects_root=projects_root))
 
     # 沙箱 + 环境（4 个）— 仅运行时启用
     if sandbox_enabled:
@@ -1401,6 +1413,7 @@ def build_all_tools(
             env_overrides=env_overrides,
             sandbox_dir=sandbox_dir,
             project_id=project_id,
+            projects_root=projects_root,
         ))
 
     # 控制（1 个）— 始终可用

@@ -32,14 +32,17 @@ def scan_nodes(
     project_root: Path | None = None,
     *,
     include_test_nodes: bool = False,
+    user_nodes_dirs: list[Path] | None = None,
 ) -> NodeIndex:
-    """扫描 nodes/ 和 userdata/nodes/ 目录下的所有 nodespec.yaml，生成 NodeIndex。
+    """扫描 nodes/ 和用户节点目录下的所有 nodespec.yaml，生成 NodeIndex。
 
     Parameters:
         project_root: 项目根目录。默认为当前工作目录。
         include_test_nodes: 是否包含 test/ 目录下的测试节点。默认不包含，
             前端/索引不展示测试节点。可通过 userdata/settings.yaml 的
             index.include_test_nodes 开关覆盖。
+        user_nodes_dirs: 用户自定义节点的额外目录列表。用于多用户场景下
+            扫描每个用户自己的节点。若为 None，则回退到 userdata/nodes/。
 
     Returns:
         NodeIndex 实例。
@@ -49,11 +52,19 @@ def scan_nodes(
 
     entries: list[NodeIndexEntry] = []
 
-    # 扫描目录列表：系统节点库 + 用户数据目录
+    # 构建扫描目标：系统节点库 + 用户目录
     scan_targets: list[tuple[Path, str]] = [
         (project_root / "nodes", "system"),
-        (project_root / "userdata" / "nodes", "user"),
     ]
+
+    if user_nodes_dirs:
+        for d in user_nodes_dirs:
+            scan_targets.append((d, "user"))
+    else:
+        # 向后兼容：旧 flat 布局
+        legacy_user_nodes = project_root / "userdata" / "nodes"
+        if legacy_user_nodes.exists():
+            scan_targets.append((legacy_user_nodes, "user"))
 
     for nodes_dir, source in scan_targets:
         if not nodes_dir.exists():

@@ -22,7 +22,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
+from api.auth import CurrentUser, require_user
 from api.config import Settings, get_settings
+from api.dependencies import get_user_paths
+from api.user_paths import UserPaths
 from api.routers.projects import DirectoryEntry, DirectoryListResponse, _scan_directory
 from api.models.nodes import (
     NodeDetailResponse,
@@ -44,8 +47,15 @@ from nodes.schemas.semantic_registry import load_semantic_registry
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
 
-def get_node_service(settings: Settings = Depends(get_settings)) -> NodeIndexService:
-    return NodeIndexService(settings.project_root)
+def get_node_service(
+    settings: Settings = Depends(get_settings),
+    paths: UserPaths | None = Depends(get_user_paths),
+) -> NodeIndexService:
+    svc = NodeIndexService(settings.project_root)
+    if paths is not None:
+        svc._user_settings_path = paths.settings_file
+        svc._user_nodes_dirs = [paths.nodes_dir]
+    return svc
 
 
 def _entry_to_summary(entry: NodeIndexEntry) -> NodeSummaryResponse:
@@ -268,12 +278,15 @@ class NodePreferencesUpdate(BaseModel):
     node_preferences: dict[str, NodePreferenceEntry] = {}
 
 
-def _prefs_path(settings: Settings = Depends(get_settings)) -> Path:
-    return settings.userdata_root / "node_preferences.yaml"
+def _prefs_path(paths: UserPaths = Depends(get_user_paths)) -> Path:
+    return paths.preferences_file if paths else get_settings().userdata_root / "node_preferences.yaml"
 
 
-@router.get("/preferences", response_model=NodePreferencesResponse, summary="读取全局节点偏好设置")
-def get_node_preferences(path: Path = Depends(_prefs_path)) -> NodePreferencesResponse:
+@router.get("/preferences", response_model=NodePreferencesResponse, summary="读取用户节点偏好设置")
+def get_node_preferences(
+    user: CurrentUser = Depends(require_user),
+    path: Path = Depends(_prefs_path),
+) -> NodePreferencesResponse:
     if not path.exists():
         return NodePreferencesResponse()
     with path.open("r", encoding="utf-8") as f:
@@ -287,9 +300,10 @@ def get_node_preferences(path: Path = Depends(_prefs_path)) -> NodePreferencesRe
     )
 
 
-@router.put("/preferences", response_model=NodePreferencesResponse, summary="写入全局节点偏好设置")
+@router.put("/preferences", response_model=NodePreferencesResponse, summary="写入用户节点偏好设置")
 def put_node_preferences(
     body: NodePreferencesUpdate,
+    user: CurrentUser = Depends(require_user),
     path: Path = Depends(_prefs_path),
 ) -> NodePreferencesResponse:
     data = {
@@ -309,7 +323,8 @@ def put_node_preferences(
     )
 
 
-# ── Node files (userdata/nodes/ 文件浏览与编辑) ─────────────────────────────────
+# ── Node files (用户节点文件浏览与编辑) ─────────────────────────────────
+
 
 def _safe_node_path(filename: str) -> str:
     """校验节点文件路径安全性（允许子目录，拒绝路径遍历）。"""
@@ -318,8 +333,8 @@ def _safe_node_path(filename: str) -> str:
     return filename
 
 
-def _get_userdata_nodes_dir(settings: Settings) -> Path:
-    d = settings.userdata_root / "nodes"
+def _get_userdata_nodes_dir(paths: UserPaths) -> Path:
+    d = paths.nodes_dir
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -333,43 +348,48 @@ class NodeFilesWriteRequest(BaseModel):
     content: str
 
 
-@router.get("/files", response_model=DirectoryListResponse, summary="列出 userdata/nodes/ 下所有文件")
-def list_node_files(settings: Settings = Depends(get_settings)) -> DirectoryListResponse:
-    d = _get_userdata_nodes_dir(settings)
+@router.get("/files", response_model=DirectoryListResponse, summary="列出用户节点文件")
+def list_node_files(
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
+) -> DirectoryListResponse:
+    d = _get_userdata_nodes_dir(paths)
     entries = _scan_directory(d, d)
     return DirectoryListResponse(entries=entries)
 
 
-@router.get("/files/read", summary="读取 userdata/nodes/ 中的文件内容")
+@router.get("/files/read", summary="读取用户节点文件内容")
 def read_node_file(
-    path: str = Query(..., description="相对于 userdata/nodes/ 的文件路径"),
-    settings: Settings = Depends(get_settings),
+    path: str = Query(..., description="相对于用户节点目录的文件路径"),
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
 ) -> PlainTextResponse:
     safe_path = _safe_node_path(path)
-    d = _get_userdata_nodes_dir(settings)
+    d = _get_userdata_nodes_dir(paths)
     file_path = d / safe_path
     if not file_path.is_file():
         raise HTTPException(404, detail=f"文件 '{safe_path}' 不存在")
     try:
         file_path.resolve().relative_to(d.resolve())
     except ValueError:
-        raise HTTPException(403, detail="禁止访问 userdata/nodes/ 外的文件")
+        raise HTTPException(403, detail="禁止访问用户节点目录外的文件")
     content = file_path.read_text()
     return PlainTextResponse(content)
 
 
-@router.put("/files/write", summary="写入/修改 userdata/nodes/ 中的文件")
+@router.put("/files/write", summary="写入用户节点文件")
 def write_node_file(
     req: NodeFilesWriteRequest,
-    settings: Settings = Depends(get_settings),
+    user: CurrentUser = Depends(require_user),
+    paths: UserPaths = Depends(get_user_paths),
 ) -> dict:
     safe_path = _safe_node_path(req.path)
-    d = _get_userdata_nodes_dir(settings)
+    d = _get_userdata_nodes_dir(paths)
     file_path = d / safe_path
     try:
         file_path.resolve().relative_to(d.resolve())
     except ValueError:
-        raise HTTPException(403, detail="禁止访问 userdata/nodes/ 外的文件")
+        raise HTTPException(403, detail="禁止访问用户节点目录外的文件")
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(req.content)
     return {"written": safe_path}

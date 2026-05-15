@@ -1,6 +1,6 @@
 """LLM Provider 抽象层 — 基于 userdata/models.yaml 模型注册表。
 
-配置文件位置：  userdata/models.yaml（gitignored，API key 安全存放）
+配置文件位置：  userdata/shared/models.yaml（gitignored，API key 安全存放）
 模板参考：      models.yaml.example（项目根目录）
 
 架构：
@@ -18,14 +18,20 @@
 
 from __future__ import annotations
 
+import contextvars
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
 
+# Token 追踪回调（由 API 层注入，Agent 层零感知）
+_token_tracker: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
+    "llm_token_tracker", default=None
+)
+
 _ROOT = Path(__file__).parent.parent
-_REGISTRY_PATH = _ROOT / "userdata" / "models.yaml"
+_REGISTRY_PATH = _ROOT / "userdata" / "shared" / "models.yaml"
 
 # Anthropic temperature 上限
 _ANTHROPIC_TEMP_MAX = 1.0
@@ -191,6 +197,8 @@ def build_vision_content(
 def get_chat_model(purpose: Optional[str] = None, temperature: float = 0.0):
     """获取 LangChain BaseChatModel 实例。
 
+    如果有 TokenUsageTracker 在当前上下文中，自动附加到模型回调。
+
     Parameters
     ----------
     purpose:
@@ -212,6 +220,8 @@ def get_chat_model(purpose: Optional[str] = None, temperature: float = 0.0):
     api_key = cfg["api_key"] or "EMPTY"
     extra_params = cfg.get("extra_params") or {}
 
+    model = None
+
     if provider_type == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
@@ -223,9 +233,8 @@ def get_chat_model(purpose: Optional[str] = None, temperature: float = 0.0):
         }
         if base_url:
             kwargs["base_url"] = base_url
-        # Anthropic：extra_params 直接合并到 kwargs
         kwargs.update(extra_params)
-        return ChatAnthropic(**kwargs)
+        model = ChatAnthropic(**kwargs)
 
     elif provider_type == "openai":
         from langchain_openai import ChatOpenAI
@@ -238,11 +247,9 @@ def get_chat_model(purpose: Optional[str] = None, temperature: float = 0.0):
             kwargs["base_url"] = base_url
         if "claude" not in model_id.lower():
             kwargs["temperature"] = temperature
-        # OpenAI：extra_params 通过 extra_body 绕过 SDK 校验直入 HTTP body
-        # （不能用 model_kwargs，因为 OpenAI SDK 会拒绝 thinking 等非标准参数）
         if extra_params:
             kwargs["extra_body"] = extra_params
-        return ChatOpenAI(**kwargs)
+        model = ChatOpenAI(**kwargs)
 
     elif provider_type == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -254,13 +261,23 @@ def get_chat_model(purpose: Optional[str] = None, temperature: float = 0.0):
         }
         if extra_params:
             kwargs.update(extra_params)
-        return ChatGoogleGenerativeAI(**kwargs)
+        model = ChatGoogleGenerativeAI(**kwargs)
 
     else:
         raise ValueError(
             f"未知 provider type '{provider_type}'。"
             "支持的类型：anthropic, openai, google"
         )
+
+    # 自动附加 TokenUsageTracker（若当前上下文中有）
+    tracker = _token_tracker.get()
+    if tracker is not None and model is not None:
+        if hasattr(model, 'callbacks') and model.callbacks:
+            model.callbacks.append(tracker)
+        elif hasattr(model, 'callbacks'):
+            model.callbacks = [tracker]
+
+    return model
 
 
 # ─── Public API ───────────────────────────────────────────────────────────────
@@ -272,6 +289,23 @@ class LLMConfig:
     def get_chat_model(purpose: Optional[str] = None, temperature: float = 0.0):
         """获取指定 purpose 的 LangChain 模型实例。"""
         return get_chat_model(purpose=purpose, temperature=temperature)
+
+    @staticmethod
+    def set_token_tracker(tracker) -> None:
+        """在当前上下文（线程）中设置 token 追踪器。
+        之后所有由此线程创建的 LLM 模型都会自动附加该 tracker。
+        """
+        _token_tracker.set(tracker)
+
+    @staticmethod
+    def get_token_tracker():
+        """获取当前上下文（线程）中的 token 追踪器。"""
+        return _token_tracker.get()
+
+    @staticmethod
+    def clear_token_tracker() -> None:
+        """清除当前上下文中的 token 追踪器。"""
+        _token_tracker.set(None)
 
     @staticmethod
     def build_vision_content(

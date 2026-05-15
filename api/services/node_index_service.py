@@ -18,10 +18,15 @@ class NodeIndexService:
     def __init__(self, project_root: Path) -> None:
         self.project_root = project_root
         self._index: NodeIndex | None = None
+        self._user_settings_path: Path | None = None
+        self._user_nodes_dirs: list[Path] | None = None
 
     def _load_include_test_setting(self) -> bool:
-        """从 userdata/settings.yaml 读取 index.include_test_nodes 配置。"""
-        settings_path = self.project_root / "userdata" / "settings.yaml"
+        """从 userdata/settings.yaml 或用户 settings.yaml 读取配置。"""
+        if self._user_settings_path and self._user_settings_path.exists():
+            settings_path = self._user_settings_path
+        else:
+            settings_path = self.project_root / "userdata" / "settings.yaml"
         if not settings_path.exists():
             return False
         try:
@@ -39,14 +44,22 @@ class NodeIndexService:
             except FileNotFoundError:
                 # 索引不存在，实时扫描
                 include_test = self._load_include_test_setting()
-                self._index = scan_nodes(self.project_root, include_test_nodes=include_test)
+                self._index = scan_nodes(
+                    self.project_root,
+                    include_test_nodes=include_test,
+                    user_nodes_dirs=self._user_nodes_dirs,
+                )
                 write_index(self._index, self.project_root)
         return self._index
 
     def refresh(self) -> NodeIndex:
         """重新扫描并更新索引缓存。"""
         include_test = self._load_include_test_setting()
-        self._index = scan_nodes(self.project_root, include_test_nodes=include_test)
+        self._index = scan_nodes(
+            self.project_root,
+            include_test_nodes=include_test,
+            user_nodes_dirs=self._user_nodes_dirs,
+        )
         write_index(self._index, self.project_root)
         return self._index
 

@@ -49,15 +49,21 @@ from .models import MFWorkflow, MFNodeInstance
 # 临时节点 Python 镜像（与 lightweight 节点一致）
 _EPHEMERAL_PYTHON_VERSION = "3.11"
 
-# Workspace PVC 名称（与 infrastructure/k8s/workspace.yaml 保持一致）
-_WORKSPACE_PVC_NAME = "mf-workspace"
+def _get_pvc_name() -> str:
+    """PVC 名用 ARGO_NAMESPACE，方便开发版/稳定版并行。"""
+    from api.config import get_settings
+    return get_settings().argo_pvc_name
 
 
 def _workspace_volume_mount(project_id: str = "") -> dict[str, str]:
-    """返回 workspace volumeMount dict，project_id 非空时使用 subPath 指向项目 files/。"""
+    """返回 workspace volumeMount dict。
+
+    PVC hostPath = userdata/workspace/，subPath = proj_{pid}/。
+    全程真实目录，零 symlink。
+    """
     m: dict[str, str] = {"name": "workspace", "mountPath": "/mf/workspace"}
     if project_id:
-        m["subPath"] = f".files/{project_id}"
+        m["subPath"] = f"proj_{project_id}"
     return m
 
 
@@ -65,7 +71,7 @@ def _workspace_volume() -> dict[str, Any]:
     """返回 workspace volume dict（PVC 引用）。"""
     return {
         "name": "workspace",
-        "persistentVolumeClaim": {"claimName": _WORKSPACE_PVC_NAME},
+        "persistentVolumeClaim": {"claimName": _get_pvc_name()},
     }
 
 
@@ -95,6 +101,7 @@ def compile_to_argo(
     docker_hub_mirror: str = "",
     ephemeral_logs: dict[str, Any] | None = None,
     project_id: str = "",
+    username: str = "",
 ) -> dict[str, Any]:
     """将 MFWorkflow 编译为 Argo Workflow YAML dict。
 
@@ -102,6 +109,7 @@ def compile_to_argo(
         workflow: 已校验的 MFWorkflow。
         resolved_nodes: 节点 ID → NodeSpec 映射（来自 ValidationReport）。
         project_root: 项目根目录，用于查找 base_images/registry.yaml 和 workspace/ 文件。
+        username: 提交用户（用于内部认证 token）。
         docker_hub_mirror: Docker Hub 国内镜像加速站域名（如 docker.m.daocloud.io）。
             设置后，无 registry.yaml 条目的 Docker Hub 官方镜像将通过该镜像站拉取。
         ephemeral_logs: 已废弃，不再使用（临时节点改为运行时调用 Agent API）。
@@ -216,6 +224,7 @@ def compile_to_argo(
             sweep_source=sweep_source,
             fan_in_map=fan_in_map,
             project_id=project_id,
+            username=username,
         )
         templates.append(template)
 
@@ -358,6 +367,8 @@ import os, sys, json, subprocess
 import requests
 
 MF_API_URL = os.environ.get("MF_API_URL", "http://10.36.160.16:8100")
+MF_INTERNAL_TOKEN = os.environ.get("MF_INTERNAL_TOKEN", "")
+MF_USER = os.environ.get("MF_USER", "")
 
 DESCRIPTION = {_jd(description)}
 PORTS = {_jd(ports_dict)}
@@ -375,15 +386,20 @@ def main():
                     input_data[fname] = f.read()
 
     # 2. 调用 Agent API（服务端完成 generate→sandbox→evaluate 完整循环）
+    headers = {{}}
+    if MF_INTERNAL_TOKEN and MF_USER:
+        headers["X-Internal-Token"] = MF_INTERNAL_TOKEN
+        headers["X-MF-User"] = MF_USER
     try:
-        resp = requests.post(f"{{MF_API_URL}}/api/v1/agents/ephemeral", json={{
+        resp = requests.post(f"{{MF_API_URL}}/api/v1/agents/ephemeral",
+                              json={{
             "description": DESCRIPTION,
             "ports": PORTS,
             "context": CONTEXT,
             "input_data": input_data,
             "run_name": os.environ.get("MF_RUN_NAME", ""),
             "project_id": os.environ.get("MF_PROJECT_ID", ""),
-        }}, timeout=600)
+        }}, headers=headers or None, timeout=600)
         resp.raise_for_status()
         result = resp.json()
     except Exception as e:
@@ -504,6 +520,8 @@ import os, sys, json, subprocess
 import requests
 
 MF_API_URL = os.environ.get("MF_API_URL", "http://10.36.160.16:8100")
+MF_INTERNAL_TOKEN = os.environ.get("MF_INTERNAL_TOKEN", "")
+MF_USER = os.environ.get("MF_USER", "")
 
 DESCRIPTION = {_jd(description)}
 PREFAB_NODE_ID = {_jd(prefab_node_id)}
@@ -523,8 +541,13 @@ def main():
                     input_data[fname] = f.read()
 
     # 2. 调用 Agent API（服务端完成 sandbox → evaluate 完整循环）
+    headers = {{}}
+    if MF_INTERNAL_TOKEN and MF_USER:
+        headers["X-Internal-Token"] = MF_INTERNAL_TOKEN
+        headers["X-MF-User"] = MF_USER
     try:
-        resp = requests.post(f"{{MF_API_URL}}/api/v1/agents/node/run", json={{
+        resp = requests.post(f"{{MF_API_URL}}/api/v1/agents/node/run",
+                              json={{
             "semantic_type": "compute",
             "description": DESCRIPTION,
             "target_software": SOFTWARE_HINT or None,
@@ -535,7 +558,7 @@ def main():
             "prefab_node_id": PREFAB_NODE_ID,
             "run_name": os.environ.get("MF_RUN_NAME", ""),
             "project_id": os.environ.get("MF_PROJECT_ID", ""),
-        }}, timeout=1800)
+        }}, headers=headers or None, timeout=1800)
         resp.raise_for_status()
         result = resp.json()
     except Exception as e:
@@ -1175,6 +1198,7 @@ def _build_template(
     sweep_source: dict[str, tuple[str, str]] | None = None,
     fan_in_map: dict[str, list[tuple[str, list[Any]]]] | None = None,
     project_id: str = "",
+    username: str = "",
 ) -> dict[str, Any]:
     """为单个节点构建 Argo template。
 
@@ -1238,6 +1262,7 @@ def _build_template(
             output_params=output_params,
             onboard_params=node_inst.onboard_params,
             project_id=project_id,
+            username=username,
         )
 
     # ── 临时节点：生成 wrapper 脚本，运行时调用 Agent API ───
@@ -1263,6 +1288,7 @@ def _build_template(
             output_params=output_params,
             onboard_params=node_inst.onboard_params,
             project_id=project_id,
+            username=username,
         )
 
     if isinstance(spec.execution, ComputeExecutionConfig):
@@ -1512,6 +1538,7 @@ def _build_ephemeral_template(
     output_params: list[dict[str, Any]],
     onboard_params: dict[str, Any] | None = None,
     project_id: str = "",
+    username: str = "",
 ) -> dict[str, Any]:
     """构建临时节点的 Argo script template（运行时 wrapper 模式）。
 
@@ -1529,14 +1556,17 @@ def _build_ephemeral_template(
         python_image = f"python:{_EPHEMERAL_PYTHON_VERSION}-slim"
 
     # ── 环境变量注入 ──
-    # MF_API_URL：优先从环境变量读取（生产 K8s 部署），否则回退到宿主机 IP
     import os as _os
     mf_api_url = _os.environ.get("MF_API_URL", "http://10.36.160.16:8100")
+    mf_internal_token = _os.environ.get("MF_INTERNAL_TOKEN", "")
     env_vars: list[dict[str, str]] = [
         {"name": "MF_OUTPUT_DIR", "value": "/mf/output"},
         {"name": "MF_WORKSPACE_DIR", "value": "/mf/workspace"},
         {"name": "MF_API_URL", "value": mf_api_url},
     ]
+    if mf_internal_token and username:
+        env_vars.append({"name": "MF_INTERNAL_TOKEN", "value": mf_internal_token})
+        env_vars.append({"name": "MF_USER", "value": username})
     if project_id:
         env_vars.append({"name": "MF_PROJECT_ID", "value": project_id})
     # MF_RUN_NAME：使用 Argo 的 workflow name 作为 run 标识
@@ -1606,6 +1636,7 @@ def _build_prefab_template(
     output_params: list[dict[str, Any]],
     onboard_params: dict[str, Any] | None = None,
     project_id: str = "",
+    username: str = "",
 ) -> dict[str, Any]:
     """构建 Prefab 运行时节点的 Argo script template。
 
@@ -1629,11 +1660,15 @@ def _build_prefab_template(
     # ── 环境变量注入 ──
     import os as _os
     mf_api_url = _os.environ.get("MF_API_URL", "http://10.36.160.16:8100")
+    mf_internal_token = _os.environ.get("MF_INTERNAL_TOKEN", "")
     env_vars: list[dict[str, str]] = [
         {"name": "MF_OUTPUT_DIR", "value": "/mf/output"},
         {"name": "MF_WORKSPACE_DIR", "value": "/mf/workspace"},
         {"name": "MF_API_URL", "value": mf_api_url},
     ]
+    if mf_internal_token and username:
+        env_vars.append({"name": "MF_INTERNAL_TOKEN", "value": mf_internal_token})
+        env_vars.append({"name": "MF_USER", "value": username})
     if project_id:
         env_vars.append({"name": "MF_PROJECT_ID", "value": project_id})
     env_vars.append({"name": "MF_RUN_NAME", "value": "{{workflow.name}}"})

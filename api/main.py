@@ -26,6 +26,7 @@ from api.config import get_settings
 from api.routers import nodes, runs, workflows
 from api.routers import files
 from api.routers import agents
+from api.routers import auth, usage
 from api.routers import projects
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,8 @@ app.include_router(runs.router, prefix=API_PREFIX)
 app.include_router(files.router, prefix=API_PREFIX)
 app.include_router(agents.router, prefix=API_PREFIX)
 app.include_router(projects.router, prefix=API_PREFIX)
+app.include_router(auth.router, prefix=API_PREFIX)
+app.include_router(usage.router, prefix=API_PREFIX)
 from api.routers import memory
 app.include_router(memory.router, prefix=API_PREFIX)
 
