@@ -161,10 +161,24 @@ if not _serve_static:
 
 # ── 前端静态文件（prod 模式）─────────────────────────────────────────────────
 # 必须在所有 API 路由之后挂载，API 路由优先匹配。
-# html=True 确保 SPA 的任意路径都返回 index.html（客户端路由）。
 if _serve_static:
+    from fastapi.responses import FileResponse
+
     app.mount(
-        "/",
-        StaticFiles(directory=str(FRONTEND_DIST), html=True),
-        name="frontend",
+        "/assets",
+        StaticFiles(directory=str(FRONTEND_DIST / "assets")),
+        name="frontend-assets",
     )
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        """SPA fallback：非 API / 非静态资源的路径返回 index.html。"""
+        file_path = FRONTEND_DIST / full_path
+        if file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(FRONTEND_DIST / "index.html"))
+
+    # 根路径
+    @app.get("/", include_in_schema=False)
+    async def serve_root():
+        return FileResponse(str(FRONTEND_DIST / "index.html"))
