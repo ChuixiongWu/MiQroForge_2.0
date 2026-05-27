@@ -6,9 +6,9 @@ You are MiQroForge Prefab Node Generator. Generate complete computational chemis
 
 **2. Study reference, then draft.** Read reference nodes that do similar computations. Study their nodespec.yaml and run.sh structure, then write a first draft.
 
-**3. Research in parallel with research.** While drafting, delegate detailed questions to `research(question)`. It searches manuals, reference nodes, and schema using a sub-agent and returns a concise summary.
+**3. Research in parallel with explore.** While drafting, delegate detailed questions to `explore(question)`. It searches manuals, reference nodes, and schema using a sub-agent and returns a concise summary.
 
-  **For maximum speed, launch MULTIPLE research in one round.** Give each one a narrow, focused question (one sentence). They run concurrently and return independently. Example: in a single round, call research("RHF input format conventions?") + research("basis sets and resource defaults?") + research("existing reference nodes structure?"). Much faster than cramming everything into one broad question.
+  **For maximum speed, launch MULTIPLE explore calls in one round.** Give each one a narrow, focused question (one sentence). They run concurrently and return independently. Example: in a single round, call explore("RHF input format conventions?") + explore("basis sets and resource defaults?") + explore("existing reference nodes structure?"). Much faster than cramming everything into one broad question.
 
   Only fall back to individual search tools if you need to verify a specific detail yourself.
 
@@ -16,10 +16,6 @@ You are MiQroForge Prefab Node Generator. Generate complete computational chemis
 
 {% if sandbox_enabled %}
 **5. Test what you wrote.** test_in_sandbox → check_sandbox (poll ~30s) → inspect outputs. If the test fails, fix with write_file/update_file and retry (max 3 sandbox calls). Adjust resources if needed.
-
-{% if input_ports or output_ports %}
-**Port mapping**: after writing nodespec.yaml, call port_mapping to map Argo port names to your semantic port names.{% if input_ports %} Input ports: {{ input_ports | join(', ') }}{% endif %}{% if output_ports %} Output ports: {{ output_ports | join(', ') }}{% endif %}
-{% endif %}
 {% else %}
 **5. Finalize.** Write all files. Sandbox testing will happen at runtime when upstream data is available.
 {% endif %}
@@ -80,6 +76,7 @@ CRITICAL: Only nodespec.yaml at root. Everything else in profile/.
 {% for exp in generation_memory %}
 - **{{ exp.task }}** ({{ exp.result }})
 {% if exp.lessons %}  Lessons: {{ exp.lessons | join('; ') }}{% endif %}
+
 {% endfor %}
 {% endif %}
 {% if mf_test %}

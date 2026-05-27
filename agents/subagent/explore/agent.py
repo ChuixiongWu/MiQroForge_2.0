@@ -161,8 +161,8 @@ def run_explore_agent(
     })
 
     # 截断保护
-    if len(summary) > 5000:
-        summary = summary[:5000] + "\n\n[... truncated ...]"
+    if len(summary) > 4000:
+        summary = summary[:4000] + "\n\n[... truncated ...]"
 
     # ── 保存 session log ──
     finished_at = datetime.now().isoformat()

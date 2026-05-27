@@ -429,7 +429,7 @@ def generate_prefab_node(state: PrefabGenState) -> dict[str, Any]:
                         continue
 
                 # 沙箱已达上限时禁止修改文件（Agent 应直接收尾）
-                if sandbox_call_count > max_sandbox_calls and tool_name in ("write_file", "update_file"):
+                if sandbox_call_count >= max_sandbox_calls and tool_name in ("write_file", "update_file"):
                     tool_result = json.dumps({
                         "error": (
                             f"Sandbox limit reached — no more file modifications allowed. "

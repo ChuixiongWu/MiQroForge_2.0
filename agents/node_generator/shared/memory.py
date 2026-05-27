@@ -81,7 +81,7 @@ class EmbeddingMemoryStore:
         entry["timestamp"] = datetime.now().isoformat()
 
         # 将 lessons 序列化（ChromaDB metadata 不支持 list）
-        meta = {k: v for k, v in entry.items() if k != "task"}
+        meta = {k: v for k, v in entry.items()}
         if "lessons" in meta and isinstance(meta["lessons"], list):
             meta["lessons_json"] = json.dumps(meta["lessons"], ensure_ascii=False)
 
@@ -149,8 +149,17 @@ class EmbeddingMemoryStore:
                     lessons = json.loads(meta["lessons_json"])
                 except Exception:
                     pass
+            doc_text = docs[i] if i < len(docs) else ""
+            task_from_meta = meta.get("task", "")
+            if task_from_meta:
+                task = task_from_meta
+            elif " | " in doc_text:
+                # 旧数据：doc 是 "task | lessons" 拼接，提取真实 task
+                task = doc_text.split(" | ", 1)[0]
+            else:
+                task = doc_text
             entry = {
-                "task": docs[i] if i < len(docs) else meta.get("task", ""),
+                "task": task,
                 "lessons": lessons,
                 "result": meta.get("result", ""),
                 "software": meta.get("software", self._software),
@@ -237,9 +246,17 @@ class EmbeddingMemoryStore:
                         entry_lessons = json.loads(meta["lessons_json"])
                     except Exception:
                         pass
+                doc_text = docs[i] if i < len(docs) else ""
+                task_from_meta = (meta or {}).get("task", "")
+                if task_from_meta:
+                    task = task_from_meta
+                elif " | " in doc_text:
+                    task = doc_text.split(" | ", 1)[0]
+                else:
+                    task = doc_text
                 entries.append({
                     "id": ids[i],
-                    "task": docs[i] if i < len(docs) else "",
+                    "task": task,
                     "lessons": entry_lessons,
                     "result": meta.get("result", "") if meta else "",
                     "software": meta.get("software", self._software) if meta else self._software,

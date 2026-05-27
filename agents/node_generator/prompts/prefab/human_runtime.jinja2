@@ -22,6 +22,7 @@ Map Argo DAG ports to your nodespec's stream_io semantic names.
 - `{{ port_name }}`{% if port_name in input_data %} ← has data{% endif %}
 {% endfor %}
 {% endif %}
+
 {% if output_ports %}
 **Argo output ports** (ALL must be mapped — downstream DAG depends on them):
 {% for p in output_ports %}
