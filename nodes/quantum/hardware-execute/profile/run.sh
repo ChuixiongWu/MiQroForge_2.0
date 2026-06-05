@@ -35,7 +35,7 @@ else
     fi
     export AWS_DEFAULT_REGION="$region"
 fi
-echo "[hardware-execute] AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}"
+echo "[hardware-execute] AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-N/A}"
 
 # ── Execute Braket (Python inline) ────────────────────────────────────────────
 python3 << 'PYEOF'
