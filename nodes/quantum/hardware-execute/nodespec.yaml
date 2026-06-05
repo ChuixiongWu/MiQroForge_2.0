@@ -1,0 +1,127 @@
+# =============================================================================
+# hardware-execute — AWS Braket Hardware Execution Node
+#
+# Takes an OpenQASM 3.0 ansatz circuit and executes it on AWS Braket.
+# Supports local simulation (free), SV1 cloud simulation (default),
+# and QPU hardware backends. Returns measurement counts as JSON.
+# =============================================================================
+
+metadata:
+  name: hardware-execute
+  version: "1.0.0"
+  display_name: Hardware Execute
+  description: >
+    Executes an OpenQASM 3.0 quantum circuit on AWS Braket. Supports
+    local simulation (free, no credentials), SV1 cloud simulation
+    (default), and QPU hardware backends. Region for QPU is derived
+    from the device ARN; SV1 uses us-east-1 (same region as the S3
+    results bucket). Returns measurement outcome counts as a JSON
+    object mapping bitstrings to integer shot counts.
+  node_type: compute
+  category: quantum
+  author: MiQroForge Team
+  semantic_type: quantum-hardware-sampling
+  base_image_ref: quantum-exec-0.1
+  tags:
+    software: braket
+    version: "1.110.1"
+    method:
+      - hardware-sampling
+      - qsci
+    domain:
+      - quantum
+    capabilities:
+      - quantum-hardware-execution
+      - measurement-sampling
+    keywords:
+      - braket
+      - sv1
+      - qpu
+      - hardware
+      - measurement
+      - counts
+
+stream_inputs:
+  - name: ansatz_circuit
+    display_name: Ansatz Circuit (OQ3)
+    io_type:
+      category: software_data_package
+      ecosystem: openqasm
+      data_type: circuit-qasm3
+    required: true
+    description: >
+      OpenQASM 3.0 circuit definition. Must be a valid QASM 3.0 source
+      string with measurement operations included. Typically received
+      from the quantum-qsci-preparation node.
+
+stream_outputs:
+  - name: measurement_counts
+    display_name: Measurement Counts
+    io_type:
+      category: software_data_package
+      ecosystem: braket
+      data_type: measurement-counts-json
+    description: >
+      JSON object mapping measurement bitstrings to integer shot counts.
+      Bitstrings are zero-padded to the circuit qubit count.
+      Example: {"00": 512, "11": 488}.
+
+onboard_inputs:
+  - name: backend
+    display_name: Execution Backend
+    kind: enum
+    default: sv1
+    allowed_values:
+      - sv1
+      - local
+      - qpu
+    description: >
+      AWS Braket execution backend. 'local' uses the LocalSimulator
+      (free, no AWS credentials needed). 'sv1' uses the Amazon SV1
+      cloud simulator (requires AWS credentials; uses us-east-1, same
+      region as the S3 results bucket). 'qpu' runs on physical quantum
+      hardware (requires AWS credentials + device_arn; region is
+      derived from the device ARN).
+
+  - name: n_shots
+    display_name: Number of Shots
+    kind: integer
+    default: 1000
+    min_value: 1
+    description: Number of measurement shots to execute per circuit.
+
+  - name: device_arn
+    display_name: QPU Device ARN
+    kind: string
+    default: ""
+    description: >
+      AWS Braket QPU device ARN. Required only when backend is 'qpu'
+      (this IS the device selection). Example:
+      arn:aws:braket:us-east-1::device/qpu/ionq/Harmony.
+      For QPU backend, region is derived from the ARN; S3 bucket is
+      auto-managed by Braket. Ignored for 'local' and 'sv1' backends.
+
+onboard_outputs:
+  - name: task_succeeded
+    display_name: Task Succeeded
+    kind: boolean
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "Braket task must complete successfully for results to be valid."
+
+resources:
+  cpu_cores: 1
+  mem_gb: 2.0
+  estimated_walltime_hours: 1.0
+
+execution: {}
+
+semantic_identity: >
+  Executes a quantum circuit on AWS Braket hardware or simulator and
+  returns measurement outcome counts. Supports local simulation (free),
+  SV1 cloud simulation, and QPU execution via a single backend enum.
+
+distinguishing_ports:
+  - measurement_counts
+
+rag_summary: ""
