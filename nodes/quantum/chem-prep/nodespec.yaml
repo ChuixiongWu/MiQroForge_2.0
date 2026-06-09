@@ -1,0 +1,119 @@
+# ===========================================================================
+# chem-prep — Chemical Mean-Field Preparation (RHF)
+#
+# Takes an optimized molecular geometry (XYZ) and runs a restricted
+# Hartree-Fock (RHF) calculation using PySCF to produce a mean-field
+# package (HDF5) for downstream quantum embedding workflows.
+#
+# RHF only — multiplicity must be 1.
+# ===========================================================================
+
+metadata:
+  name: chem-prep
+  version: 1.0.0
+  display_name: Chemical Mean-Field Preparation
+  description: >
+    Runs a restricted Hartree-Fock (RHF) calculation on an optimized
+    molecular geometry to produce a mean-field reference package
+    (mo_coeff, mo_energy, mo_occ, e_tot) in HDF5 format. This is the
+    first step of the quantum-ewf-qsci pipeline, feeding the
+    mean-field wavefunction into downstream embedded wavefunction
+    (Vayesta) and QSCI nodes.
+  node_type: compute
+  category: quantum
+  author: MiQroForge Quantum Team
+  semantic_type: quantum-meanfield-prep
+  base_image_ref: classical-chem-0.1
+  tags:
+    software: pyscf
+    version: "2.8.0"
+    method:
+      - RHF
+    domain:
+      - quantum
+      - molecular
+    capabilities:
+      - meanfield-preparation
+      - hartree-fock
+    keywords:
+      - pyscf
+      - rhf
+      - mean-field
+      - embedding
+      - hdf5
+
+stream_inputs:
+  - name: xyz_geometry
+    display_name: Input Geometry (XYZ)
+    io_type:
+      category: physical_quantity
+      unit: Ang
+      shape: array
+    required: true
+    description: >
+      Optimized molecular geometry in standard XYZ format (Angstrom).
+      Typically from geometry-file-input or a geometry optimization node.
+
+stream_outputs:
+  - name: meanfield_package
+    display_name: Mean-Field HDF5 Package
+    io_type:
+      category: software_data_package
+      ecosystem: pyscf
+      data_type: scf-meanfield-h5
+    description: >
+      HDF5 file containing the converged RHF mean-field data:
+      mo_coeff, mo_energy, mo_occ, and e_tot.
+      Used as input for quantum embedding (Vayesta) nodes.
+
+onboard_inputs:
+  - name: charge
+    display_name: Molecular Charge
+    kind: integer
+    default: 0
+    description: Total molecular charge (e.g., 0 for neutral, -1 for anion).
+
+  - name: multiplicity
+    display_name: Spin Multiplicity
+    kind: integer
+    default: 1
+    min_value: 1
+    max_value: 1
+    description: >
+      Spin multiplicity. MUST be 1 — this node supports RHF (restricted
+      Hartree-Fock) only. Any other value will cause the node to fail.
+
+  - name: basis_set
+    display_name: Basis Set
+    kind: string
+    default: sto-3g
+    description: >
+      Basis set name recognized by PySCF (e.g., sto-3g, def2-SVP, cc-pVDZ).
+
+onboard_outputs:
+  - name: scf_converged
+    display_name: SCF Converged
+    kind: boolean
+    description: Whether the RHF SCF calculation converged successfully.
+    quality_gate: true
+    gate_default: must_pass
+    gate_description: "RHF SCF must converge for the mean-field package to be valid."
+
+resources:
+  cpu_cores: 2
+  mem_gb: 4.0
+  estimated_walltime_hours: 1.0
+  scratch_disk_gb: 5.0
+
+execution:
+  entrypoint_script: run.sh
+
+semantic_identity: >-
+  Restricted Hartree-Fock mean-field calculation using PySCF.
+  Produces an HDF5 mean-field package (mo_coeff, mo_energy, mo_occ, e_tot)
+  for downstream quantum embedding workflows.
+
+distinguishing_ports:
+  - meanfield_package
+
+rag_summary: ""

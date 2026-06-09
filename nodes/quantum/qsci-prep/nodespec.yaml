@@ -1,0 +1,116 @@
+# =============================================================================
+# qsci-prep — QSCI State Preparation
+#
+# Converts a Vayesta cluster embedding Hamiltonian into a qubit Hamiltonian
+# (Jordan-Wigner) and synthesises a concrete LUCJ ansatz circuit (OpenQASM 3.0).
+#
+# Pipeline node T5 in quantum-ewf-qsci.
+# =============================================================================
+
+metadata:
+  name: qsci-prep
+  version: "1.1.0"
+  display_name: "QSCI State Preparation"
+  description: >
+    Loads a Vayesta cluster embedding Hamiltonian (HDF5), builds the qubit
+    Hamiltonian via Jordan-Wigner mapping (OpenFermion), and synthesises a
+    concrete LUCJ ansatz circuit exported as OpenQASM 3.0.  Ansatz parameters
+    are initialised from the precomputed MP2 t2 seed supplied by ewf-decompose
+    (>= 1.2.0) in the cluster contract, so this node needs no PySCF and no
+    integral transform.
+  node_type: compute
+  category: quantum
+  author: "MiQroForge Team"
+  semantic_type: quantum-qsci-preparation
+  base_image_ref: quantum-exec-0.1
+  tags:
+    software: quantum-exec
+    version: "0.1"
+    method:
+      - QSCI
+      - LUCJ
+      - Jordan-Wigner
+    domain:
+      - quantum
+      - electronic-structure
+    capabilities:
+      - qubit-hamiltonian-mapping
+      - ansatz-synthesis
+      - openqasm-export
+    keywords:
+      - qsci
+      - lucj
+      - ansatz
+      - openqasm
+      - jordan-wigner
+      - qubit-hamiltonian
+
+stream_inputs:
+  - name: cluster_hamiltonian
+    display_name: "Cluster Embedding Hamiltonian"
+    io_type:
+      category: software_data_package
+      ecosystem: vayesta
+      data_type: cluster-hamiltonian-h5
+      file_patterns: ["*.h5"]
+    required: true
+    description: >
+      Vayesta cluster embedding Hamiltonian in HDF5 format.
+      Contains heff (1-body), eris (2-body, physicist ordering), e_core,
+      the MP2 ansatz seed (t2_amps, eps_mo, C_mo), and metadata
+      (norb, n_elec, source, molecule).  Requires ewf-decompose >= 1.2.0.
+
+stream_outputs:
+  - name: qubit_hamiltonian
+    display_name: "Qubit Hamiltonian (JSON)"
+    io_type:
+      category: software_data_package
+      ecosystem: openfermion
+      data_type: qubit-hamiltonian-json
+    description: >
+      OpenFermion QubitOperator serialised as JSON.  Each Pauli term is
+      recorded with its qubit indices, Pauli string, and complex coefficient.
+
+  - name: ansatz_circuit
+    display_name: "Ansatz Circuit (QASM 3.0)"
+    io_type:
+      category: software_data_package
+      ecosystem: openqasm
+      data_type: circuit-qasm3
+      file_patterns: ["*.qasm"]
+    description: >
+      Concrete LUCJ ansatz circuit in OpenQASM 3.0.  All gate parameters are
+      numeric (no free symbols), initialised from the precomputed MP2 t2 seed
+      carried in the cluster contract.
+
+onboard_inputs: []
+
+onboard_outputs:
+  - name: n_qubits
+    display_name: "Number of Qubits"
+    kind: integer
+    description: >
+      Total qubits required for the Jordan-Wigner encoding
+      (2 × number of active spatial orbitals in the cluster).
+
+resources:
+  cpu_cores: 2
+  mem_gb: 4.0
+  estimated_walltime_hours: 0.25
+
+execution:
+  entrypoint_script: run.sh
+  environment:
+    # Ensure numpy threading does not oversubscribe the Argo pod
+    OMP_NUM_THREADS: "2"
+    OPENBLAS_NUM_THREADS: "2"
+
+semantic_identity: >-
+  Convert cluster Hamiltonian to qubit Hamiltonian via Jordan-Wigner mapping
+  and synthesise a concrete LUCJ ansatz circuit in OpenQASM 3.0.
+
+distinguishing_ports:
+  - qubit_hamiltonian
+  - ansatz_circuit
+
+rag_summary: ""

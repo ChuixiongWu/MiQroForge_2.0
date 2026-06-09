@@ -1,0 +1,101 @@
+# =============================================================================
+# h2-quantum-pipeline-mf.yaml — H₂ QSCI Quantum Pipeline (MF Format)
+#
+# Full quantum-ewf-qsci pipeline for H₂ molecule:
+#   geom-input → chem-prep → ewf-decompose → qsci-prep → hardware-execute → qsci-assemble
+#
+# Backend control:
+#   Set hardware-execute.backend to "local" (free, no AWS credentials needed)
+#   or "sv1" (AWS Braket cloud simulator, requires credentials).
+#
+# Acceptance criteria:
+#   energy_validated = True  ← |E_qsci - E_fci| < 1e-3 Ha
+#   qsci_report produced with E_qsci, E_fci, delta_Ha
+# =============================================================================
+mf_version: "1.0"
+name: h2-quantum-pipeline
+description: >
+  H₂ QSCI quantum pipeline end-to-end: PySCF RHF → Vayesta EWF embedding →
+  Jordan-Wigner qubit mapping → LUCJ ansatz → Braket circuit execution →
+  QSCI subspace diagonalisation → FCI validation.
+
+nodes:
+  # ── N0: Geometry input ──────────────────────────────────────────────────
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      inline_geometry: |
+        2
+        H2 molecule, r(H-H)=0.7414 Ang
+        H    0.000000    0.000000    0.000000
+        H    0.000000    0.000000    0.741400
+
+  # ── N1: Quantum mean-field preparation (PySCF RHF) ─────────────────────
+  - id: chem-prep
+    nodespec_path: nodes/quantum/chem-prep/nodespec.yaml
+    onboard_params:
+      charge: 0
+      multiplicity: 1
+      basis_set: sto-3g
+
+  # ── N2: Vayesta EWF single-fragment decomposition ──────────────────────
+  - id: ewf-decompose
+    nodespec_path: nodes/quantum/ewf-decompose/nodespec.yaml
+    onboard_params:
+      active_atoms: "0 1"
+      bath_threshold: 1.0e-6
+
+  # ── N3: QSCI state preparation (JW + LUCJ ansatz) ──────────────────────
+  - id: qsci-prep
+    nodespec_path: nodes/quantum/qsci-prep/nodespec.yaml
+
+  # ── N4: Hardware execution (Braket local/SV1/QPU) ──────────────────────
+  - id: hardware-execute
+    nodespec_path: nodes/quantum/hardware-execute/nodespec.yaml
+    onboard_params:
+      backend: local
+      n_shots: 5000
+
+  # ── N5: QSCI subspace assembly + FCI validation ────────────────────────
+  - id: qsci-assemble
+    nodespec_path: nodes/quantum/qsci-assemble/nodespec.yaml
+    onboard_params:
+      K: 100
+      n_electrons: 2
+      fci_reference_max_orbitals: 8
+      fci_atom: "H 0 0 0; H 0 0 0.7414"
+      fci_basis: sto-3g
+      fci_charge: 0
+      fci_spin: 0
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Connections (stream I/O)
+# ══════════════════════════════════════════════════════════════════════════════
+connections:
+  # N0 → N1: geometry input to chem-prep
+  - from: geom-input.xyz_geometry
+    to: chem-prep.xyz_geometry
+
+  # N1 → N2: mean-field to EWF decomposition
+  - from: chem-prep.meanfield_package
+    to: ewf-decompose.meanfield_package
+
+  # N2 → N3: cluster Hamiltonian to QSCI preparation
+  - from: ewf-decompose.cluster_hamiltonian
+    to: qsci-prep.cluster_hamiltonian
+
+  # N3 → N4: ansatz circuit to hardware execution
+  - from: qsci-prep.ansatz_circuit
+    to: hardware-execute.ansatz_circuit
+
+  # N4 → N5: measurement counts to QSCI assembly
+  - from: hardware-execute.measurement_counts
+    to: qsci-assemble.measurement_counts
+
+  # N3 → N5: qubit Hamiltonian to QSCI assembly (bypasses hardware)
+  - from: qsci-prep.qubit_hamiltonian
+    to: qsci-assemble.qubit_hamiltonian
+
+  # N2 → N5: mean-field energy to QSCI assembly (used in energy assembly formula)
+  - from: ewf-decompose.e_mf
+    to: qsci-assemble.e_mf

@@ -24,3 +24,31 @@ types:
     display_name: Cell Optimization
     description: "Simultaneous optimization of atomic positions and unit cell parameters (volume, shape)."
     domain: computational-chemistry
+
+  # ---------------------------------------------------------------------------
+  # Quantum computing semantic types (quantum-ewf-qsci pipeline)
+  # ---------------------------------------------------------------------------
+  quantum-meanfield-prep:
+    display_name: "Mean-Field Preparation [quantum]"
+    description: "Hartree-Fock or DFT mean-field calculation via PySCF, producing the reference wavefunction for quantum embedding."
+    domain: quantum
+
+  quantum-ewf-embedding:
+    display_name: "EWF Embedding [quantum]"
+    description: "Embedded wavefunction (EWF) construction using Vayesta: active-space embedding from a mean-field reference, yielding cluster Hamiltonians."
+    domain: quantum
+
+  quantum-qsci-preparation:
+    display_name: "QSCI State Preparation [quantum]"
+    description: "Convert cluster Hamiltonian to qubit Hamiltonian via OpenFermion, synthesize quantum circuit (QASM 3), and submit to hardware/emulator for measurement counts."
+    domain: quantum
+
+  quantum-hardware-sampling:
+    display_name: "Hardware Sampling [quantum]"
+    description: "Execute QASM 3 circuits on quantum hardware or emulator (Amazon Braket), returning measurement outcome counts."
+    domain: quantum
+
+  quantum-qsci-energy:
+    display_name: "QSCI Energy [quantum]"
+    description: "Post-process measurement counts using quantum subspace expansion / QSCI methodology to estimate the ground-state energy."
+    domain: quantum

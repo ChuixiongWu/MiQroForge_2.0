@@ -1,0 +1,178 @@
+# =============================================================================
+# ewf-decompose — Vayesta EWF Single-Fragment Cluster Decomposition
+#
+# Takes a PySCF RHF mean-field package, constructs a single atomic fragment
+# with intrinsic atomic orbitals (IAOs), expands the bath with MP2 natural
+# orbitals (Energy-Weighted Fragment formalism), and dumps the resulting
+# effective cluster Hamiltonian in the T6 HDF5 contract format
+# (vayesta/cluster-hamiltonian-h5).
+# =============================================================================
+
+metadata:
+  name: ewf-decompose
+  version: 1.2.0
+  display_name: EWF Decompose
+  description: >
+    Constructs a single atomic fragment from a converged PySCF RHF
+    mean-field object, expands the entanglement bath with configurable bath
+    type (MP2/DMET/full) and fragmentation (IAO/IAO+PAO/SAO), and dumps the
+    effective cluster Hamiltonian (heff, eris, e_core) plus a precomputed MP2 t2
+    ansatz seed in the vayesta/cluster-hamiltonian-h5 T6 contract format.  Uses
+    Vayesta's DUMP solver to write cluster integrals without performing a
+    correlated cluster solve.
+  node_type: compute
+  category: quantum
+  author: MiQroForge Team
+  semantic_type: quantum-ewf-embedding
+  base_image_ref: classical-chem-0.1
+  tags:
+    software: vayesta
+    method:
+      - EWF
+      - IAO
+      - embedding
+      - MP2-bath
+    domain:
+      - molecular
+      - quantum-embedding
+    capabilities:
+      - cluster-hamiltonian
+      - fragment-decomposition
+    keywords:
+      - vayesta
+      - ewf
+      - embedding
+      - cluster
+      - fragment
+      - hamiltonian
+      - mp2
+      - iao
+
+stream_inputs:
+  - name: meanfield_package
+    display_name: Mean-Field Package (HDF5)
+    io_type:
+      category: software_data_package
+      ecosystem: pyscf
+      data_type: scf-meanfield-h5
+    required: true
+    description: >
+      PySCF RHF checkpoint file (HDF5 format) containing converged molecular
+      orbitals, density matrix, and full molecule specification.
+
+stream_outputs:
+  - name: cluster_hamiltonian
+    display_name: Cluster Hamiltonian (HDF5)
+    io_type:
+      category: software_data_package
+      ecosystem: vayesta
+      data_type: cluster-hamiltonian-h5
+    description: >
+      Effective cluster Hamiltonian in T6 HDF5 contract format.
+      Contains /cluster/heff (1-body), /cluster/eris (2-body, physicist
+      ordering), /cluster/e_core (core energy constant), the MP2 ansatz seed
+      (/cluster/t2_amps, /cluster/eps_mo, /cluster/C_mo in the canonical cluster
+      MO basis), and /meta/* metadata (norb, n_elec).
+      Readable by cluster_contract.load_cluster().
+
+  - name: e_mf
+    display_name: Mean-Field Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+    description: >
+      Hartree-Fock total energy of the full molecular system (from the input
+      mean-field package).
+
+onboard_inputs:
+  - name: active_atoms
+    display_name: Active Atom Indices
+    kind: string
+    required: true
+    description: >
+      Comma-separated 0-based atom indices defining the single fragment to
+      embed, e.g. "0,4" for a fragment containing atoms 0 and 4.  All listed
+      atoms are combined into ONE fragment (not one per index).
+      Whitespace is tolerated for backward compatibility ("0 4" → "0,4").
+
+  - name: bath_threshold
+    display_name: Bath BN Occupation Threshold (eta)
+    kind: float
+    default: 1.0e-6
+    min_value: 1.0e-12
+    max_value: 0.1
+    description: >
+      Threshold for MP2 bath natural orbital selection.  Smaller values
+      include more bath orbitals (more complete embedding).  Typical range
+      is 1e-8 (tight) to 1e-4 (loose).  Default 1e-6 balances accuracy and
+      cluster size.  Only relevant when bathtype is 'mp2'.
+
+  - name: bathtype
+    display_name: Bath Expansion Type
+    kind: enum
+    default: mp2
+    allowed_values:
+      - mp2
+      - dmet
+      - full
+    description: >
+      Bath expansion method. 'mp2' (default): MP2 bath natural orbitals
+      (Energy-Weighted Fragment formalism), truncated by bath_threshold.
+      'dmet': DMET bath only, no MP2 natural orbital expansion.
+      'full': No bath truncation — all environment orbitals are included in
+      the cluster.
+
+  - name: fragmentation
+    display_name: Fragmentation Method
+    kind: enum
+    default: iao
+    allowed_values:
+      - iao
+      - iaopao
+      - sao
+    description: >
+      Local orbital fragmentation scheme. 'iao' (default): Intrinsic Atomic
+      Orbitals. 'iaopao': IAO + Projected Atomic Orbitals.
+      'sao': Symmetry-Adapted Orbitals.
+
+  - name: orbital_filter
+    display_name: Orbital Filter
+    kind: string
+    default: ""
+    description: >
+      Optional comma-separated IAO orbital-type tokens that restrict which
+      fragment orbitals enter the cluster, shrinking the active space (and qubit
+      count) to the chemically relevant region.  Each token is regex-matched by
+      Vayesta against IAO labels of the form "<atom> <symbol> <nl> <ml>"
+      (e.g. "0 N 2p x").  Examples: "2p" keeps only 2p orbitals on the active
+      atoms; "2s,2p" keeps 2s and 2p; "N 2p,C 2p" targets specific atom types.
+      For a C≡N fragment, "2p" selects the 6-orbital π/σ_p system (≈ CAS(6e,6o)).
+      Leave empty (default) to include all minimal-basis orbitals on the active
+      atoms.
+
+onboard_outputs:
+  - name: n_active_orbitals
+    display_name: Active Orbital Count
+    kind: integer
+    description: >
+      Total number of spatial orbitals in the final EWF cluster (fragment +
+      bath).
+
+resources:
+  cpu_cores: 4
+  mem_gb: 8.0
+  estimated_walltime_hours: 1.0
+  parallel_tasks: 1
+
+execution: {}
+
+semantic_identity: >-
+  Constructs a single atomic fragment via configurable EWF embedding (Vayesta),
+  expands the entanglement bath with MP2/DMET/full bath options, and dumps the
+  effective cluster Hamiltonian in the T6 HDF5 contract format.
+
+distinguishing_ports:
+  - cluster_hamiltonian
+  - e_mf
+
+rag_summary: ""

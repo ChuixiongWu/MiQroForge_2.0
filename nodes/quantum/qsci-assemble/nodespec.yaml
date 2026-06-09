@@ -1,0 +1,167 @@
+# ===========================================================================
+# qsci-assemble — QSCI Subspace Diagonalization & Energy Assembly
+#
+# Takes measurement outcome counts from quantum hardware/emulator, the
+# qubit Hamiltonian from the embedding pipeline, and the mean-field energy,
+# then runs sparse QSCI subspace diagonalization to estimate the ground-state
+# energy.
+#
+# Algorithm: Kanno et al., arXiv:2302.11320
+#   1. Select top-K configurations by measurement shot count
+#   2. Build subspace Hamiltonian H_S = P_S H P_S from Pauli terms
+#      (Slater-Condon rules — no dense 2^n matrix allocated)
+#   3. Ensure Hartree-Fock configuration is included in subspace
+#   4. Diagonalize H_S classically → cluster ground-state eigenvalue
+#   5. Assemble total energy: E_total = e_mf + (E_qsci - e_core_baseline)
+# ===========================================================================
+
+metadata:
+  name: qsci-assemble
+  version: 1.0.0
+  display_name: QSCI Subspace Assembly
+  description: >
+    Runs sparse QSCI subspace diagonalization on measurement counts and a
+    qubit Hamiltonian.  Uses Slater-Condon rules to build the subspace
+    matrix element-by-element from Pauli terms — no dense 2^n matrix is
+    allocated.  Assembles the total energy as e_mf + (E_qsci - e_core_baseline).
+  node_type: compute
+  category: quantum
+  author: MiQroForge Quantum Team
+  semantic_type: quantum-qsci-energy
+  base_image_ref: classical-chem-0.1
+  tags:
+    software: pyscf
+    version: "2.8.0"
+    method:
+      - QSCI
+      - subspace-diagonalization
+      - Slater-Condon
+    domain:
+      - quantum
+      - molecular
+    capabilities:
+      - qsci-energy-estimation
+    keywords:
+      - qsci
+      - subspace
+      - diagonalization
+      - embedding
+      - measurement-counts
+
+stream_inputs:
+  - name: measurement_counts
+    display_name: Measurement Outcome Counts
+    io_type:
+      category: software_data_package
+      ecosystem: braket
+      data_type: measurement-counts-json
+    required: true
+    description: >
+      JSON mapping computational-basis bitstrings (as strings, qubit 0 = MSB
+      at leftmost character) to integer shot counts, e.g.
+      {"counts": {"1100": 450, "1010": 320}}.
+
+  - name: qubit_hamiltonian
+    display_name: Qubit Hamiltonian (JSON)
+    io_type:
+      category: software_data_package
+      ecosystem: openfermion
+      data_type: qubit-hamiltonian-json
+    required: true
+    description: >
+      JSON serialization of an OpenFermion QubitOperator with keys
+      n_qubits (int) and terms (list of {"ops": [[q, "X"/"Y"/"Z"/"I"], ...],
+      "coeff": float}).
+
+  - name: e_mf
+    display_name: Mean-Field Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+      shape: scalar
+    required: true
+    description: >
+      Total mean-field (HF/DFT) energy of the full system in Hartree.
+      Used as the baseline in the embedded-energy assembly formula.
+
+stream_outputs:
+  - name: total_energy
+    display_name: Total QSCI Energy
+    io_type:
+      category: physical_quantity
+      unit: Ha
+      shape: scalar
+    description: >
+      Assembled total energy: e_mf + (E_qsci - e_core_baseline), where
+      E_qsci is the lowest eigenvalue of the QSCI subspace Hamiltonian and
+      e_core_baseline is ⟨HF|H_qubit|HF⟩.
+
+  - name: qsci_state
+    display_name: QSCI Subspace State (HDF5)
+    io_type:
+      category: software_data_package
+      ecosystem: qsci
+      data_type: qsci-state-h5
+    description: >
+      HDF5 file containing the full QSCI subspace state: eigenvalues,
+      eigenvectors, selected configuration integers, HF index, and
+      energy-budget metadata.
+
+  - name: qsci_report
+    display_name: QSCI Report
+    io_type:
+      category: report_object
+      format: json
+      content_schema: >
+        {"E_qsci": float, "E_qsci_cluster": float, "e_mf": float,
+         "e_core_baseline": float, "subspace_dim": int, "n_qubits": int,
+         "n_spatial": int, "n_electrons": int, "K": int,
+         "top_configs": [int], "eigenvalues": [float]}
+    description: >
+      JSON report summarising the QSCI result: assembled total energy,
+      cluster QSCI energy, mean-field baseline, core baseline, subspace
+      dimension, molecule metadata, top configuration integers, and
+      all subspace eigenvalues.
+
+onboard_inputs:
+  - name: K
+    display_name: Subspace Size (K)
+    kind: integer
+    default: 100
+    min_value: 1
+    description: >
+      Number of top-measurement-count configurations to retain in the QSCI
+      subspace.  Larger K improves accuracy at the cost of O(K²) Hamiltonian
+      build and O(K³) diagonalisation.
+
+onboard_outputs:
+  - name: qsci_succeeded
+    display_name: QSCI Success
+    kind: boolean
+    description: >
+      True when subspace diagonalisation completed successfully:
+      subspace built, HF config present, and a finite ground-state
+      eigenvalue was obtained.  False otherwise.
+    quality_gate: true
+    gate_default: warn
+    gate_description: "QSCI subspace diagonalisation did not produce a valid result."
+
+resources:
+  cpu_cores: 2
+  mem_gb: 4.0
+  estimated_walltime_hours: 1.0
+  scratch_disk_gb: 2.0
+
+execution:
+  entrypoint_script: run.sh
+
+semantic_identity: >-
+  Sparse QSCI subspace diagonalisation from measurement counts and a qubit
+  Hamiltonian.  Builds H_sub via Slater-Condon rules (no dense 2^n matrix),
+  assembles total energy as e_mf + (E_qsci - e_core_baseline).
+
+distinguishing_ports:
+  - qsci_state
+  - total_energy
+
+rag_summary: ""

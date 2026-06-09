@@ -1,0 +1,128 @@
+# quantum-ewf-qsci-mf.yaml — Full EWF-QSCI Quantum Embedding Pipeline
+#
+# Pipeline:
+#   geom-input (HCN XYZ) → orca-geo-opt → chem-prep → ewf-decompose → qsci-prep
+#                       → hardware-execute → qsci-assemble
+#
+# Prerequisites:
+#   bash scripts/mf2.sh nodes reindex
+#
+# Validate & compile:
+#   bash scripts/mf2.sh validate workflows/examples/quantum-ewf-qsci-mf.yaml
+#   bash scripts/mf2.sh compile workflows/examples/quantum-ewf-qsci-mf.yaml
+#
+# Notes:
+#   - qsci-prep uses LUCJ ansatz (hardcoded in node); UCCSD not supported by this nodespec
+#   - hardware-execute s3_bucket uses nodespec default (placeholder); replace before running
+#   - backend sv1 requires AWS credentials; switch to local for no-credentials testing
+#   - Single fragment — no parallel_sweep / fan-out
+
+mf_version: "1.0"
+name: quantum-ewf-qsci
+description: >
+  Full EWF-QSCI pipeline: HCN geometry optimization (ORCA DFT) → RHF mean-field (PySCF)
+  → EWF cluster decomposition (Vayesta) → QSCI state preparation (OpenFermion/Qiskit)
+  → AWS Braket hardware sampling (SV1 simulator) → QSCI subspace assembly & energy estimation.
+
+global_params: {}
+
+nodes:
+  # ── Geometry source ──────────────────────────────────────────────────────
+  - id: geom-input
+    nodespec_path: nodes/chemistry/preprocessing/geometry-file-input/nodespec.yaml
+    onboard_params:
+      inline_geometry: |
+        4
+        HCN
+        C    0.000000    0.000000    0.000000
+        N    0.000000    0.000000    1.156000
+        H    1.064000    0.000000    0.000000
+
+  # ── Classical geometry optimization ──────────────────────────────────────
+  - id: geo-opt
+    nodespec_path: nodes/chemistry/orca/orca-geo-opt/nodespec.yaml
+    onboard_params:
+      charge: 0
+      multiplicity: 1
+      method: B3LYP
+      basis_set: def2-SVP
+      dispersion: D3BJ
+
+  # ── RHF mean-field preparation ───────────────────────────────────────────
+  - id: chem-prep
+    nodespec_path: nodes/quantum/chem-prep/nodespec.yaml
+    onboard_params:
+      charge: 0
+      multiplicity: 1
+      basis_set: sto-3g
+
+  # ── EWF cluster decomposition (Vayesta) ──────────────────────────────────
+  - id: ewf-decompose
+    nodespec_path: nodes/quantum/ewf-decompose/nodespec.yaml
+    onboard_params:
+      active_atoms: "0 1"       # N (atom 1) + C (atom 0) in HCN
+      bath_threshold: 1.0e-6
+
+  # ── QSCI state preparation ───────────────────────────────────────────────
+  - id: qsci-prep
+    nodespec_path: nodes/quantum/qsci-prep/nodespec.yaml
+    # Note: ansatz is hardcoded as LUCJ in the node; there are no onboard_inputs
+    # to switch to UCCSD. If UCCSD is needed, modify the node's run.sh.
+    onboard_params: {}
+
+  # ── Hardware execution (AWS Braket) ──────────────────────────────────────
+  - id: hardware-execute
+    nodespec_path: nodes/quantum/hardware-execute/nodespec.yaml
+    onboard_params:
+      backend: sv1
+      n_shots: 1000
+      # NOTE: s3_bucket and AWS credentials are required for sv1 backend.
+      # Override with actual values or switch backend: local for testing:
+      #   backend: local
+      #   s3_bucket: ""
+      # -- PLACEHOLDER VALUES BELOW (replace before running) --
+      s3_bucket: YOUR-BRAKET-S3-BUCKET
+      s3_prefix: quantum-ewf-qsci
+
+  # ── QSCI subspace assembly & energy estimation ───────────────────────────
+  - id: qsci-assemble
+    nodespec_path: nodes/quantum/qsci-assemble/nodespec.yaml
+    onboard_params:
+      K: 100                    # subspace size (number of top configs retained)
+      n_electrons: 10           # active-space electrons for HF reference config
+      fci_reference_max_orbitals: 8
+      fci_basis: sto-3g
+
+# ── Connections ─────────────────────────────────────────────────────────────
+connections:
+  # Geometry → geo-opt
+  - from: geom-input.xyz_geometry
+    to: geo-opt.xyz_geometry
+
+  # geo-opt → chem-prep
+  - from: geo-opt.optimized_xyz
+    to: chem-prep.xyz_geometry
+
+  # chem-prep → ewf-decompose
+  - from: chem-prep.meanfield_package
+    to: ewf-decompose.meanfield_package
+
+  # ewf-decompose → qsci-prep
+  - from: ewf-decompose.cluster_hamiltonian
+    to: qsci-prep.cluster_hamiltonian
+
+  # qsci-prep → hardware-execute
+  - from: qsci-prep.ansatz_circuit
+    to: hardware-execute.ansatz_circuit
+
+  # hardware-execute → qsci-assemble
+  - from: hardware-execute.measurement_counts
+    to: qsci-assemble.measurement_counts
+
+  # qsci-prep → qsci-assemble (qubit Hamiltonian, bypasses hardware)
+  - from: qsci-prep.qubit_hamiltonian
+    to: qsci-assemble.qubit_hamiltonian
+
+  # ewf-decompose → qsci-assemble (mean-field energy, bypasses qsci-prep & hardware)
+  - from: ewf-decompose.e_mf
+    to: qsci-assemble.e_mf

@@ -115,3 +115,53 @@ images:
     workdir: /mf/workdir
     entrypoint_convention: /mf/profile/run.sh
     license_type: Apache-2.0
+
+  - name: quantum-exec-0.1
+    display_name: "Quantum Exec 0.1"
+    description: >
+      Quantum computing execution image with OpenFermion, PennyLane,
+      and Amazon Braket SDK. Supports VQE, QAOA, quantum machine
+      learning, and hybrid quantum-classical algorithms.
+      Build: bash nodes/base_images/quantum-exec/build.sh
+    image: harbor.era.local/miqroforge2.0/quantum-exec
+    tag: "0.1"
+    source_type: user-built
+    software_name: quantum-exec
+    software_version: "0.1"
+    additional_software:
+      openfermion: "*"
+      pennylane: "0.42.3"
+      amazon-braket-sdk: "1.110.1"
+      amazon-braket-pennylane-plugin: "1.33.7"
+      numpy: "*"
+      scipy: "*"
+      h5py: "*"
+      python: "3.11"
+    workdir: /mf/workdir
+    entrypoint_convention: /mf/profile/run.sh
+    license_type: Apache-2.0
+
+  - name: classical-chem-0.1
+    display_name: "Classical Chemistry"
+    description: >
+      Classical quantum chemistry simulation stack combining PySCF 2.8.0
+      (HF/DFT/CC/CASSCF), Vayesta (DMET/SEET embedded wavefunction methods),
+      and OpenFermion 1.7.1 (quantum chemistry ↔ quantum computing bridge) with
+      openfermionpyscf plugin. Build: bash nodes/base_images/classical-chem/build.sh
+    image: harbor.era.local/miqroforge2.0/classical-chem
+    tag: "0.1"
+    source_type: user-built
+    software_name: classical-chem
+    software_version: "0.1"
+    additional_software:
+      pyscf: "2.8.0"
+      vayesta: "*"
+      openfermion: "1.7.1"
+      openfermionpyscf: "0.5"
+      python: "3.11"
+      numpy: "*"
+      scipy: "*"
+      h5py: "*"
+    workdir: /mf/workdir
+    entrypoint_convention: /mf/profile/run.sh
+    license_type: Apache-2.0
