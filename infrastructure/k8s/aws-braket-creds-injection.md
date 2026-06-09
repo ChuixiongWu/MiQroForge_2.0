@@ -40,13 +40,17 @@ To support K8s-native secret injection, the compiler would need:
 3. **MF YAML model change:** Allow nodes to declare a `credentials` block referencing
    a pre-created K8s secret (not inline values).
 
-This is deferred to a future wave. For Wave 1, the workspace-PVC fallback is used.
+This has been implemented. The workspace-PVC fallback (Section 3) is now deprecated in favor
+of compiler-native `envFrom` Secret injection (Section 2).
 
 ---
 
-## 2. Decision: Workspace-PVC Fallback (Wave 1)
+## 2. Implementation: envFrom Secret Injection
 
-**The N4 hardware-execute node reads AWS credentials from the Workspace PVC at runtime.**
+The compiler reads `secret_refs` from each node's `ComputeExecutionConfig` and
+emits `envFrom.secretRef` entries in the Argo container spec. The kubelet resolves
+the Secret at pod admission and populates the container environment with all its
+keys as environment variables. No workspace PVC staging is needed.
 
 ### Mechanism
 
@@ -54,134 +58,151 @@ This is deferred to a future wave. For Wave 1, the workspace-PVC fallback is use
 ┌──────────────────────────────────────────────────────────┐
 │  K8s Cluster (namespace: miqroforge-dev)                 │
 │                                                          │
-│  ┌─────────────┐     ┌──────────────────────────────┐   │
-│  │  K8s Secret │     │  N4 Pod (hardware-execute)   │   │
-│  │             │     │                              │   │
-│  │ aws-braket- │  ┌─▶│  /mf/workspace/              │   │
-│  │ creds       │  │  │    └─ .aws/                  │   │
-│  │ (opaque)    │  │  │       ├─ credentials  ◀──┐   │   │
-│  └─────────────┘  │  │       └─ config        │   │   │
-│        │          │  └─────────────────────────│───┘   │
-│        │          │                            │       │
-│        ▼          │  ┌─────────────────────────│───┐   │
-│  ┌─────────────┐  │  │  Workspace PVC         │   │   │
-│  │ initContainer│──┘  │  (hostPath:            │   │   │
-│  │ or manual   │     │   userdata/workspace/)  │   │   │
-│  │ staging     │     │                         │   │   │
-│  └─────────────┘     └─────────────────────────┘───┘   │
+│  ┌─────────────────┐     ┌──────────────────────────┐   │
+│  │  K8s Secret     │     │  N4 Pod (hardware-execute)│   │
+│  │                 │     │                          │   │
+│  │ aws-braket-     │     │  env:                    │   │
+│  │ creds           │────▶│    AWS_ACCESS_KEY_ID=... │   │
+│  │ (opaque)        │     │    AWS_SECRET_ACCESS_KEY │   │
+│  │                 │     │    AWS_DEFAULT_REGION    │   │
+│  └─────────────────┘     │                          │   │
+│                          │  (injected by kubelet    │   │
+│                          │   at pod admission, not  │   │
+│                          │   by pod ServiceAccount) │   │
+│                          └──────────────────────────┘   │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ### How it works
 
-1. **K8s Secret exists** (`aws-braket-creds` in `miqroforge-dev`) but is NOT injected
-   into pods via the compiler. It serves as the canonical source of truth for credential
-   rotation and audit.
+1. **NodeSpec declares `secret_refs`** — the `hardware-execute` node's
+   `execution.secret_refs` field lists the K8s Secret names to inject:
 
-2. **Workspace PVC staging** — credentials are staged into the Workspace PVC
-   (`/mf/workspace/.aws/`) once, either:
-   - Manually via `kubectl exec` into any pod with workspace mounted, or
-   - Via the MF API upload endpoint (`POST /projects/{pid}/workspace/`), or
-   - Via a one-shot `initContainer` in the N4 pod spec (manually added to compiled Argo YAML post-compilation for Wave 1).
-
-3. **Runtime read** — the N4 `run.sh` script reads credentials from
-   `/mf/workspace/.aws/credentials` and sets `AWS_SHARED_CREDENTIALS_FILE`
-   before invoking Braket SDK calls:
-
-   ```bash
-   export AWS_SHARED_CREDENTIALS_FILE=/mf/workspace/.aws/credentials
-   export AWS_CONFIG_FILE=/mf/workspace/.aws/config
-   export AWS_DEFAULT_REGION=us-east-1
+   ```yaml
+   # In nodes/quantum/hardware-execute/nodespec.yaml:
+   execution:
+     type: compute
+     secret_refs:
+       - aws-braket-creds
    ```
 
-### Credential staging command (manual)
+2. **Compiler emits `envFrom`** — `_build_compute_template()` reads
+   `secret_refs` and emits `envFrom.secretRef` with `optional: true` (the pod
+   starts even if the Secret is temporarily absent):
+
+   ```yaml
+   # Generated Argo container spec:
+   container:
+     image: quantum-exec-0.1
+     envFrom:
+       - secretRef:
+           name: aws-braket-creds
+           optional: true
+     env:
+       - name: MF_API_URL
+         value: "http://..."
+   ```
+
+3. **Kubelet resolves Secret at admission** — when Kubernetes creates the pod,
+   the kubelet (not the pod's ServiceAccount) reads the Secret and injects all
+   its keys as environment variables. The boto3 SDK picks these up automatically
+   via its standard env var convention. No `.aws/` file staging is needed.
+
+4. **Container invokes Braket SDK** — `run.sh` calls the Braket SDK, which reads
+   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_DEFAULT_REGION` directly
+   from the environment.
+
+### Secret specification
+
+| Attribute | Requirement |
+|-----------|-------------|
+| Namespace | `miqroforge-dev` (the namespace where hardware-execute pods run) |
+| Name | `aws-braket-creds` (referenced in NodeSpec `secret_refs`) |
+| Key naming | **Uppercase boto3 standard names**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` |
+| Optional keys | `AWS_SESSION_TOKEN` (for STS temporary credentials) |
+| Type | Opaque |
+
+> **Key naming convention:** boto3 specifically looks for uppercase env vars
+> (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`).
+> Lowercase or alternate key names are silently ignored by the SDK. If a Secret
+> uses nonstandard key names, the compiler must remap them via
+> `env[].valueFrom.secretKeyRef` (not currently supported).
+
+### RBAC note
+
+`envFrom.secretRef` is resolved by the **kubelet** at pod admission time, using
+the kubelet's own node credentials. The pod's ServiceAccount is never involved
+in reading the Secret object. Therefore `rbac-dev.yaml` does **not** need
+`secrets` verbs for workflow pods. This is a common misconception: adding
+`secrets` permissions to the workflow ServiceAccount is unnecessary and would
+not affect `envFrom` behavior.
+
+### Credential creation (one-time admin operation)
 
 ```bash
-# From the cluster admin machine:
 kubectl create secret generic aws-braket-creds \
   --namespace=miqroforge-dev \
   --from-literal=AWS_ACCESS_KEY_ID=... \
   --from-literal=AWS_SECRET_ACCESS_KEY=... \
   --from-literal=AWS_DEFAULT_REGION=us-east-1
-
-# Stage into workspace PVC (one-time). Use a temporary one-shot pod since no
-# persistent pod with workspace mount exists. The pod reads credentials from the
-# K8s secret and writes both .aws/credentials and .aws/config, then exits.
-kubectl run mf-cred-stage --namespace=miqroforge-dev --restart=Never \
-  --image=busybox --overrides='
-{
-  "spec": {
-    "volumes": [{"name":"ws","persistentVolumeClaim":{"claimName":"miqroforge-dev"}}],
-    "containers": [{
-      "name":"stager",
-      "image":"busybox",
-      "command":["sh","-c"],
-      "args":["mkdir -p /mf/workspace/.aws && echo \"[default]\" > /mf/workspace/.aws/credentials && echo \"aws_access_key_id = ${AWS_ACCESS_KEY_ID}\" >> /mf/workspace/.aws/credentials && echo \"aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}\" >> /mf/workspace/.aws/credentials && echo \"[default]\" > /mf/workspace/.aws/config && echo \"region = us-east-1\" >> /mf/workspace/.aws/config && sleep 5"],
-      "volumeMounts":[{"name":"ws","mountPath":"/mf/workspace","subPath":"proj_proj_04636b4ebc"}],
-      "env":[
-        {"name":"AWS_ACCESS_KEY_ID","valueFrom":{"secretKeyRef":{"name":"aws-braket-creds","key":"AWS_ACCESS_KEY_ID"}}},
-        {"name":"AWS_SECRET_ACCESS_KEY","valueFrom":{"secretKeyRef":{"name":"aws-braket-creds","key":"AWS_SECRET_ACCESS_KEY"}}}
-      ]
-    }]
-  }
-}'
-kubectl delete pod -n miqroforge-dev mf-cred-stage --ignore-not-found
 ```
 
-> **Region priority:** `run.sh` exports `AWS_DEFAULT_REGION=us-east-1` (see line 94 above).
-> The AWS SDK resolves region with env var priority over file config (`AWS_DEFAULT_REGION`
-> wins over `.aws/config`), so the config file serves as a fallback for any non-Braket
-> SDK calls within the container.
+See also `infrastructure/k8s/aws-braket-secret.example.yaml` for a declarative
+template.
 
-### Tradeoffs
+### Implementation history
 
-| Aspect | Workspace-PVC fallback | K8s native envFrom (future) |
-|--------|------------------------|----------------------------|
-| Compiler changes | None (Wave 1) | Schema + compiler (Wave 2+) |
-| Security | Credentials visible to any pod with workspace mount | Scoped to nodes that declare credentials |
-| Rotation | Re-stage in PVC | Update Secret + restart pods |
-| Audit | Manual | K8s audit log on secret read |
-| Effort (Wave 1) | Minimal — one manual staging | Significant — multi-file compiler changes |
+| Milestone | Description |
+|-----------|-------------|
+| Schema | `ComputeExecutionConfig.secret_refs: list[str]` added in `nodes/schemas/node.py` |
+| Compiler | `_build_compute_template()` emits `envFrom.secretRef(optional: true)` for each entry in `secret_refs` |
+| Secret | `aws-braket-creds` Secret in `miqroforge-dev` (pre-existing; now consumed by compiler) |
 
 ---
 
-## 3. K8s Secret Purpose (Wave 1)
+## 3. Deprecated: Workspace-PVC Fallback (Wave 1)
 
-Even without compiler integration, the `aws-braket-creds` Secret serves as:
+> **⚠️ Deprecated.** The PVC staging mechanism described below has been
+> superseded by `envFrom` Secret injection (Section 2). It is preserved here
+> for historical context. New deployments should use `secret_refs` in the
+> NodeSpec and do not need `.aws/` file staging.
 
-- **Single source of truth** for credential values
-- **Rotation target** — update the Secret, re-stage to workspace
-- **Future-ready** — when compiler gains `envFrom` support, pods will reference
-  this exact Secret name (`aws-braket-creds`)
+The original Wave 1 approach staged AWS credentials as files in the Workspace
+PVC (`/mf/workspace/.aws/credentials` and `.aws/config`). The `run.sh` script
+would set `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` before invoking
+the Braket SDK.
+
+This approach had several drawbacks:
+
+- **Credentials visible to any pod** with the workspace PVC mounted, not scoped
+  to specific nodes that need them.
+- **Rotation required re-staging** into the PVC after each Secret update.
+- **Manual one-time setup** (init container or `kubectl exec`) per project.
+
+All of these are eliminated by the current `envFrom` mechanism, which scopes
+credentials to the nodes that declare `secret_refs` and requires zero per-project
+setup beyond the one-time Secret creation.
+
+The original Wave 1 tradeoff table and staging command are preserved in the git
+history of this document.
 
 ---
 
-## 4. Future: Wave 2+ Compiler Integration
+## 4. Region Precedence
 
-When compiler gains secret injection support, the N4 node can declare:
+The effective `AWS_DEFAULT_REGION` seen by Braket SDK calls depends on whether
+`run.sh` overrides it:
 
-```yaml
-# In MF YAML (conceptual, not implemented):
-nodes:
-  - id: hardware-execute
-    credentials:
-      - secret_name: aws-braket-creds
-        keys:
-          - AWS_ACCESS_KEY_ID
-          - AWS_SECRET_ACCESS_KEY
-          - AWS_DEFAULT_REGION
-```
+| Scenario | Region source |
+|----------|--------------|
+| Braket backend (SV1/QPU) | `run.sh` exports `AWS_DEFAULT_REGION=us-east-1` — **overrides** the Secret's region value |
+| Non-Braket AWS SDK calls in container | Secret's `AWS_DEFAULT_REGION` key (fallback) |
+| Local backend | Secret's region is irrelevant (no AWS calls) |
 
-Compiler emits:
-```yaml
-container:
-  envFrom:
-    - secretRef:
-        name: aws-braket-creds
-```
-
-At that point, workspace staging is no longer needed and credentials are
-scoped to the specific node's pod.
+The `run.sh` override is intentional: Braket hardware is only available in
+`us-east-1`, and the script enforces this regardless of what the Secret contains.
+The Secret's region key serves as a fallback for non-Braket AWS SDK calls
+(e.g., S3 logging) that may be added to the container in the future.
 
 ---
 
@@ -203,7 +224,8 @@ Per `wcx_data/hardware_explore/aws_braket_setup.md` (2026-05-27):
 ## References
 
 - `infrastructure/k8s/aws-braket-secret.example.yaml` — Secret template (placeholders)
-- `infrastructure/k8s/rbac-dev.yaml` — `miqroforge-dev` namespace + ServiceAccount
-- `infrastructure/k8s/workspace.yaml` — PVC definition (`/mf/workspace`)
-- `workflows/pipeline/compiler.py` — Compiler (audited for env injection)
+- `infrastructure/k8s/rbac-dev.yaml` — `miqroforge-dev` namespace + ServiceAccount (no `secrets` permissions needed for `envFrom`)
+- `infrastructure/k8s/workspace.yaml` — PVC definition (`/mf/workspace`; no longer used for credential staging)
+- `nodes/schemas/node.py` — `ComputeExecutionConfig.secret_refs` field definition
+- `workflows/pipeline/compiler.py` — `_build_compute_template()` emits `envFrom.secretRef`
 - `wcx_data/hardware_explore/aws_braket_setup.md` — Braket setup record

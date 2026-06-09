@@ -114,7 +114,9 @@ resources:
   mem_gb: 2.0
   estimated_walltime_hours: 1.0
 
-execution: {}
+execution:
+  secret_refs:
+    - aws-braket-creds
 
 semantic_identity: >
   Executes a quantum circuit on AWS Braket hardware or simulator and

@@ -130,32 +130,26 @@ Runs the pipeline with AWS Braket SV1 cloud simulator.
 
 ### Prerequisites
 
-1. AWS Braket credentials staged in workspace PVC:
+1. **AWS Braket credentials** — admin creates the `aws-braket-creds` Secret once
+   in `miqroforge-dev` (see `infrastructure/k8s/aws-braket-creds-injection.md`).
+   The compiler reads `secret_refs` from the NodeSpec and injects the Secret as
+   `envFrom.secretRef` into the pod. No `.aws/` file staging or workspace PVC
+   manipulation is needed.
+
    ```bash
-   # One-time setup (see infrastructure/k8s/aws-braket-creds-injection.md)
-    kubectl create secret generic aws-braket-creds \
-      --namespace=miqroforge-dev \
-      --from-literal=AWS_ACCESS_KEY_ID=... \
-      --from-literal=AWS_SECRET_ACCESS_KEY=... \
-      --from-literal=AWS_DEFAULT_REGION=us-east-1
+   kubectl create secret generic aws-braket-creds \
+     --namespace=miqroforge-dev \
+     --from-literal=AWS_ACCESS_KEY_ID=... \
+     --from-literal=AWS_SECRET_ACCESS_KEY=... \
+     --from-literal=AWS_DEFAULT_REGION=us-east-1
    ```
 
-2. Workspace PVC with `.aws/` credentials and config:
-   ```bash
-   # Use a temporary one-shot pod (e.g., kubectl run ...), delete after staging
-   kubectl exec -n miqroforge-dev <temp-pod> -- mkdir -p /mf/workspace/.aws
-   kubectl exec -n miqroforge-dev <temp-pod> -- sh -c '
-     echo "[default]" > /mf/workspace/.aws/credentials
-     echo "aws_access_key_id = $AWS_ACCESS_KEY_ID" >> /mf/workspace/.aws/credentials
-     echo "aws_secret_access_key = $AWS_SECRET_ACCESS_KEY" >> /mf/workspace/.aws/credentials
-   '
-   kubectl exec -n miqroforge-dev <temp-pod> -- sh -c '
-     echo "[default]" > /mf/workspace/.aws/config
-     echo "region = us-east-1" >> /mf/workspace/.aws/config
-   '
-   ```
+2. S3 bucket `amazon-braket-mqe-533612071261` in us-east-1
 
-3. S3 bucket `amazon-braket-mqe-533612071261` in us-east-1
+> **Region precedence:** For Braket SV1/QPU backends, `run.sh` exports
+> `AWS_DEFAULT_REGION=us-east-1`, which overrides whatever value the Secret
+> contains. The Secret's `AWS_DEFAULT_REGION` key serves as a fallback for
+> non-Braket AWS SDK calls and has no effect on Braket execution.
 
 ### Modify workflow for SV1
 

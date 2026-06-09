@@ -76,6 +76,10 @@ class ComputeExecutionConfig(BaseModel):
         default_factory=dict,
         description="注入到容器的额外环境变量。",
     )
+    secret_refs: list[str] = Field(
+        default_factory=list,
+        description="编译时以 envFrom.secretRef(optional=true) 注入容器的 K8s Secret 名列表。用于全局凭证（如 AWS Braket）。",
+    )
     mpi_enabled: bool = Field(
         default=False,
         description="是否启用 MPI 并行。",

@@ -663,6 +663,79 @@ class TestCompiler:
         assert labels["miqroforge.io/workflow"] == "h2o-thermo"
         assert labels["miqroforge.io/mf-version"] == "1.0"
 
+    def test_envfrom_emission_with_secret_refs(self):
+        """WHEN secret_refs is set → container.envFrom IS emitted."""
+        spec_data = {
+            "metadata": {
+                "name": "test-compute",
+                "version": "1.0.0",
+                "display_name": "Test Compute",
+                "description": "Minimal compute node for envFrom test.",
+                "node_type": "compute",
+                "category": "utility",
+                "author": "Test Suite",
+                "base_image_ref": "quantum-exec-0.1",
+            },
+            "resources": {
+                "cpu_cores": 1,
+                "mem_gb": 0.5,
+                "estimated_walltime_hours": 0.1,
+            },
+            "execution": {
+                "secret_refs": ["aws-braket-creds"],
+            },
+        }
+        wf = MFWorkflow(
+            name="test-secret-refs",
+            nodes=[MFNodeInstance(id="compute", inline_nodespec=spec_data)],
+        )
+        report = validate_workflow(wf, project_root=PROJECT_ROOT)
+        assert report.valid, f"Validation failed: {[i.message for i in report.errors]}"
+
+        argo = compile_to_argo(wf, report.resolved_nodes, project_root=PROJECT_ROOT)
+        template = next(
+            t for t in argo["spec"]["templates"] if t["name"] == "mf-compute"
+        )
+
+        assert "envFrom" in template["container"]
+        assert template["container"]["envFrom"] == [
+            {"secretRef": {"name": "aws-braket-creds", "optional": True}},
+        ]
+
+    def test_envfrom_not_emitted_without_secret_refs(self):
+        """WHEN secret_refs is empty/absent → NO envFrom key in container."""
+        spec_data = {
+            "metadata": {
+                "name": "test-compute",
+                "version": "1.0.0",
+                "display_name": "Test Compute",
+                "description": "Minimal compute node for envFrom test.",
+                "node_type": "compute",
+                "category": "utility",
+                "author": "Test Suite",
+                "base_image_ref": "quantum-exec-0.1",
+            },
+            "resources": {
+                "cpu_cores": 1,
+                "mem_gb": 0.5,
+                "estimated_walltime_hours": 0.1,
+            },
+            "execution": {},
+        }
+        wf = MFWorkflow(
+            name="test-no-secret-refs",
+            nodes=[MFNodeInstance(id="compute", inline_nodespec=spec_data)],
+        )
+        report = validate_workflow(wf, project_root=PROJECT_ROOT)
+        assert report.valid, f"Validation failed: {[i.message for i in report.errors]}"
+
+        argo = compile_to_argo(wf, report.resolved_nodes, project_root=PROJECT_ROOT)
+        template = next(
+            t for t in argo["spec"]["templates"] if t["name"] == "mf-compute"
+        )
+
+        assert "envFrom" not in template["container"]
+
     def test_generate_configmaps(self, validated_h2o):
         """生成 ConfigMap 清单。"""
         wf, report = validated_h2o

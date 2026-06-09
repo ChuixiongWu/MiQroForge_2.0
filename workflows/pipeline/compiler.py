@@ -1222,9 +1222,20 @@ def _build_template(
     if fan_in_map is None:
         fan_in_map = {}
 
-    # 收集所有 input 参数名（stream inputs + onboard inputs）
+    # 收集所有 input 参数名，software_data_package 流通过 PVC 传递
+    # 不声明为 Argo input parameter（避免二进制内容嵌入 DAG task argument）。
+    # 通过 workflow.connections 判断：被上游连接的 sdp 端口走 PVC。
+    sdp_connected_inputs: set[str] = set()
+    for conn in workflow.connections:
+        src_spec = resolved_nodes.get(conn.source_node_id) if resolved_nodes else None
+        if src_spec:
+            for s_out in src_spec.stream_outputs:
+                if s_out.name == conn.source_port_name and s_out.io_type.category == "software_data_package":
+                    sdp_connected_inputs.add(conn.target_port_name)
     input_params: list[dict[str, str]] = []
     for port in spec.stream_inputs:
+        if port.io_type.category == "software_data_package" and port.name in sdp_connected_inputs:
+            continue
         input_params.append({"name": port.name})
     for param in spec.onboard_inputs:
         input_params.append({"name": param.name})
@@ -1377,15 +1388,46 @@ def _build_compute_template(
     memory_gb = mem_gb + mem_overhead  # pod memory = app memory + overhead
     gpu_count = int(overrides.get("gpu_count", getattr(spec.resources, "gpu_count", 0)))
 
-    # 构建写入参数到文件的 shell 命令
-    # 先把所有 input 参数写到 /mf/input/{param_name}，然后运行 profile 脚本
-    write_cmds: list[str] = ["mkdir -p /mf/input /mf/output"]
+    # ── 输入：根据 io_type.category 区分策略 ───────────────────────────────
+    # software_data_package（二进制 HDF5/GBW 等）通过共享 PVC 拷贝，避免
+    # 二进制内容嵌入 Argo template JSON 导致 "invalid JSON" 模板渲染失败。
+    # 其余类型（text/number/boolean）仍走 parameter 注入。
+    sdp_inputs: set[str] = {
+        p.name for p in spec.stream_inputs
+        if p.io_type.category == "software_data_package"
+    }
+    write_cmds: list[str] = [
+        "mkdir -p /mf/input /mf/output",
+        'STREAM_DIR="/mf/workspace/.stream/{{workflow.uid}}"',
+        "mkdir -p $STREAM_DIR",
+    ]
+    # sdp 端口：从 PVC 拷贝（可能已从 input_params 移除，需直接遍历 stream_inputs）
+    for port in spec.stream_inputs:
+        if port.name in sdp_inputs:
+            write_cmds.append(
+                f'[ -f "$STREAM_DIR/{port.name}" ] && '
+                f'cp "$STREAM_DIR/{port.name}" /mf/input/{port.name} || '
+                f'echo "[compiler] WARN: PVC stream {port.name} not found, '
+                f'waiting for upstream" >&2'
+            )
+    # 非 sdp 端口：从 Argo parameter 注入
     for p in input_params:
         name = p["name"]
-        write_cmds.append(
-            f'echo -n "{{{{inputs.parameters.{name}}}}}" > /mf/input/{name}'
-        )
+        if name not in sdp_inputs:
+            write_cmds.append(
+                f'echo -n "{{{{inputs.parameters.{name}}}}}" > /mf/input/{name}'
+            )
     write_cmds.append(f"{exec_cfg.profile_mount_path}/{exec_cfg.entrypoint_script}")
+    # ── 输出：software_data_package 产物额外复制到 PVC，供下游节点读取 ────
+    sdp_outputs: set[str] = {
+        p.name for p in spec.stream_outputs
+        if p.io_type.category == "software_data_package"
+    }
+    for port_name in sorted(sdp_outputs):
+        write_cmds.append(
+            f'[ -f /mf/output/{port_name} ] && '
+            f'cp /mf/output/{port_name} "$STREAM_DIR/{port_name}" || true'
+        )
 
     template: dict[str, Any] = {
         "name": template_name,
@@ -1436,6 +1478,13 @@ def _build_compute_template(
         template["container"]["env"] = [
             {"name": k, "value": v}
             for k, v in exec_cfg.environment.items()
+        ]
+
+    # K8s Secret 注入（全局凭证，如 AWS Braket）
+    if exec_cfg.secret_refs:
+        template["container"]["envFrom"] = [
+            {"secretRef": {"name": name, "optional": True}}
+            for name in exec_cfg.secret_refs
         ]
 
     return template
@@ -1781,14 +1830,39 @@ def _build_lightweight_profile_template(
     profile_mount_path = "/mf/profile"
     entrypoint = exec_cfg.entrypoint_script  # 已由 schema 确保非空
 
-    # 构建写参数 + 执行脚本的 shell 命令（与 compute 节点一致）
-    write_cmds: list[str] = ["mkdir -p /mf/input /mf/output"]
+    # ── 输入：software_data_package 走 PVC，其余走 parameter ────────────────
+    sdp_inputs: set[str] = {
+        p.name for p in spec.stream_inputs
+        if p.io_type.category == "software_data_package"
+    }
+    write_cmds: list[str] = [
+        "mkdir -p /mf/input /mf/output",
+        'STREAM_DIR="/mf/workspace/.stream/{{workflow.uid}}"',
+        "mkdir -p $STREAM_DIR",
+    ]
+    for port in spec.stream_inputs:
+        if port.name in sdp_inputs:
+            write_cmds.append(
+                f'[ -f "$STREAM_DIR/{port.name}" ] && '
+                f'cp "$STREAM_DIR/{port.name}" /mf/input/{port.name} || '
+                f'echo "[compiler] WARN: PVC stream {port.name} not found" >&2'
+            )
     for p in input_params:
         name = p["name"]
-        write_cmds.append(
-            f'echo -n "{{{{inputs.parameters.{name}}}}}" > /mf/input/{name}'
-        )
+        if name not in sdp_inputs:
+            write_cmds.append(
+                f'echo -n "{{{{inputs.parameters.{name}}}}}" > /mf/input/{name}'
+            )
     write_cmds.append(f"{profile_mount_path}/{entrypoint}")
+    sdp_outputs: set[str] = {
+        p.name for p in spec.stream_outputs
+        if p.io_type.category == "software_data_package"
+    }
+    for port_name in sorted(sdp_outputs):
+        write_cmds.append(
+            f'[ -f /mf/output/{port_name} ] && '
+            f'cp /mf/output/{port_name} "$STREAM_DIR/{port_name}" || true'
+        )
 
     template: dict[str, Any] = {
         "name": template_name,
@@ -1911,6 +1985,11 @@ def _build_dag_task(
     for port in spec.stream_inputs:
         key = (node_inst.id, port.name)
         if key in conn_map:
+            # software_data_package 流通过共享 PVC 传递，不需要 Argo parameter
+            # argument（二进制内容嵌入 DAG task 会导致模板渲染 JSON 非法）。
+            # 调度依赖由 depends + quality gate when 保证。
+            if port.io_type.category == "software_data_package":
+                continue
             src_node_id, src_port_name = conn_map[key]
             # auto fan-out 节点：来自 sweep 源的 stream 输入使用 {{item}}
             # （withParam 已设为上游聚合输出，{{item}} 逐迭代取值）

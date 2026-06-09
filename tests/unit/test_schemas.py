@@ -551,6 +551,18 @@ class TestComputeExecutionConfig:
         assert len(c.profile_templates) == 2
         assert c.mpi_enabled
 
+    def test_secret_refs_backward_compatible(self):
+        """secret_refs 省略 → default_factory=list → []。"""
+        c = ComputeExecutionConfig.model_validate({"type": "compute"})
+        assert c.secret_refs == []
+
+    def test_secret_refs_explicit_set(self):
+        """显式声明 secret_refs 被保留。"""
+        c = ComputeExecutionConfig.model_validate(
+            {"type": "compute", "secret_refs": ["aws-braket-creds"]},
+        )
+        assert c.secret_refs == ["aws-braket-creds"]
+
 
 class TestLightweightExecutionConfig:
 
@@ -969,3 +981,16 @@ distinguishing_ports:
         summary = ns.generate_rag_summary()
         assert "Band Structure" in summary
         assert "band_data_out" in summary
+
+    def test_secret_refs_in_hardware_execute_nodespec(self):
+        """端到端：实际 hardware-execute 节点的 YAML → NodeSpec，验证 secret_refs。"""
+        yaml_path = (
+            Path(__file__).parent.parent.parent
+            / "nodes"
+            / "quantum"
+            / "hardware-execute"
+            / "nodespec.yaml"
+        )
+        ns = NodeSpec.from_yaml(yaml_path)
+        assert isinstance(ns.execution, ComputeExecutionConfig)
+        assert ns.execution.secret_refs == ["aws-braket-creds"]

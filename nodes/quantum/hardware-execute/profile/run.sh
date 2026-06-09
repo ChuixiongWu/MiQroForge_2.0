@@ -52,15 +52,6 @@ device_arn = os.environ.get("MF_DEVICE_ARN", "")
 with open(oq3_file) as f:
     oq3_source = f.read()
 
-# ── AWS credentials for non-local backends (T4 workspace-PVC fallback) ──────
-if backend != "local":
-    creds = "/mf/workspace/.aws/credentials"
-    cfg   = "/mf/workspace/.aws/config"
-    if os.path.isfile(creds):
-        os.environ["AWS_SHARED_CREDENTIALS_FILE"] = creds
-    if os.path.isfile(cfg):
-        os.environ["AWS_CONFIG_FILE"] = cfg
-
 # ── Parse circuit ──────────────────────────────────────────────────────────
 from braket.circuits import Circuit
 circuit = Circuit.from_ir(source=oq3_source)
