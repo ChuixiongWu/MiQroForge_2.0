@@ -90,6 +90,51 @@ def hf_config_int(n_spatial: int, n_alpha: int, n_beta: int) -> int:
 # ── Configuration selection ──────────────────────────────────────────────────
 
 
+def post_select_counts(
+    counts: Dict[int, int],
+    n_spatial: int,
+    n_alpha: int,
+    n_beta: int,
+) -> Dict[int, int]:
+    """Discard measurement outcomes that violate particle-number conservation.
+
+    The molecular Hamiltonian conserves the number of α and β electrons
+    separately, so any sampled configuration outside the (n_alpha, n_beta)
+    sector is unphysical — it can only originate from hardware noise.
+    Keeping such configurations in the QSCI subspace risks an unphysical
+    ground state (a noise determinant in a different particle sector may
+    have a lower diagonal energy than any physical state).
+
+    Uses the interleaved α-β JW ordering of :func:`hf_config_int`:
+    qubit 0 (MSB) = α of spatial orbital 0, qubit 1 = β of spatial
+    orbital 0, etc. — α spin-orbitals occupy even qubits, β odd qubits.
+
+    Parameters
+    ----------
+    counts : dict[int, int]
+        Raw measurement outcome counts ``{config_int: shot_count}``.
+    n_spatial : int
+        Number of spatial orbitals (total qubits = 2 * n_spatial).
+    n_alpha : int
+        Required number of α electrons.
+    n_beta : int
+        Required number of β electrons.
+
+    Returns
+    -------
+    dict[int, int]
+        Counts restricted to the (n_alpha, n_beta) sector.
+    """
+    alpha_mask = int("10" * n_spatial, 2)   # even qubits (MSB-first)
+    beta_mask = int("01" * n_spatial, 2)    # odd qubits
+    return {
+        cfg: cnt
+        for cfg, cnt in counts.items()
+        if bin(cfg & alpha_mask).count("1") == n_alpha
+        and bin(cfg & beta_mask).count("1") == n_beta
+    }
+
+
 def counts_to_selected_configs(
     counts: Dict[int, int],
     K: int,

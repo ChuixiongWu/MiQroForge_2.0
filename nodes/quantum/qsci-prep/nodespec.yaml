@@ -9,7 +9,7 @@
 
 metadata:
   name: qsci-prep
-  version: "1.1.0"
+  version: "1.2.0"
   display_name: "QSCI State Preparation"
   description: >
     Loads a Vayesta cluster embedding Hamiltonian (HDF5), builds the qubit

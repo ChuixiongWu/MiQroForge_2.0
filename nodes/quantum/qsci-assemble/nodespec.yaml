@@ -17,7 +17,7 @@
 
 metadata:
   name: qsci-assemble
-  version: 1.0.0
+  version: 1.1.0
   display_name: QSCI Subspace Assembly
   description: >
     Runs sparse QSCI subspace diagonalization on measurement counts and a
@@ -135,6 +135,15 @@ onboard_inputs:
       build and O(K³) diagonalisation.
 
 onboard_outputs:
+  - name: e_total
+    display_name: Total QSCI Energy
+    kind: float
+    description: >
+      Assembled total energy in Hartree:
+      E_total = e_mf + (E_qsci - e_core_baseline).
+      E_qsci is the lowest eigenvalue of the QSCI subspace Hamiltonian;
+      e_core_baseline is ⟨HF|H_qubit|HF⟩ (avoids double-counting the cluster
+      core energy embedded in e_mf).
   - name: qsci_succeeded
     display_name: QSCI Success
     kind: boolean

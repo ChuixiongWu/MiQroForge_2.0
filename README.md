@@ -264,6 +264,7 @@ cp .env.example .env
 | `ARGO_NAMESPACE` | 默认 `miqroforge-v2`，通常不需要改 | — |
 | `ARGO_TOKEN` | 提交工作流时若提示鉴权失败 | 运行 `argo auth token` |
 | `DOCKER_HUB_MIRROR` | 国内服务器拉取 Docker Hub 镜像慢时 | 填入镜像站域名，如 `docker.m.daocloud.io` |
+| `aws-braket-creds` | 在 sv1/qpu 后端上运行 hardware-execute 时 | 见 `infrastructure/k8s/aws-braket-creds-injection.md`（K8s Secret，account 533612071261，IAM user mqe-quantum-dev，region us-east-1） |
 | `userdata/models.yaml` | **使用 Agent 功能时必须配置** | 从 `models.yaml.example` 复制，填入 `proxy.api_key` |
 
 **典型的新开发者流程：**

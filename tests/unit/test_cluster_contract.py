@@ -17,7 +17,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from nodes.quantum._reference.cluster_contract import (
+import sys
+
+_EWF_PROFILE = Path(__file__).resolve().parents[2] / "nodes" / "quantum" / "ewf-decompose" / "profile"
+if str(_EWF_PROFILE) not in sys.path:
+    sys.path.insert(0, str(_EWF_PROFILE))
+
+from cluster_contract import (
     DTYPE,
     ECORE_DS,
     ERIS_DS,

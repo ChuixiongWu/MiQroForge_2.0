@@ -16,10 +16,18 @@ import numpy as np
 import pytest
 from scipy.linalg import eigh
 
-from nodes.quantum._reference.qsci_reference import (
+import sys
+from pathlib import Path
+
+_QSCI_PROFILE = Path(__file__).resolve().parents[2] / "nodes" / "quantum" / "qsci-assemble" / "profile"
+if str(_QSCI_PROFILE) not in sys.path:
+    sys.path.insert(0, str(_QSCI_PROFILE))
+
+from qsci_reference import (
     build_subspace_hamiltonian,
     counts_to_selected_configs,
     hf_config_int,
+    post_select_counts,
     qsci_energy,
 )
 
@@ -101,6 +109,50 @@ class TestCountsToSelectedConfigs:
         selected = counts_to_selected_configs(counts, K=2)
         assert len(selected) == 2
         assert set(selected) == {0, 1}  # ties resolved by dict iteration order
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# post_select_counts — particle-number sector filtering
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestPostSelectCounts:
+    def test_keeps_hf_config(self):
+        # H2 STO-3G: 2 spatial, (1α, 1β) — HF |1100⟩ = 12
+        hf = hf_config_int(2, 1, 1)
+        counts = {hf: 900}
+        assert post_select_counts(counts, 2, 1, 1) == {hf: 900}
+
+    def test_drops_wrong_total_number(self):
+        # |0000⟩ (0 elec) and |1111⟩ (4 elec) violate N=2
+        counts = {0b0000: 10, 0b1111: 10, 0b1100: 80}
+        assert post_select_counts(counts, 2, 1, 1) == {0b1100: 80}
+
+    def test_drops_spin_sector_violation(self):
+        # |1010⟩ = both α occupied (2α, 0β): right N, wrong (n_alpha, n_beta)
+        counts = {0b1010: 50, 0b0101: 50, 0b1100: 50, 0b0110: 50}
+        kept = post_select_counts(counts, 2, 1, 1)
+        assert kept == {0b1100: 50, 0b0110: 50}
+
+    def test_double_excitation_survives(self):
+        # |0011⟩: α and β of spatial orbital 1 — valid (1, 1) sector
+        counts = {0b0011: 7}
+        assert post_select_counts(counts, 2, 1, 1) == {0b0011: 7}
+
+    def test_empty_counts(self):
+        assert post_select_counts({}, 2, 1, 1) == {}
+
+    def test_all_noise_filtered(self):
+        counts = {0b1000: 3, 0b0001: 2, 0b1110: 1}
+        assert post_select_counts(counts, 2, 1, 1) == {}
+
+    def test_asymmetric_sector(self):
+        # (2α, 1β) in 3 spatial orbitals, interleaved α0β0α1β1α2β2:
+        # |111000⟩ = (α0,β0,α1) valid; |110010⟩ = (α0,β0,α2) valid;
+        # |101010⟩ = (α0,α1,α2) = (3α,0β) invalid
+        counts = {0b111000: 5, 0b110010: 4, 0b101010: 3}
+        kept = post_select_counts(counts, 3, 2, 1)
+        assert kept == {0b111000: 5, 0b110010: 4}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

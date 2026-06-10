@@ -72,16 +72,25 @@ onboard_inputs:
     kind: enum
     default: sv1
     allowed_values:
-      - sv1
       - local
-      - qpu
+      - sv1
+      - rigetti-cepheus
+      - iqm-emerald
+      - ionq-forte
+      - aqt-ibex
+      - iqm-garnet
     description: >
       AWS Braket execution backend. 'local' uses the LocalSimulator
-      (free, no AWS credentials needed). 'sv1' uses the Amazon SV1
-      cloud simulator (requires AWS credentials; uses us-east-1, same
-      region as the S3 results bucket). 'qpu' runs on physical quantum
-      hardware (requires AWS credentials + device_arn; region is
-      derived from the device ARN).
+      (free, no AWS credentials needed). 'sv1' uses the Amazon SV1 cloud
+      simulator (requires AWS credentials; us-east-1). The remaining
+      values are physical QPUs, each bound to a unique device ARN whose
+      region is derived automatically from the ARN (requires AWS
+      credentials):
+      rigetti-cepheus (us-west-1, Rigetti Cepheus-1-108Q),
+      iqm-emerald (eu-north-1, IQM Emerald),
+      ionq-forte (us-east-1, IonQ Forte-Enterprise-1),
+      aqt-ibex (eu-north-1, AQT Ibex-Q1),
+      iqm-garnet (eu-north-1, IQM Garnet).
 
   - name: n_shots
     display_name: Number of Shots
@@ -89,17 +98,6 @@ onboard_inputs:
     default: 1000
     min_value: 1
     description: Number of measurement shots to execute per circuit.
-
-  - name: device_arn
-    display_name: QPU Device ARN
-    kind: string
-    default: ""
-    description: >
-      AWS Braket QPU device ARN. Required only when backend is 'qpu'
-      (this IS the device selection). Example:
-      arn:aws:braket:us-east-1::device/qpu/ionq/Harmony.
-      For QPU backend, region is derived from the ARN; S3 bucket is
-      auto-managed by Braket. Ignored for 'local' and 'sv1' backends.
 
 onboard_outputs:
   - name: task_succeeded

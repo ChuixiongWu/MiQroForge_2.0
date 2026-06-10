@@ -134,7 +134,7 @@ def _run_local_qsci_pipeline(
     from scipy.linalg import eigh
     from itertools import combinations
 
-    ref_path = str(PROJECT_ROOT / "nodes" / "quantum" / "_reference")
+    ref_path = str(PROJECT_ROOT / "nodes" / "quantum" / "qsci-assemble" / "profile")
     import sys
     if ref_path not in sys.path:
         sys.path.insert(0, ref_path)
@@ -319,7 +319,11 @@ class TestQuantumPipelineLocal:
 
     def test_hf_config_in_subspace(self, pipeline_result):
         """HF configuration must be present in selected configs."""
-        from nodes.quantum._reference.qsci_reference import hf_config_int
+        import sys
+        ref_path = str(PROJECT_ROOT / "nodes" / "quantum" / "qsci-assemble" / "profile")
+        if ref_path not in sys.path:
+            sys.path.insert(0, ref_path)
+        from qsci_reference import hf_config_int
         n_spatial = pipeline_result["n_spatial"]
         n_elec = pipeline_result["n_electrons"]
         n_alpha = n_elec // 2

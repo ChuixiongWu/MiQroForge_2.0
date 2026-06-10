@@ -49,7 +49,11 @@ NodeSpec (node.py)
 
 > **大型二进制约束**：`software_data_package` 类输出（如 GBW 波函数）体积可达数 GB，
 > **不能**作为 Argo output parameter 直接收集（上限 3 MB）。
-> MiQroForge 编译器的 `connected_outputs` 机制会自动跳过未被下游节点消费的此类端口。
+> 编译器通过 PVC `.stream/` 目录在节点间传递 SDP 端口数据（对节点 `run.sh` 透明），
+> 详见下方 [角色 2：SDP 节点间传输](#角色-2sdp-节点间传输--完整机制)。
+> 同时 `connected_outputs` 机制自动跳过未被下游节点消费的此类端口。
+> 其余三类 Stream IO 端口（physical_quantity / logic_value / report_object）仍通过
+> Argo output parameter 传输（体积小，远低于 3 MB）。
 
 ---
 
@@ -294,55 +298,138 @@ cp "${WORKSPACE_DIR}/input_data.bin" /mf/input/
 
 ## Workspace PVC 挂载机制
 
-Workspace 是**用户/Main Agent ↔ 节点**之间的输入输出交换区，不是节点间数据传递通道。
+Workspace PVC 在 MiQroForge 中承担**两个不同角色**：
 
-### 项目级文件隔离
+> **快速答案**：哪些参数用 PVC，何时？
+>
+> | 参数类型 | 通道 | 机制 |
+> |---------|------|------|
+> | `software_data_package` (SDP) Stream IO | PVC `.stream/` 目录 | 编译器注入 `cp`；**不走** Argo parameter |
+> | 其余 Stream IO（`physical_quantity` / `logic_value` / `report_object`） | Argo output parameter | 模板 `{{tasks.X.outputs.parameters.Y}}` |
+> | Onboard params（用户文件引用，如 `xyz` / `gbw`） | PVC 根目录 | 节点自行读取 `/mf/workspace/<filename>` |
 
-每个项目有独立的 workspace 子目录，运行时通过 PVC `subPath` 实现隔离：
+---
 
-```
-userdata/workspace/                    ← PV hostPath 根目录
-  .files/
-    proj_xxx/                          ← 项目 A 的文件
-    proj_yyy/                          ← 项目 B 的文件
-```
+### 挂载方式（所有节点，无条件）
 
-- 编译器为每个工作流模板注入 `subPath: .files/{project_id}`，容器内 `/mf/workspace`
-  直接映射到项目的文件子目录，节点只看到本项目的文件。
-- 全局 workspace 根目录仍可通过 Files 面板访问（作为文件中转站）。
-- `userdata/projects/{project_id}/files` 是指向 `workspace/.files/{project_id}` 的 symlink，
-  方便手动浏览，不影响 MF 运行时。
+每个节点容器**无条件**挂载 workspace PVC 到 `/mf/workspace`，通过 `subPath` 实现项目级隔离：
+
+| 配置项 | 值 | compiler 来源 |
+|--------|-----|---------------|
+| mountPath | `/mf/workspace` | `_workspace_volume_mount()` (L69-78) |
+| subPath | `proj_{project_id}` | 同上；全程真实目录，零 symlink |
+| PVC claimName | `ARGO_NAMESPACE` 环境变量 | `_get_pvc_name()` (L63-66) |
+| PV hostPath | `userdata/workspace/` | `infrastructure/k8s/workspace.yaml` |
 
 当 `project_id` 为空时（向后兼容），不使用 subPath，挂载整个 `userdata/workspace/`。
 
-**两种典型用途：**
-- 用途1：用户上传输入文件（如分子坐标 `.xyz`、力场参数），节点在运行时从
-  `/mf/workspace/<filename>` 读取。
-  MF YAML 的 `onboard_params` 中只填文件名（如 `geometry_file: h2o.xyz`），
-  节点脚本自行在运行时定位文件，**编译器不做任何解引用**。
-- 用途2：节点将大型输出（如波函数 `.gbw`、轨迹 `.trj`）写入 workspace，
-  供人/Agent 事后检查，绕过 Argo 3 MB 参数限制。
+---
 
-**节点间数据传递仍使用 StreamIO**（未来用 Argo artifact 彻底解除大小限制），
-workspace 不参与节点间数据流。
+### 角色 1：用户 ↔ 节点文件交换
 
-**Shell 脚本中的访问方式：**
+用户上传输入文件（如分子坐标 `.xyz`、力场参数），节点在运行时从 `/mf/workspace/<filename>` 读取。
+MF YAML 的 `onboard_params` 中只填文件名（如 `geometry_file: h2o.xyz`），节点脚本自行在运行时定位文件，
+**编译器不做任何解引用**。
+
+节点也可以将大型输出（如波函数、轨迹）写入 workspace，供人/Agent 事后检查。
+
+Shell 和 Python 的访问方式：
 
 ```bash
 source /mf/profile/mf2_init.sh
-# WORKSPACE_DIR 已由 mf2_init.sh 设置为 /mf/workspace（已是项目级子目录）
-ls "${WORKSPACE_DIR}/"
-cp "${WORKSPACE_DIR}/large_file.bin" /mf/workdir/
+# $WORKSPACE_DIR 即 /mf/workspace（项目级子目录）
+cp "${WORKSPACE_DIR}/h2o.xyz" /mf/workdir/
 ```
-
-**Python 脚本中的访问方式：**
 
 ```python
 import os
-workspace_dir = os.environ.get("MF_WORKSPACE_DIR", "/mf/workspace")
-with open(f"{workspace_dir}/large_file.bin", "rb") as f:
-    data = f.read()
+workspace = os.environ.get("MF_WORKSPACE_DIR", "/mf/workspace")
+with open(f"{workspace}/h2o.xyz") as f:
+    xyz = f.read()
 ```
+
+---
+
+### 角色 2：SDP 节点间传输 — 完整机制
+
+> **哪个端口走 PVC？**
+>
+> `io_type.category == "software_data_package"` 的 Stream IO 输出。
+> 其余三类（`physical_quantity`、`logic_value`、`report_object`）走 Argo output parameter。
+
+> **什么时候？**
+>
+> 上游节点计算结束后，编译器注入的 `cp` 将 SDP 产物从 `/mf/output/<port>` 复制到 PVC 的 `.stream/` 目录；
+> 下游节点启动前，从 `.stream/` 复制到 `/mf/input/<port>`。
+
+#### 为什么需要这个机制
+
+Argo output parameter 有 **3 MB** 硬限制。HDF5 meanfield package（~100 MB）、
+Vayesta 的 cluster Hamiltonian（~50 MB）、ORCA GBW 波函数（数 GB）等二进制产物
+远超此限制，无法作为 `{{tasks.X.outputs.parameters.Y}}` 传递。
+
+#### 运输步骤（compiler 注入的 shell 命令，`compiler.py`）
+
+所有 SDP 传输逻辑由编译器在生成 Argo template 时注入 shell `cp` 命令，
+对节点 `run.sh` **完全透明**（节点只管 `/mf/input/<port>` 和 `/mf/output/<port>`）。
+
+（1）**STREAM_DIR**（每工作流实例唯一，避免并发冲突）：
+
+```
+STREAM_DIR="/mf/workspace/.stream/{{workflow.uid}}"
+```
+
+Argo 在运行时将 `{{workflow.uid}}` 替换为实际 workflow UID，
+不同 workflow 实例互不干扰。
+
+（2）**上游/writer（post-exec 注入）** — compute 模板 `compiler.py` L1426-1430；lightweight 模板 L1861-1865：
+
+```bash
+[ -f /mf/output/<port> ] && cp /mf/output/<port> "$STREAM_DIR/<port>" || true
+```
+
+（3）**下游/reader（pre-exec 注入）** — compute 模板 L1405-1412；lightweight 模板 L1843-1849：
+
+```bash
+[ -f "$STREAM_DIR/<port>" ] && cp "$STREAM_DIR/<port>" /mf/input/<port> \
+  || echo "[compiler] WARN: PVC stream <port> not found" >&2
+```
+
+（4）**SDP 端口排除 Argo parameter** — DAG task 构建 `compiler.py` L1991-1992：
+
+```python
+if port.io_type.category == "software_data_package":
+    continue  # 跳过，不生成 Argo parameter argument
+```
+
+非 SDP 端口仍然走 `{{tasks.X.outputs.parameters.Y}}`（L2002-2004）。
+
+#### 排序与安全
+
+DAG `depends` 排序保证上游完成写入后下游才读取；`{{workflow.uid}}` 命名空间隔离
+不同并发 run。无加锁开销，因为单 workflow 内节点按 DAG 顺序串行执行。
+
+#### 端到端示例：Vayesta 簇计算管线
+
+```
+chem-prep               →  ewf-decompose           →  qsci-prep
+  outputs:                  inputs:  meanfield_package   (reads from PVC .stream/)
+    meanfield_package       outputs: cluster_hamiltonian  (writes to PVC .stream/)
+                              ↓
+                          qsci-prep
+                            inputs: cluster_hamiltonian   (reads from PVC .stream/)
+```
+
+1. `chem-prep` 计算完成，将 `meanfield_package` (HDF5, ~100 MB) 写入 `/mf/output/meanfield_package`
+2. Compiler 注入：`cp /mf/output/meanfield_package "$STREAM_DIR/meanfield_package"`
+3. `ewf-decompose` 启动，Compiler 注入：`cp "$STREAM_DIR/meanfield_package" /mf/input/meanfield_package`
+4. `ewf-decompose` 计算，将 `cluster_hamiltonian` (HDF5, ~50 MB) 写入 `/mf/output/cluster_hamiltonian`
+5. Compiler 注入：`cp /mf/output/cluster_hamiltonian "$STREAM_DIR/cluster_hamiltonian"`
+6. `qsci-prep` 启动，Compiler 注入：`cp "$STREAM_DIR/cluster_hamiltonian" /mf/input/cluster_hamiltonian`
+
+两个 SDP 产物**都不**经过 Argo parameter 通道（compiler 在 `_build_dag_task` 中 skip SDP 参数）。
+
+---
 
 **基础设施部署（一次性，hostPath 模式无需 NFS 操作）：**
 

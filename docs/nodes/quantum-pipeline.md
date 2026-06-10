@@ -198,5 +198,5 @@ MF_RUN_SV1=1 pytest tests/integration/test_quantum_pipeline.py::TestQuantumPipel
 | `nodes/quantum/qsci-prep/` | JW mapping + LUCJ ansatz node |
 | `nodes/quantum/hardware-execute/` | Braket circuit execution node |
 | `nodes/quantum/qsci-assemble/` | QSCI assembly + FCI benchmark node |
-| `nodes/quantum/_reference/qsci_reference.py` | QSCI algorithm reference |
-| `nodes/quantum/_reference/cluster_contract.py` | Cluster Hamiltonian HDF5 contract |
+| `nodes/quantum/qsci-assemble/profile/qsci_reference.py` | QSCI algorithm reference (imported at runtime + by tests) |
+| `nodes/quantum/ewf-decompose/profile/cluster_contract.py` | Cluster Hamiltonian HDF5 contract (spec + tests) |

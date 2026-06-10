@@ -1216,7 +1216,8 @@ def _build_template(
     """为单个节点构建 Argo template。
 
     只为有下游连接的 stream output 生成 Argo output parameter 收集规则。
-    未连接的大型二进制输出（如 gbw_file）会被跳过，避免参数体积超限错误。
+    未连接的输出与 software_data_package 输出（经 PVC 传输）均不导出为
+    parameter，避免 workflow CR 体积超出 etcd 请求上限。
     Quality gate 输出始终收集（DAG depends 条件所需）。
     """
     if fan_in_map is None:
@@ -1244,14 +1245,26 @@ def _build_template(
     if node_inst_id in fan_in_map:
         input_params.append({"name": "_sweep_keys"})
 
-    # 只收集被下游节点连接的 stream output 端口
+    # 只收集被下游节点连接的 stream output 端口。
+    # software_data_package 端口经 PVC .stream/ 传输，DAG argument 侧也不引用
+    # 其 parameter（见 stream input 装配处的 SDP skip），因此不导出为 Argo
+    # output parameter——大型产物（HDF5/GBW/大 JSON）嵌入 workflow CR 会触发
+    # "etcdserver: request is too large"。唯一例外：被 sweep withParam 引用的
+    # 源端口必须保留 parameter。
+    sweep_param_refs: set[tuple[str, str]] = (
+        set(sweep_source.values()) if sweep_source else set()
+    )
     output_params: list[dict[str, Any]] = []
     for port in spec.stream_outputs:
-        if (node_inst_id, port.name) in connected_outputs:
-            output_params.append({
-                "name": port.name,
-                "valueFrom": {"path": f"/mf/output/{port.name}"},
-            })
+        if (node_inst_id, port.name) not in connected_outputs:
+            continue
+        if (port.io_type.category == "software_data_package"
+                and (node_inst_id, port.name) not in sweep_param_refs):
+            continue
+        output_params.append({
+            "name": port.name,
+            "valueFrom": {"path": f"/mf/output/{port.name}"},
+        })
     # Quality gate 输出始终收集（DAG depends 条件所需，前缀 _qg_）
     for gate in spec.quality_gates:
         output_params.append({
