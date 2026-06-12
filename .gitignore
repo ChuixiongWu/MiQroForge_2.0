@@ -28,7 +28,6 @@ data/
 # ── Claude Code ────────────────────────────────────
 .claude/
 CLAUDE.md
-AGENTS.md
 
 # ── Frontend build & dependencies ──────────────────
 frontend/dist/
